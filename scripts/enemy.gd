@@ -23,12 +23,18 @@ var player: GridCharacter = null
 var path: Array[Vector2i] = []
 var path_index: int = 0
 
+# Stats system (NEW)
+var stats: CharacterStats
+
 func _ready():
 	z_index = 200
 	
 	# Auto-detect tile size
 	if dungeon_generator and dungeon_generator.tilemap and dungeon_generator.tilemap.tile_set:
 		tile_size = int(dungeon_generator.tilemap.tile_set.tile_size.x)
+	
+	# Initialize enemy stats (NEW)
+	initialize_stats()
 	
 	# Auto-scale sprite
 	var sprite = get_node_or_null("Sprite2D")
@@ -38,6 +44,24 @@ func _ready():
 		var scale_factor = target_size / max(texture_size.x, texture_size.y)
 		sprite.scale = Vector2(scale_factor, scale_factor)
 		sprite.modulate = enemy_color
+
+func initialize_stats():
+	"""Initialize enemy stats"""
+	stats = CharacterStats.new({
+		"str": 12,
+		"dex": 10,
+		"con": 12,
+		"int": 8,
+		"wis": 10,
+		"cha": 8
+	})
+	
+	# Override HP with enemy's max_hp
+	stats.max_hp = max_hp
+	stats.current_hp = current_hp
+	stats.movement_speed = moves_per_turn
+	
+	print("Enemy stats initialized: HP ", stats.current_hp, "/", stats.max_hp)
 
 func spawn_at(spawn_pos: Vector2i):
 	"""Spawn enemy at specific grid position"""
@@ -78,17 +102,52 @@ func take_turn():
 	target_position = grid_to_world(path[path_index])
 	is_moving = true
 
+func create_temp_weapon() -> ItemData:
+	"""Create temporary weapon for enemy (TEMPORARY - Phase 2 will give enemies real weapons)"""
+	var weapon = ItemData.new()
+	weapon.item_name = "Enemy Weapon"
+	weapon.is_weapon = true
+	weapon.weapon_type = "simple"
+	weapon.damage_dice = "1d6"  # Simple enemy attack
+	
+	return weapon
+
 func attack_player():
-	"""Attack the player with animation"""
+	"""Attack the player with animation (REFACTORED)"""
 	if player:
-		print("%s attacks Player for %d damage!" % [name, attack_damage])
+		# Get weapon (TODO: enemies will have weapons in Phase 2)
+		var weapon = create_temp_weapon()
 		
 		# Attack animation
 		animate_attack(player.global_position)
 		
-		# Delay damage until animation
+		# Wait for animation
 		await get_tree().create_timer(0.15).timeout
-		player.take_damage(attack_damage)
+		
+		# Roll attack using CombatManager
+		var result = CombatManager.roll_attack(stats, player.stats, weapon)
+		
+		# LOG THE ATTACK ROLL (NEW!)
+		var combat_log = get_tree().root.get_node_or_null("World/UI/CombatLog")
+		if combat_log:
+			combat_log.log_attack(name, result.roll, result.total, result.target_ac, result.hit, result.is_crit, result.is_fumble)
+		
+		if result.is_fumble:
+			print("%s fumbled the attack!" % name)
+			DamagePopup.spawn_miss_popup_at(get_parent(), player.global_position + Vector2(0, -tile_size * 0.8))
+		elif result.hit:
+			if result.is_crit:
+				print("%s lands a CRITICAL HIT on Player for %d damage!" % [name, result.damage])
+				DamagePopup.spawn_damage_popup_at(get_parent(), player.global_position + Vector2(0, -tile_size * 0.8), result.damage, true)
+			else:
+				print("%s hits Player for %d damage!" % [name, result.damage])
+				DamagePopup.spawn_damage_popup_at(get_parent(), player.global_position + Vector2(0, -tile_size * 0.8), result.damage, false)
+			
+			# Apply damage using CombatManager
+			CombatManager.apply_damage(player, result.damage, CombatManager.DamageType.PHYSICAL, self)
+		else:
+			print("%s missed Player! (Rolled %d vs AC %d)" % [name, result.total, result.target_ac])
+			DamagePopup.spawn_miss_popup_at(get_parent(), player.global_position + Vector2(0, -tile_size * 0.8))
 
 func animate_attack(target_pos: Vector2):
 	"""Animate a quick lunge toward the target"""
@@ -291,7 +350,7 @@ func draw_hp_bar():
 	draw_rect(Rect2(bar_offset, Vector2(bar_width, bar_height)), Color.BLACK)
 	
 	# Health (green to red gradient based on HP percentage)
-	var hp_percent = float(current_hp) / float(max_hp)
+	var hp_percent = float(stats.current_hp) / float(stats.max_hp)
 	var health_width = bar_width * hp_percent
 	var health_color = Color.GREEN.lerp(Color.RED, 1.0 - hp_percent)
 	
@@ -348,22 +407,13 @@ func get_grid_position() -> Vector2i:
 	return grid_position
 
 func take_damage(amount: int):
-	"""Take damage with visual effects"""
-	current_hp -= amount
-	print("%s took %d damage! HP: %d/%d" % [name, amount, current_hp, max_hp])
-	
-	# Spawn damage popup
-	var world = get_parent()
-	if world:
-		var popup_pos = global_position + Vector2(0, -tile_size * 0.8)
-		DamagePopup.spawn_damage_popup_at(world, popup_pos, amount, false)
-	
+	"""Take damage with visual effects (REFACTORED)"""
 	# Flash effect
 	flash_damage()
 	
 	queue_redraw()
 	
-	if current_hp <= 0:
+	if not stats or not stats.is_alive():
 		die()
 
 func flash_damage():
@@ -395,9 +445,9 @@ func die():
 	queue_free()
 
 func get_hp() -> int:
-	"""Get current HP"""
-	return current_hp
+	"""Get current HP (REFACTORED)"""
+	return stats.current_hp if stats else 0
 
 func get_max_hp() -> int:
-	"""Get max HP"""
-	return max_hp
+	"""Get max HP (REFACTORED)"""
+	return stats.max_hp if stats else 0

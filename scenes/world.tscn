@@ -1,6 +1,19 @@
-[gd_scene load_steps=2 format=3 uid="uid://2gqxwvmlilq6"]
+[gd_scene load_steps=3 format=3 uid="uid://2gqxwvmlilq6"]
 
 [ext_resource type="Script" uid="uid://c0h0coj2ehexn" path="res://scripts/world.gd" id="1_nnsk1"]
+[ext_resource type="PackedScene" uid="uid://m5nh0px6kl3k" path="res://ui/combat_log.tscn" id="2_rwgxs"]
 
 [node name="World" type="Node2D"]
 script = ExtResource("1_nnsk1")
+
+[node name="CanvasLayer" type="CanvasLayer" parent="."]
+
+[node name="CombatLog" parent="CanvasLayer" instance=ExtResource("2_rwgxs")]
+anchors_preset = 1
+anchor_left = 1.0
+anchor_right = 1.0
+offset_left = -2240.0
+offset_top = 10.0
+offset_right = -1936.0
+offset_bottom = 410.0
+grow_horizontal = 0

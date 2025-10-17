@@ -391,6 +391,7 @@ func execute_move():
 func cancel_preview():
 	"""Cancel the path preview and clear all waypoints"""
 	preview_path.clear()
+	
 	full_preview_path.clear()
 	preview_destination = Vector2i(-1, -1)
 	waypoints.clear()
@@ -671,8 +672,25 @@ func stop_moving():
 	position = grid_to_world(grid_position)
 	target_position = position
 
+func create_temp_weapon(attack_type: String) -> ItemData:
+	"""Create temporary weapon for current attack system (TEMPORARY - Phase 2 will use real weapons)"""
+	var weapon = ItemData.new()
+	weapon.item_name = "Temporary Weapon"
+	weapon.is_weapon = true
+	weapon.weapon_type = "simple"
+	
+	match attack_type:
+		"light":
+			weapon.damage_dice = "1d4"  # Light attack
+		"medium":
+			weapon.damage_dice = "1d8"  # Medium attack
+		"heavy":
+			weapon.damage_dice = "1d12"  # Heavy attack
+	
+	return weapon
+
 func attack_enemy(enemy: Enemy, attack_type: String):
-	"""Attack an adjacent enemy with animation"""
+	"""Attack an adjacent enemy with animation (REFACTORED)"""
 	if not enemy or not turn_based_mode:
 		return
 	
@@ -680,37 +698,45 @@ func attack_enemy(enemy: Enemy, attack_type: String):
 		print("You've already attacked this turn!")
 		return
 	
-	var damage = 0
-	var attack_name = ""
-	
-	match attack_type:
-		"light":
-			damage = light_attack_damage
-			attack_name = "Light Attack"
-		"medium":
-			damage = medium_attack_damage
-			attack_name = "Medium Attack"
-		"heavy":
-			damage = heavy_attack_damage
-			attack_name = "Heavy Attack"
+	# Get weapon (TODO: get from InventoryManager in Phase 2)
+	var weapon = create_temp_weapon(attack_type)
 	
 	# Attack animation
 	animate_attack(enemy.global_position)
 	
-	print("Player uses %s on %s for %d damage!" % [attack_name, enemy.name, damage])
-	
-	# Delay damage until animation halfway through
+	# Wait for animation
 	await get_tree().create_timer(0.15).timeout
-	enemy.take_damage(damage)
 	
-	# Emit event (NEW)
-	EventBus.damage_dealt.emit(self, enemy, damage, false)
+	# Roll attack using CombatManager
+	var result = CombatManager.roll_attack(stats, enemy.stats, weapon)
+	
+	# LOG THE ATTACK ROLL (NEW!)
+	var combat_log = get_tree().root.get_node_or_null("World/UI/CombatLog")
+	if combat_log:
+		combat_log.log_attack("Player", result.roll, result.total, result.target_ac, result.hit, result.is_crit, result.is_fumble)
+	
+	if result.is_fumble:
+		print("💀 FUMBLE! Attack missed completely!")
+		DamagePopup.spawn_miss_popup_at(get_parent(), enemy.global_position + Vector2(0, -tile_size * 0.8))
+	elif result.hit:
+		if result.is_crit:
+			print("💥 CRITICAL HIT! ", result.damage, " damage!")
+			DamagePopup.spawn_damage_popup_at(get_parent(), enemy.global_position + Vector2(0, -tile_size * 0.8), result.damage, true)
+		else:
+			print("⚔️ Hit! ", result.damage, " damage!")
+			DamagePopup.spawn_damage_popup_at(get_parent(), enemy.global_position + Vector2(0, -tile_size * 0.8), result.damage, false)
+		
+		# Apply damage using CombatManager
+		CombatManager.apply_damage(enemy, result.damage, CombatManager.DamageType.PHYSICAL, self)
+	else:
+		print("❌ Miss! (Rolled ", result.total, " vs AC ", result.target_ac, ")")
+		DamagePopup.spawn_miss_popup_at(get_parent(), enemy.global_position + Vector2(0, -tile_size * 0.8))
 	
 	has_attacked_this_turn = true
 	attack_mode = false
 	selected_attack_type = ""
 	queue_redraw()
-
+	
 func animate_attack(target_pos: Vector2):
 	"""Animate a quick lunge toward the target"""
 	var original_pos = global_position
@@ -774,11 +800,6 @@ func get_turn_number() -> int:
 
 func take_damage(amount: int):
 	"""Take damage with visual effects (REFACTORED)"""
-	var was_alive = stats.is_alive()
-	var still_alive = stats.take_damage(amount)
-	
-	print("%s took %d damage! HP: %d/%d" % [name, amount, stats.current_hp, stats.max_hp])
-	
 	# Spawn damage popup
 	var world = get_parent()
 	if world:
@@ -788,12 +809,12 @@ func take_damage(amount: int):
 	# Flash effect
 	flash_damage()
 	
-	# Emit event (NEW)
+	# Emit event
 	EventBus.player_hp_changed.emit(stats.current_hp, stats.max_hp)
 	
 	queue_redraw()
 	
-	if was_alive and not still_alive:
+	if not stats.is_alive():
 		die()
 
 func flash_damage():
@@ -815,7 +836,7 @@ func heal(amount: int):
 		var popup_pos = global_position + Vector2(0, -tile_size * 0.8)
 		DamagePopup.spawn_heal_popup_at(world, popup_pos, amount)
 	
-	# Emit event (NEW)
+	# Emit event
 	EventBus.player_hp_changed.emit(stats.current_hp, stats.max_hp)
 	
 	queue_redraw()

@@ -20,6 +20,8 @@ config/icon="res://icon.svg"
 EventBus="*res://autoload/event_bus.gd"
 GameManager="*res://autoload/game_manager.gd"
 ItemDatabase="*res://autoload/item_database.gd"
+CombatManager="*res://autoload/combat_manager.gd"
+InventoryManager="*res://autoload/inventory_manager.gd"
 
 [display]
 
