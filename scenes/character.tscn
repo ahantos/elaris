@@ -1,0 +1,11 @@
+[gd_scene load_steps=3 format=3 uid="uid://dc7220162wl08"]
+
+[ext_resource type="Script" uid="uid://6i0ys5l87v8c" path="res://scripts/grid_character.gd" id="1_agfs1"]
+[ext_resource type="Texture2D" uid="uid://bgkc4e8ksvvs7" path="res://icon.svg" id="2_rkhd4"]
+
+[node name="Character" type="CharacterBody2D"]
+script = ExtResource("1_agfs1")
+tile_size = 1
+
+[node name="Sprite2D" type="Sprite2D" parent="."]
+texture = ExtResource("2_rkhd4")

@@ -1,0 +1,27 @@
+[gd_scene load_steps=3 format=3 uid="uid://kcdp5seyrl5u"]
+
+[ext_resource type="Script" uid="uid://d0ran7suemomy" path="res://scripts/dungeon_generator.gd" id="1_udcnn"]
+[ext_resource type="TileSet" uid="uid://b5ub624g3gfj3" path="res://tilesets/dungeon_tileset.tres" id="2_yygp2"]
+
+[node name="DungeonGenerator" type="Node2D"]
+script = ExtResource("1_udcnn")
+dungeon_width = null
+dungeon_height = null
+num_rooms = null
+max_placement_attempts = null
+min_room_distance = null
+corridor_width = null
+biome_type = null
+guarantee_start_room = null
+guarantee_boss_room = null
+treasure_room_chance = null
+auto_generate_on_ready = null
+show_debug_info = null
+show_grid = null
+grid_color = null
+grid_thickness = null
+tileset_path = null
+
+[node name="TileMap" type="TileMap" parent="."]
+tile_set = ExtResource("2_yygp2")
+format = 2

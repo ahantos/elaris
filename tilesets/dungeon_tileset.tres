@@ -1,0 +1,13 @@
+[gd_resource type="TileSet" load_steps=3 format=3 uid="uid://b5ub624g3gfj3"]
+
+[ext_resource type="Texture2D" uid="uid://b4k21hnkjbf8f" path="res://tilesets/New Piskel-1.png.png" id="1_ue8en"]
+
+[sub_resource type="TileSetAtlasSource" id="TileSetAtlasSource_ue8en"]
+texture = ExtResource("1_ue8en")
+0:0/0 = 0
+1:0/0 = 0
+2:0/0 = 0
+3:0/0 = 0
+
+[resource]
+sources/3 = SubResource("TileSetAtlasSource_ue8en")
