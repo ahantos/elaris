@@ -1,4 +1,4 @@
-# world.gd - COMPLETE FILE WITH FIXED REGENERATION
+# world.gd - WITH SAVE/LOAD MENU SUPPORT
 
 extends Node2D
 
@@ -13,6 +13,7 @@ var turn_ui: TurnUI
 var initiative_tracker: InitiativeTracker
 var bottom_ui: BottomUI
 var grid_overlay: GridOverlay
+var save_load_menu  # NEW - no type hint temporarily
 var enemies: Array[Enemy] = []
 var combat_detection_range: int = 10
 var enemy_activation_range: int = 20
@@ -95,6 +96,14 @@ func _input(event):
 		# Regenerate dungeon with R key
 		elif event.keycode == KEY_R:
 			regenerate_dungeon()
+		
+		# SAVE with F5
+		elif event.keycode == KEY_F5:
+			SaveManager.save_game()
+		
+		# LOAD with F9
+		elif event.keycode == KEY_F9:
+			SaveManager.load_game()
 
 func regenerate_dungeon():
 	"""Regenerate the entire dungeon and reset game state"""
@@ -148,6 +157,30 @@ func regenerate_dungeon():
 		current_dungeon.set_camera_target(player)
 		
 		print("Dungeon regenerated successfully!")
+
+func end_combat():
+	"""End combat mode"""
+	in_combat = false
+	
+	# HIDE GRID when combat ends
+	if grid_overlay:
+		grid_overlay.set_enabled(false)
+		print("Grid overlay: OFF (combat ended)")
+	
+	# Switch back to exploration mode
+	if player:
+		player.turn_based_mode = false
+		player.wasd_movement_enabled = true
+	
+	# Hide initiative tracker
+	if initiative_tracker:
+		initiative_tracker.visible = false
+	
+	# Update turn UI
+	if turn_ui:
+		turn_ui.set_exploration_mode()
+	
+	print("⚔️ COMBAT ENDED")
 
 func check_enemy_proximity():
 	"""Auto-enable turn-based mode when near enemies"""
@@ -229,9 +262,30 @@ func create_bottom_ui():
 	canvas_layer.add_child(bottom_ui)
 	bottom_ui.setup(player)
 
+func create_save_load_menu():
+	"""Create save/load menu (NEW)"""
+	var canvas_layer = CanvasLayer.new()
+	canvas_layer.name = "SaveLoadMenuLayer"
+	add_child(canvas_layer)
+	
+	# Load the script
+	var script = load("res://scripts/save_load_menu.gd")
+	if not script:
+		push_error("Could not load save_load_menu.gd script!")
+		return
+	
+	save_load_menu = script.new()
+	canvas_layer.add_child(save_load_menu)
+	
+	# Verify methods exist
+	if not save_load_menu.has_method("show_save_menu"):
+		push_error("save_load_menu is missing show_save_menu() method!")
+	else:
+		print("SaveLoadMenu created successfully")
+
 func start_combat():
 	"""Initialize combat and roll initiative"""
-	print("⚔️ COMBAT INITIATED! ⚔️")
+	print("⚔️ COMBAT INITIATED!")
 	
 	# Clear movement
 	if player:
@@ -328,59 +382,27 @@ func get_enemy_at_position(grid_pos: Vector2i) -> Enemy:
 			return enemy
 	return null
 
-func is_position_occupied_by_enemy(grid_pos: Vector2i, exclude: Node = null) -> bool:
-	"""Check if position occupied by enemy"""
+func is_position_occupied_by_enemy(grid_pos: Vector2i, exclude_entity = null) -> bool:
+	"""Check if position is occupied by an enemy"""
 	for enemy in enemies:
-		if not is_instance_valid(enemy):
+		if enemy == exclude_entity:
 			continue
-		if enemy == exclude:
+		if not is_instance_valid(enemy):
 			continue
 		if enemy.get_grid_position() == grid_pos:
 			return true
 	return false
 
 func on_enemy_died(enemy: Enemy):
-	"""Called when enemy dies"""
+	"""Handle enemy death"""
 	enemies.erase(enemy)
 	
-	# Remove from initiative tracker
+	# Remove from initiative
 	if initiative_tracker:
 		initiative_tracker.remove_combatant(enemy)
 	
 	# Check if combat should end
-	if in_combat:
-		check_combat_end()
-
-func check_combat_end():
-	"""Check if all enemies dead"""
-	if not player or not in_combat:
-		return
-	
-	var player_pos = player.get_grid_position()
-	var active_enemies_alive = 0
-	
-	for enemy in enemies:
-		if not is_instance_valid(enemy):
-			continue
-		var enemy_pos = enemy.get_grid_position()
-		var distance = player_pos.distance_to(enemy_pos)
-		if distance <= enemy_activation_range:
-			active_enemies_alive += 1
-	
-	if active_enemies_alive == 0:
+	if enemies.is_empty():
+		print("All enemies defeated!")
+		await get_tree().create_timer(1.0).timeout
 		end_combat()
-
-func end_combat():
-	"""End combat"""
-	print("⚔️ COMBAT ENDED - VICTORY! ⚔️")
-	in_combat = false
-	player.turn_based_mode = false
-	
-	# HIDE GRID when exiting combat
-	if grid_overlay:
-		grid_overlay.set_enabled(false)
-		print("Grid overlay: OFF (combat ended)")
-	
-	# Hide initiative tracker
-	if initiative_tracker:
-		initiative_tracker.visible = false

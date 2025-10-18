@@ -22,7 +22,7 @@ GameManager="*res://autoload/game_manager.gd"
 ItemDatabase="*res://autoload/item_database.gd"
 CombatManager="*res://autoload/combat_manager.gd"
 InventoryManager="*res://autoload/inventory_manager.gd"
-EnemyDatabase="*res://autoload/enemy_database.gd"
+SaveManager="*res://autoload/save_manager.gd"
 
 [display]
 
