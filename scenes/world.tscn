@@ -6,14 +6,8 @@
 [node name="World" type="Node2D"]
 script = ExtResource("1_nnsk1")
 
-[node name="CanvasLayer" type="CanvasLayer" parent="."]
+[node name="UI" type="CanvasLayer" parent="."]
 
-[node name="CombatLog" parent="CanvasLayer" instance=ExtResource("2_rwgxs")]
-anchors_preset = 1
-anchor_left = 1.0
-anchor_right = 1.0
-offset_left = -2240.0
-offset_top = 10.0
-offset_right = -1936.0
-offset_bottom = 410.0
-grow_horizontal = 0
+[node name="CombatLog" parent="UI" instance=ExtResource("2_rwgxs")]
+offset_right = 304.0
+offset_bottom = 400.0

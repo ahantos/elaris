@@ -391,7 +391,6 @@ func execute_move():
 func cancel_preview():
 	"""Cancel the path preview and clear all waypoints"""
 	preview_path.clear()
-	
 	full_preview_path.clear()
 	preview_destination = Vector2i(-1, -1)
 	waypoints.clear()
@@ -710,11 +709,6 @@ func attack_enemy(enemy: Enemy, attack_type: String):
 	# Roll attack using CombatManager
 	var result = CombatManager.roll_attack(stats, enemy.stats, weapon)
 	
-	# LOG THE ATTACK ROLL (NEW!)
-	var combat_log = get_tree().root.get_node_or_null("World/UI/CombatLog")
-	if combat_log:
-		combat_log.log_attack("Player", result.roll, result.total, result.target_ac, result.hit, result.is_crit, result.is_fumble)
-	
 	if result.is_fumble:
 		print("💀 FUMBLE! Attack missed completely!")
 		DamagePopup.spawn_miss_popup_at(get_parent(), enemy.global_position + Vector2(0, -tile_size * 0.8))
@@ -736,7 +730,7 @@ func attack_enemy(enemy: Enemy, attack_type: String):
 	attack_mode = false
 	selected_attack_type = ""
 	queue_redraw()
-	
+
 func animate_attack(target_pos: Vector2):
 	"""Animate a quick lunge toward the target"""
 	var original_pos = global_position

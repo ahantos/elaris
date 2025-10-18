@@ -127,11 +127,6 @@ func attack_player():
 		# Roll attack using CombatManager
 		var result = CombatManager.roll_attack(stats, player.stats, weapon)
 		
-		# LOG THE ATTACK ROLL (NEW!)
-		var combat_log = get_tree().root.get_node_or_null("World/UI/CombatLog")
-		if combat_log:
-			combat_log.log_attack(name, result.roll, result.total, result.target_ac, result.hit, result.is_crit, result.is_fumble)
-		
 		if result.is_fumble:
 			print("%s fumbled the attack!" % name)
 			DamagePopup.spawn_miss_popup_at(get_parent(), player.global_position + Vector2(0, -tile_size * 0.8))
