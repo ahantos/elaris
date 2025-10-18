@@ -261,6 +261,12 @@ GridCharacter → CombatManager.roll_attack() → CombatManager.apply_damage() �
 
 ---
 
+## [2025.10.19] - Savegame
+
+### ✅ Completed
+Save/load funtions done, basic UI done for it
+
+
 **Changelog Format:**
 ```
 ## [Session - Date] - Title

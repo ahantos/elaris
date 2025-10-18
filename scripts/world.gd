@@ -13,7 +13,7 @@ var turn_ui: TurnUI
 var initiative_tracker: InitiativeTracker
 var bottom_ui: BottomUI
 var grid_overlay: GridOverlay
-var save_load_menu  # NEW - no type hint temporarily
+var save_load_menu: SaveLoadMenu  # Properly typed now
 var enemies: Array[Enemy] = []
 var combat_detection_range: int = 10
 var enemy_activation_range: int = 20
@@ -49,6 +49,7 @@ func _ready():
 	create_turn_ui()
 	create_initiative_tracker()
 	create_bottom_ui()
+	create_save_load_menu()  # Create save/load menu
 	
 	# Get reference to grid overlay (it's created by dungeon_generator)
 	grid_overlay = current_dungeon.get_node_or_null("GridOverlay")
@@ -97,13 +98,15 @@ func _input(event):
 		elif event.keycode == KEY_R:
 			regenerate_dungeon()
 		
-		# SAVE with F5
+		# SAVE MENU with F5
 		elif event.keycode == KEY_F5:
-			SaveManager.save_game()
+			if save_load_menu:
+				save_load_menu.show_save_menu()
 		
-		# LOAD with F9
-		elif event.keycode == KEY_F9:
-			SaveManager.load_game()
+		# LOAD MENU with F6
+		elif event.keycode == KEY_F6:
+			if save_load_menu:
+				save_load_menu.show_load_menu()
 
 func regenerate_dungeon():
 	"""Regenerate the entire dungeon and reset game state"""
@@ -157,6 +160,76 @@ func regenerate_dungeon():
 		current_dungeon.set_camera_target(player)
 		
 		print("Dungeon regenerated successfully!")
+
+func start_combat():
+	"""Initialize combat and roll initiative"""
+	print("⚔️ COMBAT INITIATED!")
+	
+	# Clear movement
+	if player:
+		player.cancel_preview()
+	
+	# Get nearby enemies
+	var active_enemies: Array[Enemy] = []
+	var player_pos = player.get_grid_position()
+	
+	for enemy in enemies:
+		if not is_instance_valid(enemy):
+			continue
+		var enemy_pos = enemy.get_grid_position()
+		var distance = player_pos.distance_to(enemy_pos)
+		if distance <= enemy_activation_range:
+			active_enemies.append(enemy)
+	
+	# Setup initiative
+	initiative_tracker.setup_initiative(player, active_enemies)
+	
+	# Start first turn
+	process_next_turn()
+
+func process_next_turn():
+	"""Process next turn in initiative"""
+	var current = initiative_tracker.get_current_combatant()
+	
+	if current.is_empty():
+		# No valid combatants - end combat
+		end_combat()
+		return
+	
+	if current.is_player:
+		# Player turn
+		player.start_new_turn()
+		if turn_ui:
+			turn_ui.set_player_turn()
+	else:
+		# Enemy turn
+		var enemy = current.entity as Enemy
+		if turn_ui:
+			turn_ui.set_enemy_turn(initiative_tracker.current_index + 1, initiative_tracker.combatants.size())
+		
+		if is_instance_valid(enemy):
+			enemy.take_turn()
+			# Wait for movement
+			while enemy.is_moving:
+				await get_tree().create_timer(0.1).timeout
+			
+			# Delay before next turn
+			await get_tree().create_timer(0.3).timeout
+		
+		# Next turn
+		await get_tree().create_timer(1.0).timeout
+		initiative_tracker.next_turn()
+		process_next_turn()
+
+func _on_player_turn_ended():
+	"""Called when player ends turn"""
+	# Check if still in combat
+	if not in_combat:
+		return
+	
+	# Advance initiative
+	initiative_tracker.next_turn()
+	process_next_turn()
 
 func end_combat():
 	"""End combat mode"""
@@ -243,6 +316,26 @@ func find_enemy_spawn_position() -> Vector2i:
 	
 	return Vector2i(-1, -1)
 
+func create_minimap():
+	"""Create minimap"""
+	var canvas_layer = CanvasLayer.new()
+	canvas_layer.name = "MinimapLayer"
+	add_child(canvas_layer)
+	
+	minimap = Minimap.new()
+	canvas_layer.add_child(minimap)
+	minimap.setup(current_dungeon, player)
+
+func create_turn_ui():
+	"""Create turn UI"""
+	var canvas_layer = CanvasLayer.new()
+	canvas_layer.name = "TurnUILayer"
+	add_child(canvas_layer)
+	
+	turn_ui = TurnUI.new()
+	canvas_layer.add_child(turn_ui)
+	turn_ui.setup(player)
+
 func create_initiative_tracker():
 	"""Create initiative tracker"""
 	var canvas_layer = CanvasLayer.new()
@@ -263,115 +356,15 @@ func create_bottom_ui():
 	bottom_ui.setup(player)
 
 func create_save_load_menu():
-	"""Create save/load menu (NEW)"""
+	"""Create save/load menu"""
 	var canvas_layer = CanvasLayer.new()
 	canvas_layer.name = "SaveLoadMenuLayer"
 	add_child(canvas_layer)
 	
-	# Load the script
-	var script = load("res://scripts/save_load_menu.gd")
-	if not script:
-		push_error("Could not load save_load_menu.gd script!")
-		return
-	
-	save_load_menu = script.new()
+	save_load_menu = SaveLoadMenu.new()
 	canvas_layer.add_child(save_load_menu)
 	
-	# Verify methods exist
-	if not save_load_menu.has_method("show_save_menu"):
-		push_error("save_load_menu is missing show_save_menu() method!")
-	else:
-		print("SaveLoadMenu created successfully")
-
-func start_combat():
-	"""Initialize combat and roll initiative"""
-	print("⚔️ COMBAT INITIATED!")
-	
-	# Clear movement
-	if player:
-		player.cancel_preview()
-	
-	# Get nearby enemies
-	var active_enemies: Array[Enemy] = []
-	var player_pos = player.get_grid_position()
-	
-	for enemy in enemies:
-		if not is_instance_valid(enemy):
-			continue
-		var enemy_pos = enemy.get_grid_position()
-		var distance = player_pos.distance_to(enemy_pos)
-		if distance <= enemy_activation_range:
-			active_enemies.append(enemy)
-	
-	# Setup initiative
-	initiative_tracker.setup_initiative(player, active_enemies)
-	
-	# Start first turn
-	process_next_turn()
-
-func process_next_turn():
-	"""Process next turn in initiative"""
-	var current = initiative_tracker.get_current_combatant()
-	
-	if current.is_empty():
-		# No valid combatants - end combat
-		end_combat()
-		return
-	
-	if current.is_player:
-		# Player turn
-		player.start_new_turn()
-		if turn_ui:
-			turn_ui.set_player_turn()
-	else:
-		# Enemy turn
-		var enemy = current.entity as Enemy
-		if turn_ui:
-			turn_ui.set_enemy_turn(initiative_tracker.current_index + 1, initiative_tracker.combatants.size())
-		
-		if is_instance_valid(enemy):
-			enemy.take_turn()
-			# Wait for movement
-			while enemy.is_moving:
-				await get_tree().create_timer(0.1).timeout
-			
-			# Delay before next turn
-			await get_tree().create_timer(0.3).timeout
-		
-		# Next turn
-		await get_tree().create_timer(1.0).timeout
-		initiative_tracker.next_turn()
-		process_next_turn()
-
-func _on_player_turn_ended():
-	"""Called when player ends turn"""
-	# Check if still in combat
-	if not in_combat:
-		return
-	
-	# Advance initiative
-	initiative_tracker.next_turn()
-	process_next_turn()
-
-func create_minimap():
-	"""Create minimap"""
-	var canvas_layer = CanvasLayer.new()
-	canvas_layer.name = "MinimapLayer"
-	add_child(canvas_layer)
-	
-	minimap = Minimap.new()
-	canvas_layer.add_child(minimap)
-	minimap.setup(current_dungeon, player)
-
-func create_turn_ui():
-	"""Create turn UI"""
-	var canvas_layer = CanvasLayer.new()
-	canvas_layer.name = "TurnUILayer"
-	add_child(canvas_layer)
-	
-	turn_ui = TurnUI.new()
-	canvas_layer.add_child(turn_ui)
-	turn_ui.setup(player)
+	print("SaveLoadMenu created successfully")
 
 func get_enemy_at_position(grid_pos: Vector2i) -> Enemy:
 	"""Get enemy at grid position"""
