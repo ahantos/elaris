@@ -30,25 +30,30 @@ func _ready():
 # === ATTACK SYSTEM ===
 
 func roll_attack(attacker_stats: CharacterStats, target_stats: CharacterStats, 
-				weapon: ItemData = null, advantage: bool = false, 
-				disadvantage: bool = false) -> Dictionary:
+				 weapon: ItemData = null, advantage: bool = false, 
+				 disadvantage: bool = false) -> Dictionary:
 	"""
-	Roll a full attack (d20 + modifiers vs target AC)
-	Returns: Dictionary with hit, roll, damage, etc.
+	Roll an attack using D&D 5e rules
+	Returns: {hit: bool, roll: int, total: int, target_ac: int, is_crit: bool, is_fumble: bool, damage: int}
 	"""
 	
 	if not attacker_stats or not target_stats:
 		push_error("CombatManager.roll_attack: Missing attacker or target stats!")
 		return {}
 	
+	# Check for encumbrance disadvantage
+	if InventoryManager.has_disadvantage_on_physical_rolls():
+		disadvantage = true
+		print("⚠️ Heavily encumbered! Disadvantage on attack roll")
+	
 	# Roll d20 (with advantage/disadvantage)
 	var roll1 = randi_range(1, 20)
 	var roll2 = randi_range(1, 20) if (advantage or disadvantage) else roll1
 	
 	var roll = roll1
-	if advantage:
+	if advantage and not disadvantage:  # Advantage cancels disadvantage
 		roll = max(roll1, roll2)
-	elif disadvantage:
+	elif disadvantage and not advantage:
 		roll = min(roll1, roll2)
 	
 	# Check for crit/fumble
@@ -162,3 +167,57 @@ func handle_death(target: Node):
 func roll_initiative(character_stats: CharacterStats) -> int:
 	"""Roll initiative (d20 + DEX modifier)"""
 	return randi_range(1, 20) + character_stats.get_dex_modifier()
+	
+	# === SAVING THROWS ===
+
+func make_saving_throw(character_stats: CharacterStats, stat: String, dc: int, 
+					   advantage: bool = false, disadvantage: bool = false) -> Dictionary:
+	"""
+	Make a saving throw (d20 + modifier vs DC)
+	Returns: {success: bool, roll: int, total: int, dc: int, modifier: int}
+	"""
+	
+	if not character_stats:
+		push_error("CombatManager.make_saving_throw: No character stats provided!")
+		return {}
+	
+	# Check for encumbrance disadvantage on physical saves (STR, DEX, CON)
+	if stat.to_lower() in ["str", "strength", "dex", "dexterity", "con", "constitution"]:
+		if InventoryManager.has_disadvantage_on_physical_rolls():
+			disadvantage = true
+			print("⚠️ Heavily encumbered! Disadvantage on %s save" % stat.to_upper())
+	
+	var modifier = 0
+	
+	match stat.to_lower():
+		"str", "strength": modifier = character_stats.get_str_modifier()
+		"dex", "dexterity": modifier = character_stats.get_dex_modifier()
+		"con", "constitution": modifier = character_stats.get_con_modifier()
+		"int", "intelligence": modifier = character_stats.get_int_modifier()
+		"wis", "wisdom": modifier = character_stats.get_wis_modifier()
+		"cha", "charisma": modifier = character_stats.get_cha_modifier()
+	
+	# Add proficiency if proficient in this save
+	if character_stats.is_proficient_in_save(stat):
+		modifier += character_stats.proficiency_bonus
+	
+	# Roll d20 with advantage/disadvantage
+	var roll1 = randi_range(1, 20)
+	var roll2 = randi_range(1, 20) if (advantage or disadvantage) else roll1
+	
+	var final_roll = roll1
+	if advantage and not disadvantage:
+		final_roll = max(roll1, roll2)
+	elif disadvantage and not advantage:
+		final_roll = min(roll1, roll2)
+	
+	var total = final_roll + modifier
+	var success = total >= dc
+	
+	return {
+		"success": success,
+		"roll": final_roll,
+		"total": total,
+		"dc": dc,
+		"modifier": modifier
+	}

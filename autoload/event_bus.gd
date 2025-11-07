@@ -27,7 +27,7 @@ signal item_broken(item_instance)
 
 # === INVENTORY EVENTS ===
 signal inventory_changed()
-signal weight_changed(current_weight: float, max_weight: float)
+signal slots_changed(used: int, max: int)  # Replaces weight_changed
 
 # === UI EVENTS ===
 signal ui_notification(message: String, type: String)  # type: "info", "warning", "error", "success"

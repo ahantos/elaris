@@ -1,0 +1,28 @@
+[gd_resource type="Resource" script_class="RaceData" load_steps=2 format=3 uid="uid://gus2tu8u6u5l"]
+
+[ext_resource type="Script" uid="uid://bce4m71a3t652" path="res://data/races/race_data.gd" id="1_6uylo"]
+
+[resource]
+script = ExtResource("1_6uylo")
+race_id = "dwarf"
+display_name = "Dwarf"
+description = "Bold and hardy, dwarves are known as skilled warriors, miners, and workers of stone and metal. They stand stalwart against enemies and defend their clans with unwavering courage."
+base_speed = 25
+height_min = 44
+height_max = 52
+weight_min = 115
+con_bonus = 2
+racial_traits = Array[String](["darkvision", "dwarven_resilience", "dwarven_combat_training", "stonecutting"])
+languages = Array[String](["Common", "Dwarvish"])
+darkvision_range = 60
+weapon_proficiencies = Array[String](["battleaxe", "handaxe", "light_hammer", "warhammer"])
+tool_proficiencies = Array[String](["smith_tools", "brewer_supplies", "mason_tools"])
+special_abilities = Array[String](["Dwarven Resilience: Advantage on saves vs poison, resistance to poison damage", "Stonecunning: +2 bonus to History checks related to stonework", "Speed not reduced by heavy armor"])
+resistance_types = Array[String](["poison"])
+advantage_types = Array[String](["poison_saves"])
+has_subraces = true
+subrace_options = Array[String](["mountain_dwarf", "hill_dwarf"])
+typical_alignment = "Lawful Good"
+typical_age_range = "Adult: 50-350"
+cultural_background = "Dwarves live in mountain halls and underground cities, dedicating their lives to perfecting their crafts. They value tradition, honor, and clan loyalty above all else."
+metadata/_custom_type_script = "uid://bce4m71a3t652"

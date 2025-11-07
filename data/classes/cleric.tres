@@ -1,0 +1,36 @@
+[gd_resource type="Resource" script_class="ClassData" load_steps=2 format=3 uid="uid://ncauxyhf5pvr"]
+
+[ext_resource type="Script" uid="uid://ctr5jcf3ko2fy" path="res://data/classes/class_data.gd" id="1_3lo8d"]
+
+[resource]
+script = ExtResource("1_3lo8d")
+class_id = "cleric"
+display_name = "Cleric"
+description = "A divine spellcaster empowered by their faith. Clerics can heal wounds, protect allies, and smite enemies with holy power."
+hit_die = "1d8"
+hp_per_level = 5
+armor_proficiencies = Array[String](["light", "medium", "shields"])
+weapon_proficiencies = Array[String](["simple"])
+saving_throw_proficiencies = Array[String](["wis", "cha"])
+skill_proficiency_choices = Array[String](["history", "insight", "medicine", "persuasion", "religion"])
+primary_abilities = Array[String](["wis", "con"])
+starting_gold = 125
+starting_equipment_list = Array[String](["mace", "scale_mail", "shield", "holy_symbol", "priest_pack"])
+level_1_features = Array[String](["spellcasting", "divine_domain"])
+level_2_features = Array[String](["channel_divinity_1", "domain_feature"])
+is_spellcaster = true
+spellcasting_ability = "wis"
+cantrips_known = Array[int]([3, 3, 3, 4, 4, 4, 4, 4, 4, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5])
+spell_slots_level_1 = Array[int]([2, 3, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4])
+spell_slots_level_2 = Array[int]([0, 0, 2, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3])
+spell_slots_level_3 = Array[int]([0, 0, 0, 0, 2, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3])
+spell_slots_level_4 = Array[int]([0, 0, 0, 0, 0, 0, 1, 2, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3])
+spell_slots_level_5 = Array[int]([0, 0, 0, 0, 0, 0, 0, 0, 1, 2, 2, 2, 2, 2, 2, 2, 2, 3, 3, 3])
+spell_slots_level_6 = Array[int]([0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 1, 1, 1, 1, 1, 1, 2, 2])
+spell_slots_level_7 = Array[int]([0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 1, 1, 1, 1, 1, 2])
+spell_slots_level_8 = Array[int]([0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 1, 1, 1, 1])
+spell_slots_level_9 = Array[int]([0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 1, 1])
+subclass_name = "Divine Domain"
+subclass_level = 1
+available_subclasses = Array[String](["life", "light", "knowledge", "nature", "tempest", "trickery", "war"])
+metadata/_custom_type_script = "uid://ctr5jcf3ko2fy"

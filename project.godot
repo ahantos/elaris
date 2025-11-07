@@ -23,6 +23,8 @@ ItemDatabase="*res://autoload/item_database.gd"
 CombatManager="*res://autoload/combat_manager.gd"
 InventoryManager="*res://autoload/inventory_manager.gd"
 SaveManager="*res://autoload/save_manager.gd"
+ClassDatabase="*res://autoload/class_database.gd"
+RaceDatabase="*res://autoload/race_database.gd"
 
 [display]
 

@@ -1,0 +1,26 @@
+[gd_resource type="Resource" script_class="RaceData" load_steps=2 format=3 uid="uid://c3tpjojkmkwo8"]
+
+[ext_resource type="Script" uid="uid://bce4m71a3t652" path="res://data/races/race_data.gd" id="1_x4hwg"]
+
+[resource]
+script = ExtResource("1_x4hwg")
+race_id = "halfling"
+display_name = "Halfling"
+description = "The diminutive halflings survive in a world full of larger creatures by avoiding notice or finding ways to turn adversity into advantage. They are naturally lucky and remarkably brave."
+size = 1
+base_speed = 25
+height_min = 33
+height_max = 39
+weight_min = 35
+weight_max = 50
+dex_bonus = 2
+racial_traits = Array[String](["lucky", "brave", "halfling_nimbleness"])
+languages = Array[String](["Common", "Halfling"])
+special_abilities = Array[String](["Lucky: Reroll natural 1s on attack rolls, ability checks, and saving throws", "Brave: Advantage on saves vs being frightened", "Halfling Nimbleness: Can move through space of larger creatures"])
+advantage_types = Array[String](["frightened_saves"])
+has_subraces = true
+subrace_options = Array[String](["lightfoot_halfling", "stout_halfling"])
+typical_alignment = "Lawful Good"
+typical_age_range = "Adult: 20-150"
+cultural_background = "Halflings live in tight-knit communities in rural areas, valuing comfort, good food, and simple pleasures. They rarely seek adventure but make loyal companions when they do."
+metadata/_custom_type_script = "uid://bce4m71a3t652"

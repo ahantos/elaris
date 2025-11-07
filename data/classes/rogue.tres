@@ -1,0 +1,24 @@
+[gd_resource type="Resource" script_class="ClassData" load_steps=2 format=3 uid="uid://btwdesbt616mu"]
+
+[ext_resource type="Script" uid="uid://ctr5jcf3ko2fy" path="res://data/classes/class_data.gd" id="1_7ph07"]
+
+[resource]
+script = ExtResource("1_7ph07")
+class_id = "rogue"
+display_name = "Rogue"
+description = "A cunning warrior who uses stealth, precision, and tricks to gain the upper hand. Rogues excel at dealing massive burst damage with sneak attacks."
+hit_die = "1d8"
+hp_per_level = 5
+weapon_proficiencies = Array[String](["simple", "hand_crossbow", "longsword", "rapier", "shortsword"])
+saving_throw_proficiencies = Array[String](["dex", "int"])
+skill_proficiency_count = 4
+skill_proficiency_choices = Array[String](["acrobatics", "athletics", "deception", "insight", "intimidation", "investigation", "perception", "performance", "persuasion", "sleight_of_hand", "stealth"])
+primary_abilities = Array[String](["dex", "int"])
+starting_gold = 100
+starting_equipment_list = Array[String](["rapier", "shortbow", "leather_armor", "thieves_tools", "burglar_pack"])
+level_1_features = Array[String](["expertise", "sneak_attack_1d6", "thieves_cant"])
+level_2_features = Array[String](["cunning_action"])
+level_3_features = Array[String](["roguish_archetype", "sneak_attack_2d6"])
+subclass_name = "Roguish Archetype"
+available_subclasses = Array[String](["thief", "assassin", "arcane_trickster"])
+metadata/_custom_type_script = "uid://ctr5jcf3ko2fy"

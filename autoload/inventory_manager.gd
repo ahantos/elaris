@@ -1,5 +1,5 @@
 # inventory_manager.gd
-# AutoLoad singleton - manages party inventory, gold, weight, equipment
+# AutoLoad singleton - manages party inventory with SLOT-BASED encumbrance
 extends Node
 
 # Party inventory (shared by all 4 characters)
@@ -13,8 +13,16 @@ var party_members: Array[CharacterStats] = []
 # Structure: { character_stats: { "head": item_instance, "chest": item_instance, ... } }
 var equipped_items: Dictionary = {}
 
+# Slot-based encumbrance thresholds
+enum EncumbranceLevel {
+	NORMAL,          # 0 to STR+10: Full speed
+	LIGHTLY,         # STR+11 to STR+20: Speed 20'
+	HEAVILY,         # STR+21 to STR+30: Speed 10', disadvantage
+	OVER_ENCUMBERED  # STR+31+: Speed 0
+}
+
 func _ready():
-	print("InventoryManager initialized")
+	print("InventoryManager initialized (SLOT-BASED SYSTEM)")
 	print("Starting gold: ", gold)
 
 # === INVENTORY MANAGEMENT ===
@@ -22,7 +30,7 @@ func _ready():
 func add_item(item_instance: Dictionary) -> bool:
 	"""
 	Add item to party inventory
-	Returns false if over weight limit
+	Returns false if over slot limit
 	"""
 	
 	if not item_instance.has("item_data"):
@@ -31,22 +39,23 @@ func add_item(item_instance: Dictionary) -> bool:
 	
 	var item_data: ItemData = item_instance.item_data
 	
-	# Check if stackable
-	if item_data.stackable:
-		# Find existing stack
+	# Check if stackable (light items, coins, gems)
+	if item_data.stackable or is_light_item(item_data):
+		# Try to stack with existing
 		for existing in items:
 			if existing.item_data == item_data:
-				# Stack it
-				existing.stack_count = existing.get("stack_count", 1) + 1
-				print("Stacked item: ", item_data.item_name, " (x", existing.stack_count, ")")
-				EventBus.inventory_changed.emit()
-				return true
+				var stack_limit = get_stack_limit(item_data)
+				if existing.get("stack_count", 1) < stack_limit:
+					existing.stack_count = existing.get("stack_count", 1) + 1
+					print("Stacked item: ", item_data.item_name, " (x", existing.stack_count, ")")
+					EventBus.inventory_changed.emit()
+					return true
 	
-	# Check weight limit
-	var new_weight = get_total_weight() + item_data.weight
-	if new_weight > get_max_weight():
-		print("Cannot add item: Over weight limit!")
-		EventBus.ui_notification.emit("Inventory full! Over-encumbered.", "warning")
+	# Check slot limit
+	var slots_needed = get_item_slot_size(item_data)
+	if get_slots_used() + slots_needed > get_max_slots():
+		print("Cannot add item: Not enough inventory slots!")
+		EventBus.ui_notification.emit("Inventory full! No more slots.", "warning")
 		return false
 	
 	# Add to inventory
@@ -54,10 +63,10 @@ func add_item(item_instance: Dictionary) -> bool:
 		item_instance.instance_id = ItemDatabase.generate_instance_id()
 	
 	items.append(item_instance)
-	print("Added item: ", item_data.item_name, " (", item_data.weight, " lbs)")
+	print("Added item: ", item_data.item_name, " (", slots_needed, " slot(s))")
 	
 	EventBus.inventory_changed.emit()
-	EventBus.weight_changed.emit(get_total_weight(), get_max_weight())
+	EventBus.slots_changed.emit(get_slots_used(), get_max_slots())
 	
 	return true
 
@@ -80,7 +89,7 @@ func remove_item(instance_id: String) -> Dictionary:
 				print("Removed item: ", removed.item_data.item_name)
 			
 			EventBus.inventory_changed.emit()
-			EventBus.weight_changed.emit(get_total_weight(), get_max_weight())
+			EventBus.slots_changed.emit(get_slots_used(), get_max_slots())
 			
 			return removed
 	
@@ -110,59 +119,194 @@ func get_items_by_type(item_type: ItemData.ItemType) -> Array:
 	return result
 
 func sort_items_by(sort_key: String = "name"):
-	"""Sort inventory by name, weight, value, etc."""
+	"""Sort inventory by name, slot size, value, etc."""
 	match sort_key:
 		"name":
 			items.sort_custom(func(a, b): return a.item_data.item_name < b.item_data.item_name)
-		"weight":
-			items.sort_custom(func(a, b): return a.item_data.weight < b.item_data.weight)
+		"slots":
+			items.sort_custom(func(a, b): return get_item_slot_size(a.item_data) > get_item_slot_size(b.item_data))
 		"value":
 			items.sort_custom(func(a, b): return a.item_data.get_calculated_value() > b.item_data.get_calculated_value())
 		"type":
 			items.sort_custom(func(a, b): return a.item_data.item_type < b.item_data.item_type)
 
-# === WEIGHT SYSTEM ===
+# === SLOT-BASED ENCUMBRANCE SYSTEM ===
 
-func get_total_weight() -> float:
-	"""Calculate total weight of all items in inventory"""
-	var total = 0.0
+func get_item_slot_size(item_data: ItemData) -> float:
+	"""
+	Calculate how many inventory slots an item takes
+	Rules:
+	- Normal items (weapons, armor, shields): 1 slot
+	- Heavy items (2H weapons, heavy armor): 2 slots
+	- Medium armor: 2 slots
+	- Light items (potions, rations, torches, daggers): 0.2 slots (5 per slot)
+	- Coins/gems: 0.01 slots (100 per slot)
+	- Tiny items (jewelry, papers, worn clothing): 0 slots
+	"""
+	
+	# Tiny items don't count
+	if is_tiny_item(item_data):
+		return 0.0
+	
+	# Coins and gems
+	if item_data.item_type == ItemData.ItemType.CURRENCY or item_data.item_id.contains("gem"):
+		return 0.01  # 100 per slot
+	
+	# Light items (bundle 5 per slot)
+	if is_light_item(item_data):
+		return 0.2
+	
+	# Heavy items (2 slots)
+	if is_heavy_item(item_data):
+		return 2.0
+	
+	# Medium armor (2 slots)
+	if item_data.is_armor and item_data.item_id.contains("medium"):
+		return 2.0
+	
+	# Normal items (1 slot)
+	return 1.0
+
+func is_tiny_item(item_data: ItemData) -> bool:
+	"""Check if item is tiny (doesn't count towards encumbrance)"""
+	# Worn clothing, jewelry, papers, quills, anything that fits in palm
+	var tiny_keywords = ["ring", "amulet", "necklace", "paper", "quill", "letter", "note"]
+	for keyword in tiny_keywords:
+		if item_data.item_id.contains(keyword):
+			return true
+	return false
+
+func is_light_item(item_data: ItemData) -> bool:
+	"""Check if item is light (5 items per slot)"""
+	# Potions, rations, torches, daggers, light hammers, handaxes
+	var light_keywords = ["potion", "ration", "torch", "dagger", "vial", "flask", 
+						  "light_hammer", "handaxe", "dart", "oil"]
+	for keyword in light_keywords:
+		if item_data.item_id.contains(keyword):
+			return true
+	
+	# Weight-based fallback
+	if item_data.weight <= 2.0:
+		return true
+	
+	return false
+
+func is_heavy_item(item_data: ItemData) -> bool:
+	"""Check if item is heavy (2 slots)"""
+	# Two-handed weapons, heavy armor pieces, tents, chests, ladders
+	if item_data.is_weapon and item_data.is_two_handed:
+		return true
+	
+	if item_data.is_armor and item_data.item_id.contains("heavy"):
+		return true
+	
+	var heavy_keywords = ["tent", "chest", "ladder", "anvil"]
+	for keyword in heavy_keywords:
+		if item_data.item_id.contains(keyword):
+			return true
+	
+	return false
+
+func get_stack_limit(item_data: ItemData) -> int:
+	"""Get max stack size for an item"""
+	if is_light_item(item_data):
+		return 5  # Light items: 5 per slot
+	elif item_data.item_type == ItemData.ItemType.CURRENCY:
+		return 100  # Coins: 100 per slot
+	elif item_data.item_id.contains("gem"):
+		return 100  # Gems: 100 per slot
+	else:
+		return 1  # Normal items don't stack
+
+func get_slots_used() -> int:
+	"""Calculate total slots used by inventory"""
+	var total_slots = 0.0
+	
 	for item in items:
 		var item_data: ItemData = item.item_data
 		var stack_count = item.get("stack_count", 1)
-		total += item_data.weight * stack_count
+		var slot_size = get_item_slot_size(item_data)
+		
+		# Light items and coins: count stacks
+		if is_light_item(item_data) or item_data.item_type == ItemData.ItemType.CURRENCY:
+			var stacks_needed = ceil(float(stack_count) / get_stack_limit(item_data))
+			total_slots += stacks_needed * slot_size / slot_size  # Full slot per stack
+		else:
+			total_slots += slot_size * stack_count
 	
-	# Add gold weight (50 coins = 1 lb)
-	total += gold / 50.0
+	# Add gold slots (100 coins per slot)
+	total_slots += ceil(gold / 100.0)
+	
+	return int(ceil(total_slots))
+
+func get_max_slots() -> int:
+	"""Calculate max inventory slots (10 + STR modifier per character)"""
+	var max_slots = 0
+	
+	for character in party_members:
+		max_slots += 10 + character.get_str_modifier()
+	
+	# Fallback if no party members yet (assume STR 10 = +0)
+	if max_slots == 0:
+		max_slots = 10  # Default: 10 slots for single character
+	
+	return max_slots
+
+func get_encumbrance_level() -> EncumbranceLevel:
+	"""Get current encumbrance status"""
+	var slots_used = get_slots_used()
+	var total_str = get_total_party_str()
+	
+	if slots_used <= total_str + 10:
+		return EncumbranceLevel.NORMAL
+	elif slots_used <= total_str + 20:
+		return EncumbranceLevel.LIGHTLY
+	elif slots_used <= total_str + 30:
+		return EncumbranceLevel.HEAVILY
+	else:
+		return EncumbranceLevel.OVER_ENCUMBERED
+
+func get_encumbrance_speed_penalty() -> int:
+	"""Get movement speed based on encumbrance (in feet)"""
+	match get_encumbrance_level():
+		EncumbranceLevel.NORMAL:
+			return 0  # No penalty
+		EncumbranceLevel.LIGHTLY:
+			return -10  # Base speed becomes 20'
+		EncumbranceLevel.HEAVILY:
+			return -20  # Base speed becomes 10'
+		EncumbranceLevel.OVER_ENCUMBERED:
+			return -999  # Speed = 0
+	return 0
+
+func has_disadvantage_on_physical_rolls() -> bool:
+	"""Check if encumbrance causes disadvantage"""
+	return get_encumbrance_level() >= EncumbranceLevel.HEAVILY
+
+func get_total_party_str() -> int:
+	"""Get sum of all party members' STR scores"""
+	var total = 0
+	for character in party_members:
+		total += character.strength
+	
+	# Fallback
+	if total == 0:
+		total = 10  # Assume STR 10
 	
 	return total
 
-func get_max_weight() -> float:
-	"""Calculate max carrying capacity (sum of all party members' STR × 15)"""
-	var max_weight = 0.0
-	for character in party_members:
-		max_weight += character.carrying_capacity
-	
-	# Fallback if no party members yet
-	if max_weight == 0:
-		max_weight = 150.0  # Default for single character
-	
-	return max_weight
-
-func is_over_encumbered() -> bool:
-	"""Check if party is over-encumbered"""
-	return get_total_weight() > get_max_weight()
-
-func get_encumbrance_level() -> String:
-	"""Get encumbrance status"""
-	var current = get_total_weight()
-	var max_cap = get_max_weight()
-	
-	if current <= max_cap:
-		return "normal"
-	elif current <= max_cap * 2:
-		return "encumbered"
-	else:
-		return "overloaded"
+func get_encumbrance_text() -> String:
+	"""Get human-readable encumbrance status"""
+	match get_encumbrance_level():
+		EncumbranceLevel.NORMAL:
+			return "Normal"
+		EncumbranceLevel.LIGHTLY:
+			return "Lightly Encumbered (Speed 20')"
+		EncumbranceLevel.HEAVILY:
+			return "Heavily Encumbered (Speed 10', Disadvantage)"
+		EncumbranceLevel.OVER_ENCUMBERED:
+			return "Over-Encumbered (Speed 0)"
+	return "Unknown"
 
 # === EQUIPMENT SYSTEM ===
 
@@ -178,19 +322,19 @@ func equip_item(item_instance: Dictionary, character: CharacterStats, slot: Stri
 	
 	var item_data: ItemData = item_instance.item_data
 	
-	# Check if item can be equipped in this slot
+	# Check if item can go in this slot
 	if item_data.equip_slot != slot:
-		print("Cannot equip ", item_data.item_name, " in slot ", slot)
+		print("Item ", item_data.item_name, " cannot be equipped in ", slot, " slot")
 		return false
 	
-	# Initialize equipped items dict for this character if needed
+	# Initialize equipment dict for character if needed
 	if not equipped_items.has(character):
 		equipped_items[character] = {}
 	
 	# Check if slot is occupied
 	if equipped_items[character].has(slot):
-		# Unequip current item first
-		unequip_item(character, slot)
+		print("Slot ", slot, " is already occupied")
+		return false
 	
 	# Equip the item
 	equipped_items[character][slot] = item_instance
@@ -198,106 +342,84 @@ func equip_item(item_instance: Dictionary, character: CharacterStats, slot: Stri
 	# Remove from inventory
 	remove_item(item_instance.instance_id)
 	
-	# Update character stats
-	recalculate_character_stats(character)
+	# Apply stat bonuses
+	apply_equipment_stats(character, item_data, true)
 	
-	print("Equipped %s in %s slot" % [item_data.item_name, slot])
-	EventBus.item_equipped.emit(item_instance, slot)
+	print("Equipped ", item_data.item_name, " to ", slot)
+	EventBus.equipment_changed.emit(character)
 	
 	return true
 
-func unequip_item(character: CharacterStats, slot: String) -> Dictionary:
-	"""
-	Unequip item from character
-	Returns the unequipped item instance
-	"""
+func unequip_item(character: CharacterStats, slot: String) -> bool:
+	"""Unequip an item from a character slot"""
 	
 	if not equipped_items.has(character) or not equipped_items[character].has(slot):
-		print("No item equipped in slot ", slot)
-		return {}
+		print("No item equipped in ", slot)
+		return false
 	
 	var item_instance = equipped_items[character][slot]
+	var item_data: ItemData = item_instance.item_data
+	
+	# Try to add back to inventory
+	if not add_item(item_instance):
+		print("Cannot unequip: Inventory full!")
+		return false
+	
+	# Remove stat bonuses
+	apply_equipment_stats(character, item_data, false)
+	
+	# Remove from equipment
 	equipped_items[character].erase(slot)
 	
-	# Add back to inventory
-	add_item(item_instance)
+	print("Unequipped ", item_data.item_name, " from ", slot)
+	EventBus.equipment_changed.emit(character)
 	
-	# Update character stats
-	recalculate_character_stats(character)
-	
-	print("Unequipped %s from %s slot" % [item_instance.item_data.item_name, slot])
-	EventBus.item_unequipped.emit(item_instance, slot)
-	
-	return item_instance
+	return true
 
 func get_equipped_item(character: CharacterStats, slot: String) -> Dictionary:
-	"""Get item equipped in a specific slot"""
+	"""Get equipped item in a specific slot"""
 	if equipped_items.has(character) and equipped_items[character].has(slot):
 		return equipped_items[character][slot]
 	return {}
 
-func get_all_equipped_items(character: CharacterStats) -> Array:
-	"""Get all equipped items for a character"""
-	if equipped_items.has(character):
-		return equipped_items[character].values()
-	return []
+func apply_equipment_stats(character: CharacterStats, item_data: ItemData, apply: bool):
+	"""Apply or remove equipment stat bonuses"""
+	var multiplier = 1 if apply else -1
+	
+	# Apply stat bonuses
+	character.equipment_str_bonus += item_data.strength_bonus * multiplier
+	character.equipment_dex_bonus += item_data.dexterity_bonus * multiplier
+	character.equipment_con_bonus += item_data.constitution_bonus * multiplier
+	character.equipment_int_bonus += item_data.intelligence_bonus * multiplier
+	character.equipment_wis_bonus += item_data.wisdom_bonus * multiplier
+	character.equipment_cha_bonus += item_data.charisma_bonus * multiplier
+	character.equipment_ac_bonus += item_data.armor_class_bonus * multiplier
+	
+	# Recalculate derived stats
+	character.recalculate_derived_stats()
 
-func recalculate_character_stats(character: CharacterStats):
-	"""Recalculate character's stats based on equipped items"""
-	var equipped = get_all_equipped_items(character)
-	character.apply_equipment_bonuses(equipped)
-
-# === GOLD MANAGEMENT ===
+# === GOLD SYSTEM ===
 
 func add_gold(amount: int):
 	"""Add gold to party"""
 	gold += amount
-	print("Gained ", amount, " gold. Total: ", gold)
-	EventBus.ui_notification.emit("Gained %d gold!" % amount, "success")
+	print("Gold +", amount, " (Total: ", gold, ")")
+	EventBus.gold_changed.emit(gold)
+	EventBus.slots_changed.emit(get_slots_used(), get_max_slots())  # Gold affects slots
 
 func remove_gold(amount: int) -> bool:
-	"""
-	Remove gold from party
-	Returns false if not enough gold
-	"""
+	"""Remove gold from party (returns false if insufficient)"""
 	if gold < amount:
-		print("Not enough gold! Have: ", gold, ", Need: ", amount)
-		EventBus.ui_notification.emit("Not enough gold!", "error")
+		print("Not enough gold! Have ", gold, ", need ", amount)
 		return false
 	
 	gold -= amount
-	print("Spent ", amount, " gold. Remaining: ", gold)
+	print("Gold -", amount, " (Total: ", gold, ")")
+	EventBus.gold_changed.emit(gold)
+	EventBus.slots_changed.emit(get_slots_used(), get_max_slots())
+	
 	return true
 
 func has_gold(amount: int) -> bool:
 	"""Check if party has enough gold"""
 	return gold >= amount
-
-# === PARTY MANAGEMENT ===
-
-func set_party_members(members: Array):
-	"""Set the party members (called by World/GameManager)"""
-	party_members.clear()
-	for member in members:
-		if member is CharacterStats:
-			party_members.append(member)
-	
-	print("InventoryManager: Party set with ", party_members.size(), " members")
-
-# === DATA EXPORT/IMPORT (for saving) ===
-
-func to_dict() -> Dictionary:
-	"""Export inventory data for saving"""
-	return {
-		"items": items.duplicate(),
-		"gold": gold,
-		"equipped_items": equipped_items.duplicate()
-	}
-
-func from_dict(data: Dictionary):
-	"""Import inventory data from save"""
-	items = data.get("items", [])
-	gold = data.get("gold", 0)
-	equipped_items = data.get("equipped_items", {})
-	
-	print("InventoryManager: Loaded ", items.size(), " items, ", gold, " gold")

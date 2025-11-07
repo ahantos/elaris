@@ -1,0 +1,21 @@
+[gd_resource type="Resource" script_class="ClassData" load_steps=2 format=3 uid="uid://bvb15kyf0g0h8"]
+
+[ext_resource type="Script" uid="uid://ctr5jcf3ko2fy" path="res://data/classes/class_data.gd" id="1_4sk37"]
+
+[resource]
+script = ExtResource("1_4sk37")
+class_id = "fighter"
+display_name = "Fighter"
+description = "A master of martial combat, skilled with a variety of weapons and armor. Fighters are durable warriors who can deal consistent damage and protect their allies."
+armor_proficiencies = Array[String](["light", "medium", "heavy", "shields"])
+weapon_proficiencies = Array[String](["simple", "martial"])
+saving_throw_proficiencies = Array[String](["str", "con"])
+skill_proficiency_choices = Array[String](["acrobatics", "animal handling", "athletics", "history", "insight", "intimidation", "perception", "survival"])
+primary_abilities = Array[String](["str", "con"])
+starting_gold = 125
+starting_equipment_list = Array[String](["chain_mail", "longsword", "shield", "light_crossbow", "explorer_pack"])
+level_1_features = Array[String](["fighting_style", "second_wind"])
+level_2_features = Array[String](["action_surge"])
+level_3_features = Array[String](["martial_archetype"])
+available_subclasses = Array[String](["champion", "batle_master", "eldritch_knight"])
+metadata/_custom_type_script = "uid://ctr5jcf3ko2fy"

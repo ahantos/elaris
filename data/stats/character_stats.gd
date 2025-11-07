@@ -16,7 +16,7 @@ var max_hp: int = 20
 var current_hp: int = 20
 var armor_class: int = 10
 var initiative_bonus: int = 0
-var movement_speed: int = 6  # Tiles per turn
+var movement_speed: int = 30  # Base movement speed in feet (6 tiles)
 var carrying_capacity: int = 150  # Pounds
 
 # Level and XP
@@ -26,6 +26,14 @@ var experience_to_next_level: int = 300
 
 # Proficiency
 var proficiency_bonus: int = 2  # +2 at level 1, increases every 4 levels
+
+# Saving throw proficiencies (set by class)
+var str_save_proficient: bool = false
+var dex_save_proficient: bool = false
+var con_save_proficient: bool = false
+var int_save_proficient: bool = false
+var wis_save_proficient: bool = false
+var cha_save_proficient: bool = false
 
 # Attack bonuses
 var melee_attack_bonus: int = 0
@@ -85,6 +93,14 @@ func get_wis_modifier() -> int:
 
 func get_cha_modifier() -> int:
 	return get_stat_modifier(charisma + equipment_cha_bonus)
+
+# === MOVEMENT SPEED ===
+
+func get_modified_movement_speed() -> int:
+	"""Get movement speed with encumbrance penalties applied"""
+	var base_speed = movement_speed
+	var encumbrance_penalty = InventoryManager.get_encumbrance_speed_penalty()
+	return max(0, base_speed + encumbrance_penalty)
 
 # === DERIVED STATS ===
 
@@ -205,31 +221,18 @@ func level_up():
 	
 	print("LEVEL UP! Now level ", level)
 
-# === SAVING THROWS ===
+# === SAVING THROW PROFICIENCIES ===
 
-func make_saving_throw(stat: String, dc: int, advantage: bool = false, disadvantage: bool = false) -> bool:
-	"""Make a saving throw (d20 + modifier vs DC)"""
-	var modifier = 0
-	
+func is_proficient_in_save(stat: String) -> bool:
+	"""Check if character is proficient in a saving throw"""
 	match stat.to_lower():
-		"str", "strength": modifier = get_str_modifier()
-		"dex", "dexterity": modifier = get_dex_modifier()
-		"con", "constitution": modifier = get_con_modifier()
-		"int", "intelligence": modifier = get_int_modifier()
-		"wis", "wisdom": modifier = get_wis_modifier()
-		"cha", "charisma": modifier = get_cha_modifier()
-	
-	var roll1 = randi() % 20 + 1
-	var roll2 = randi() % 20 + 1 if (advantage or disadvantage) else roll1
-	
-	var final_roll = roll1
-	if advantage:
-		final_roll = max(roll1, roll2)
-	elif disadvantage:
-		final_roll = min(roll1, roll2)
-	
-	var total = final_roll + modifier
-	return total >= dc
+		"str", "strength": return str_save_proficient
+		"dex", "dexterity": return dex_save_proficient
+		"con", "constitution": return con_save_proficient
+		"int", "intelligence": return int_save_proficient
+		"wis", "wisdom": return wis_save_proficient
+		"cha", "charisma": return cha_save_proficient
+	return false
 
 # === SKILL CHECKS ===
 
@@ -250,7 +253,10 @@ func make_skill_check(skill: String, dc: int, advantage: bool = false, disadvant
 	}
 	
 	var stat = skill_to_stat.get(skill.to_lower(), "str")
-	return make_saving_throw(stat, dc, advantage, disadvantage)
+	
+	# Use CombatManager for the actual roll
+	var result = CombatManager.make_saving_throw(self, stat, dc, advantage, disadvantage)
+	return result.success if result else false
 
 # === DATA EXPORT/IMPORT (for saving) ===
 

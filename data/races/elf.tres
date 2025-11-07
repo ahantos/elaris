@@ -1,0 +1,27 @@
+[gd_resource type="Resource" script_class="RaceData" load_steps=2 format=3 uid="uid://3vnd2ut1uqjm"]
+
+[ext_resource type="Script" uid="uid://bce4m71a3t652" path="res://data/races/race_data.gd" id="1_05k1s"]
+
+[resource]
+script = ExtResource("1_05k1s")
+race_id = "elf"
+display_name = "Elf"
+description = "Elves are a magical people of otherworldly grace, living in harmony with nature. They have keen senses and a deep connection to the natural world."
+height_min = 54
+weight_min = 90
+weight_max = 150
+dex_bonus = 2
+racial_traits = Array[String](["darkvision", "keen_senses", "fey_ancestry", "trance"])
+languages = Array[String](["Common", "Elvish"])
+darkvision_range = 60
+weapon_proficiencies = Array[String](["longsword", "shortsword", "shortbow", "longbow"])
+skill_proficiencies = Array[String](["perception"])
+special_abilities = Array[String](["Keen Senses: Proficiency in Perception", "Fey Ancestry: Advantage on saves vs charms, immune to sleep magic", "Trance: 4 hours of meditation instead of 8 hours sleep"])
+resistance_types = Array[String](["charm", "sleep"])
+advantage_types = Array[String](["charm_saves"])
+has_subraces = true
+subrace_options = Array[String](["high_elf", "wood_elf", "dark_elf"])
+typical_alignment = "Chaotic Good"
+typical_age_range = "Adult: 100-750"
+cultural_background = "Elves live in ancient forests and magical realms, valuing art, music, and nature. They take centuries to form friendships but remember them for millennia."
+metadata/_custom_type_script = "uid://bce4m71a3t652"

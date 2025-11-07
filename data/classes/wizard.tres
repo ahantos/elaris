@@ -1,0 +1,35 @@
+[gd_resource type="Resource" script_class="ClassData" load_steps=2 format=3 uid="uid://bo5h7pivx0rk0"]
+
+[ext_resource type="Script" uid="uid://ctr5jcf3ko2fy" path="res://data/classes/class_data.gd" id="1_wndea"]
+
+[resource]
+script = ExtResource("1_wndea")
+class_id = "wizard"
+display_name = "Wizard"
+description = "A scholarly magic-user capable of manipulating the structures of reality. Wizards prepare spells from a spellbook and can cast powerful arcane magic."
+hit_die = "1d6"
+hp_per_level = 4
+weapon_proficiencies = Array[String](["simple"])
+saving_throw_proficiencies = Array[String](["wis"])
+skill_proficiency_choices = Array[String](["arcana", "history", "insight", "investigation", "medicine", "religion"])
+primary_abilities = Array[String](["int", "con"])
+starting_gold = 100
+starting_equipment_list = Array[String](["quarterstaff", "component_pouch", "scholar_pack", "spellbook"])
+level_1_features = Array[String](["spellcasting", "arcane recovery"])
+level_2_features = Array[String](["arcane_tradition"])
+is_spellcaster = true
+spellcasting_ability = "int"
+cantrips_known = Array[int]([3, 3, 3, 4, 4, 4, 4, 4, 4, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5])
+spell_slots_level_1 = Array[int]([2, 3, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4])
+spell_slots_level_2 = Array[int]([0, 0, 2, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3])
+spell_slots_level_3 = Array[int]([0, 0, 0, 0, 2, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3])
+spell_slots_level_4 = Array[int]([0, 0, 0, 0, 0, 0, 1, 2, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3])
+spell_slots_level_5 = Array[int]([0, 0, 0, 0, 0, 0, 0, 0, 1, 2, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3])
+spell_slots_level_6 = Array[int]([0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 2])
+spell_slots_level_7 = Array[int]([0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 1, 1, 1, 1, 1, 1])
+spell_slots_level_8 = Array[int]([0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 1, 1, 1])
+spell_slots_level_9 = Array[int]([0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 1])
+subclass_name = "Arcane Tradition"
+subclass_level = 2
+available_subclasses = Array[String](["evocation", "abjuration", "conjuration", "divination", "enchantment", "illusion", "necromancy", "transmutation"])
+metadata/_custom_type_script = "uid://ctr5jcf3ko2fy"

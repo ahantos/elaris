@@ -1,0 +1,24 @@
+[gd_resource type="Resource" script_class="RaceData" load_steps=2 format=3 uid="uid://bvys6vqld7lx6"]
+
+[ext_resource type="Script" uid="uid://bce4m71a3t652" path="res://data/races/race_data.gd" id="1_hwfdr"]
+
+[resource]
+script = ExtResource("1_hwfdr")
+race_id = "human"
+display_name = "Human"
+description = "Humans are the most adaptable and ambitious people. They have widely varying tastes, morals, and customs in the many lands where they have settled."
+height_min = 56
+height_max = 76
+weight_min = 110
+weight_max = 220
+str_bonus = 11
+dex_bonus = 1
+con_bonus = 1
+int_bonus = 1
+wis_bonus = 1
+cha_bonus = 1
+racial_traits = Array[String](["extra_language"])
+extra_language_count = 1
+special_abilities = Array[String](["Versatile: +1 to all ability scores"])
+cultural_background = "Humans are diverse and adaptable, found in every climate and culture. They build vast empires and are driven by ambition and innovation."
+metadata/_custom_type_script = "uid://bce4m71a3t652"
