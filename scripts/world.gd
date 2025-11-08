@@ -18,6 +18,7 @@ var enemies: Array[Enemy] = []
 var combat_detection_range: int = 10
 var enemy_activation_range: int = 20
 var in_combat: bool = false
+var character_screen
 
 func _ready():
 	# Generate dungeon
@@ -58,7 +59,11 @@ func _ready():
 	if grid_overlay:
 		grid_overlay.set_enabled(false)
 		print("Grid hidden - exploration mode")
-
+	
+	# Add character screen
+	character_screen = preload("res://scenes/ui/character_screen.tscn").instantiate()
+	add_child(character_screen)
+	
 func position_player_at_start():
 	"""Position player at the start room center"""
 	if not current_dungeon.start_room.is_empty():
@@ -107,6 +112,11 @@ func _input(event):
 		elif event.keycode == KEY_F6:
 			if save_load_menu:
 				save_load_menu.show_load_menu()
+				
+		elif event.keycode == KEY_I:  # Or KEY_I or whatever key you want
+			if character_screen:
+				character_screen.show_character(GameManager.player.stats)
+		
 
 func regenerate_dungeon():
 	"""Regenerate the entire dungeon and reset game state"""

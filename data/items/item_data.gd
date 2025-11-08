@@ -25,6 +25,7 @@ enum ItemType {
 	CONSUMABLE,
 	MATERIAL,
 	QUEST_ITEM,
+	CURRENCY,  # For coins and gems - ADDED THIS LINE
 	MISC
 }
 @export var item_type: ItemType = ItemType.MISC
@@ -229,5 +230,6 @@ func get_type_name() -> String:
 		ItemType.CONSUMABLE: return "Consumable"
 		ItemType.MATERIAL: return "Material"
 		ItemType.QUEST_ITEM: return "Quest Item"
+		ItemType.CURRENCY: return "Currency"  # ADDED THIS LINE
 		ItemType.MISC: return "Misc"
 	return "Unknown"

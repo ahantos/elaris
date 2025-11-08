@@ -27,7 +27,10 @@ signal item_broken(item_instance)
 
 # === INVENTORY EVENTS ===
 signal inventory_changed()
-signal slots_changed(used: int, max: int)  # Replaces weight_changed
+signal weight_changed(current_weight: float, max_weight: float)
+signal equipment_changed(character: CharacterStats)  # NEW - for character screen updates
+signal slots_changed(used_slots: int, max_slots: int)  # NEW - for slot-based encumbrance
+signal gold_changed(amount: int)  # NEW - for gold updates
 
 # === UI EVENTS ===
 signal ui_notification(message: String, type: String)  # type: "info", "warning", "error", "success"

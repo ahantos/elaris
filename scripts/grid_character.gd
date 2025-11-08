@@ -759,12 +759,12 @@ func toggle_turn_based_mode():
 func start_new_turn():
 	"""Start a new turn with full movement"""
 	turn_number += 1
-	moves_remaining = stats.movement_speed  # Use stats (NEW)
+	moves_remaining = stats.get_modified_movement_speed()  # UPDATED - Uses encumbrance
 	has_attacked_this_turn = false
 	print("=== Turn ", turn_number, " started ===")
 	print("Movement available: ", moves_remaining, " tiles")
 	
-	# Emit event (NEW)
+	# Emit event
 	EventBus.turn_started.emit(self)
 
 func end_turn():

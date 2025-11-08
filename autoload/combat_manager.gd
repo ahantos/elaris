@@ -167,8 +167,8 @@ func handle_death(target: Node):
 func roll_initiative(character_stats: CharacterStats) -> int:
 	"""Roll initiative (d20 + DEX modifier)"""
 	return randi_range(1, 20) + character_stats.get_dex_modifier()
-	
-	# === SAVING THROWS ===
+
+# === SAVING THROWS ===
 
 func make_saving_throw(character_stats: CharacterStats, stat: String, dc: int, 
 					   advantage: bool = false, disadvantage: bool = false) -> Dictionary:
