@@ -60,9 +60,13 @@ func _ready():
 		grid_overlay.set_enabled(false)
 		print("Grid hidden - exploration mode")
 	
-	# Add character screen
+# Add character screen with CanvasLayer
+	var ui_layer = CanvasLayer.new()
+	ui_layer.name = "CharacterScreenLayer"
+	add_child(ui_layer)
+	
 	character_screen = preload("res://scenes/ui/character_screen.tscn").instantiate()
-	add_child(character_screen)
+	ui_layer.add_child(character_screen)  # Add to CanvasLayer, not directly to world
 	
 func position_player_at_start():
 	"""Position player at the start room center"""
