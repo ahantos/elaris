@@ -46,6 +46,9 @@ var camera: Camera2D = null
 var grid_overlay: GridOverlay = null
 var tilemap: TileMap = null
 
+# Cached world reference (avoids per-frame scene tree lookups in _process)
+var world_node = null
+
 var room_templates: Array[RoomTemplate] = []
 var placed_rooms: Array[Dictionary] = []
 var dungeon_grid: Array[Array] = []
@@ -84,23 +87,27 @@ func _ready():
 		call_deferred("generate_dungeon")
 
 func _process(delta):
+	if not camera:
+		return
+
 	# Camera follows player smoothly
-	if camera:
-		var world = get_tree().root.get_node_or_null("World")
-		if world and world.player:
-			# UI takes up bottom 25% of screen
-			# Account for zoom level with slight adjustment for extreme zooms
-			var viewport_height = get_viewport_rect().size.y
-			var screen_offset = viewport_height * 0.14  # Increased from 0.125 to 0.14 (14%)
-			var world_offset = screen_offset / camera.zoom.y  # Convert to world space
-			
-			# Apply slight compensation for extreme zoom levels
-			var zoom_factor = clamp(camera.zoom.y / 3.5, 0.8, 1.2)  # Updated baseline to 3.5
-			world_offset *= zoom_factor
-			
-			var target_pos = world.player.global_position + Vector2(0, world_offset)
-			camera.global_position = camera.global_position.lerp(target_pos, 5.0 * delta)
-	
+	if not is_instance_valid(world_node):
+		world_node = get_tree().root.get_node_or_null("World")
+	var world = world_node
+	if world and world.player:
+		# UI takes up bottom 25% of screen
+		# Account for zoom level with slight adjustment for extreme zooms
+		var viewport_height = get_viewport_rect().size.y
+		var screen_offset = viewport_height * 0.14  # Increased from 0.125 to 0.14 (14%)
+		var world_offset = screen_offset / camera.zoom.y  # Convert to world space
+
+		# Apply slight compensation for extreme zoom levels
+		var zoom_factor = clamp(camera.zoom.y / 3.5, 0.8, 1.2)  # Updated baseline to 3.5
+		world_offset *= zoom_factor
+
+		var target_pos = world.player.global_position + Vector2(0, world_offset)
+		camera.global_position = camera.global_position.lerp(target_pos, 5.0 * delta)
+
 	# Zoom controls
 	if Input.is_action_pressed("ui_page_up"):
 		camera.zoom += Vector2(0.05, 0.05) * delta * 60.0
@@ -110,10 +117,10 @@ func _process(delta):
 		camera.zoom -= Vector2(0.05, 0.05) * delta * 60.0
 		camera.zoom.x = clamp(camera.zoom.x, 0.5, 10.0)
 		camera.zoom.y = clamp(camera.zoom.y, 0.5, 10.0)
-	
-	# Regenerate dungeon with R key
-	if Input.is_key_pressed(KEY_R):
-		regenerate()
+
+	# NOTE: R-key regeneration is handled by world.gd (which also respawns
+	# the player and enemies). Handling it here too caused double/per-frame
+	# regeneration that left the player standing in EMPTY tiles.
 
 func set_camera_target(target: Node2D):
 	"""Make camera follow a target - snaps to position immediately"""
@@ -135,44 +142,53 @@ func generate_dungeon():
 	boss_room = {}
 	
 	room_templates = RoomLibrary.get_rooms_for_biome(biome_type)
-	
+	if room_templates.is_empty():
+		push_error("No room templates for biome '%s' - generation aborted!" % biome_type)
+		return
+
 	var large_templates = room_templates.filter(func(t): return t.width >= 7 or t.height >= 7)
 	if large_templates.is_empty():
 		large_templates = room_templates
-	
+
 	# Place start room
 	var start_template = large_templates.filter(func(t): return t.room_type == "start")
 	if start_template.is_empty():
 		start_template = [large_templates[0]]
-	
+
 	var start_placed = false
+	var start_range_x = max(1, dungeon_width - start_template[0].width - 20)
+	var start_range_y = max(1, dungeon_height - start_template[0].height - 20)
 	for attempt in range(max_placement_attempts):
 		var pos = Vector2i(
-			randi() % (dungeon_width - start_template[0].width - 20) + 10,
-			randi() % (dungeon_height - start_template[0].height - 20) + 10
+			randi() % start_range_x + 10,
+			randi() % start_range_y + 10
 		)
 		if _can_place_room(pos, start_template[0]):
 			_place_room(pos, start_template[0])
 			start_room = placed_rooms[0]
 			start_placed = true
 			break
-	
+
 	if not start_placed:
 		push_error("Failed to place start room!")
 		return
-	
-	# Place middle room
+
+	# Place middle room (never reuse the start template - it would overwrite start_room)
 	var normal_templates = large_templates.filter(func(t): return t.room_type == "normal")
+	if normal_templates.is_empty():
+		normal_templates = large_templates.filter(func(t): return t.room_type != "start")
 	if normal_templates.is_empty():
 		normal_templates = large_templates
 	var middle_template = normal_templates[randi() % normal_templates.size()]
 	_attempt_place_room(middle_template)
-	
-	# Place boss room
+
+	# Place boss room (never reuse the start template - it would overwrite start_room)
 	var boss_template = large_templates.filter(func(t): return t.room_type == "boss")
 	if boss_template.is_empty():
-		boss_template = [large_templates[randi() % large_templates.size()]]
-	_attempt_place_room(boss_template[0])
+		boss_template = large_templates.filter(func(t): return t.room_type != "start")
+	if boss_template.is_empty():
+		boss_template = large_templates
+	_attempt_place_room(boss_template[randi() % boss_template.size()])
 	
 	if placed_rooms.size() >= 2:
 		boss_room = placed_rooms[placed_rooms.size() - 1]
@@ -201,10 +217,12 @@ func _initialize_grid():
 		dungeon_grid.append(row)
 
 func _attempt_place_room(template: RoomTemplate) -> bool:
+	var range_x = max(1, dungeon_width - template.width - min_room_distance * 2)
+	var range_y = max(1, dungeon_height - template.height - min_room_distance * 2)
 	for attempt in range(max_placement_attempts):
 		var pos = Vector2i(
-			randi() % (dungeon_width - template.width - min_room_distance * 2) + min_room_distance,
-			randi() % (dungeon_height - template.height - min_room_distance * 2) + min_room_distance
+			randi() % range_x + min_room_distance,
+			randi() % range_y + min_room_distance
 		)
 		if _can_place_room(pos, template):
 			_place_room(pos, template)
@@ -247,7 +265,10 @@ func _place_room(pos: Vector2i, template: RoomTemplate):
 	placed_rooms.append(room_data)
 	
 	if template.room_type == "start":
-		start_room = room_data
+		# Only the first start room counts - a fallback room reusing a "start"
+		# template must not steal the player spawn
+		if start_room.is_empty():
+			start_room = room_data
 	elif template.room_type == "boss":
 		boss_room = room_data
 

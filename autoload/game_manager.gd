@@ -59,6 +59,21 @@ func unpause_game():
 	game_paused = false
 	get_tree().paused = false
 
+# === RESTING ===
+
+func take_short_rest():
+	"""Take a short rest (1 hour). Systems restore resources by listening to EventBus.rest_taken."""
+	print("Party takes a short rest")
+	EventBus.rest_taken.emit("short")
+
+func take_long_rest():
+	"""Take a long rest (8 hours). Restores HP here; other systems listen to EventBus.rest_taken."""
+	print("Party takes a long rest")
+	if player and player.get("stats") and player.stats:
+		player.stats.current_hp = player.stats.max_hp
+		EventBus.player_hp_changed.emit(player.stats.current_hp, player.stats.max_hp)
+	EventBus.rest_taken.emit("long")
+
 # === SETTINGS ===
 
 func get_setting(key: String, default = null):

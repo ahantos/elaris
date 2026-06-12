@@ -9,6 +9,10 @@ class_name Enemy
 @export var moves_per_turn: int = 6
 @export var enemy_color: Color = Color(1, 0, 0, 1)
 
+# Identity (assigned by world on spawn; drives loot tables, quest kill credit and XP)
+@export var enemy_type: String = "goblin"
+@export var enemy_level: int = 1
+
 @export_group("Combat Stats")
 @export var max_hp: int = 10
 @export var current_hp: int = 10
@@ -26,16 +30,28 @@ var path_index: int = 0
 # Stats system (NEW)
 var stats: CharacterStats
 
+# Effective move budget for the current turn (moves_per_turn +/- status effects)
+var moves_budget_this_turn: int = 6
+
+# Cached world reference (avoids per-call scene tree lookups in hot paths)
+var world_node = null
+
+# Death guard (prevents double death handling)
+var is_dying: bool = false
+
 func _ready():
 	z_index = 200
-	
+
+	# Cache world reference (used in hot paths like is_walkable)
+	world_node = get_tree().root.get_node_or_null("World")
+
+	# Flash when CombatManager applies damage directly to stats
+	EventBus.damage_dealt.connect(_on_damage_dealt_event)
+
 	# Auto-detect tile size
 	if dungeon_generator and dungeon_generator.tilemap and dungeon_generator.tilemap.tile_set:
 		tile_size = int(dungeon_generator.tilemap.tile_set.tile_size.x)
-	
-	# Initialize enemy stats (NEW)
-	initialize_stats()
-	
+
 	# Auto-scale sprite
 	var sprite = get_node_or_null("Sprite2D")
 	if sprite and sprite.texture:
@@ -44,6 +60,21 @@ func _ready():
 		var scale_factor = target_size / max(texture_size.x, texture_size.y)
 		sprite.scale = Vector2(scale_factor, scale_factor)
 		sprite.modulate = enemy_color
+
+	# Initialize enemy stats (NEW)
+	initialize_stats()
+
+func _get_world():
+	"""Get the cached World node (re-resolves if missing/freed)"""
+	if not is_instance_valid(world_node):
+		world_node = get_tree().root.get_node_or_null("World")
+	return world_node
+
+func _on_damage_dealt_event(_attacker, target, _amount, _is_critical):
+	"""Flash feedback when CombatManager applies damage to this enemy"""
+	if target == self:
+		flash_damage()
+		queue_redraw()
 
 func initialize_stats():
 	"""Initialize enemy stats"""
@@ -60,8 +91,11 @@ func initialize_stats():
 	stats.max_hp = max_hp
 	stats.current_hp = current_hp
 	stats.movement_speed = moves_per_turn
-	
-	print("Enemy stats initialized: HP ", stats.current_hp, "/", stats.max_hp)
+	stats.character_name = enemy_type.capitalize()
+	stats.level = enemy_level
+	moves_budget_this_turn = moves_per_turn
+
+	print("Enemy stats initialized: ", enemy_type, " lv", enemy_level, " HP ", stats.current_hp, "/", stats.max_hp)
 
 func spawn_at(spawn_pos: Vector2i):
 	"""Spawn enemy at specific grid position"""
@@ -70,37 +104,96 @@ func spawn_at(spawn_pos: Vector2i):
 	target_position = position
 
 func take_turn():
-	"""Enemy takes its turn"""
+	"""Enemy takes its turn (status-effect hooks run at start and on every exit path)"""
 	if is_moving:
 		return
-	
-	if not player:
+
+	# Dead/dying enemies don't act
+	if is_dying or not stats or not stats.is_alive():
 		return
-	
+
+	# Status-effect ticks at the start of the turn (burning, regenerating, ...)
+	StatusEffectManager.process_turn_start(self)
+
+	# The tick may have killed this enemy - die() already notified the world,
+	# and the world's loop advances the chain on its own
+	if is_dying or not stats or not stats.is_alive():
+		return
+
+	# Incapacitated (stunned/paralyzed/frozen): skip acting, but durations
+	# still tick down so the effect can expire
+	if StatusEffectManager.is_incapacitated(self):
+		print("%s is incapacitated and skips its turn!" % name)
+		_finish_turn_effects()
+		return
+
+	# Player gone or dead - nothing to do
+	if not is_instance_valid(player) or not player.stats or not player.stats.is_alive():
+		_finish_turn_effects()
+		return
+
+	# Combat move budget for this turn (slowed/hasted/restrained adjust it)
+	moves_budget_this_turn = max(0, moves_per_turn + StatusEffectManager.get_speed_modifier_tiles(self))
+
 	var player_pos = player.get_grid_position()
-	
+
 	# Check if already adjacent to player
 	var dx = abs(grid_position.x - player_pos.x)
 	var dy = abs(grid_position.y - player_pos.y)
-	
+
 	if dx <= 1 and dy <= 1 and (dx + dy) > 0:
-		# Already adjacent - attack
-		attack_player()
+		# Already adjacent - attack (await so turn-end effects land after the swing)
+		await attack_player()
+		if is_dying or not stats or not stats.is_alive():
+			return
+		_finish_turn_effects()
 		return
-	
+
+	# Rooted in place (restrained etc.) - nothing else to do this turn
+	if moves_budget_this_turn <= 0:
+		print("%s cannot move this turn!" % name)
+		_finish_turn_effects()
+		return
+
 	# Calculate path toward player
 	path = _calculate_path_to_player(player_pos)
-	
+
 	if path.size() <= 1:
+		path.clear()
+		_finish_turn_effects()
 		return
-	
-	# Take up to moves_per_turn steps
-	var steps = min(moves_per_turn, path.size() - 1)
-	
-	# Start moving
+
+	# Start moving (movement is capped to moves_budget_this_turn in _physics_process)
 	path_index = 1
+
+	# Leaving the player's melee reach provokes an opportunity attack
+	_check_opportunity_attacks(grid_position, path[path_index])
+	if is_dying or not stats or not stats.is_alive():
+		path.clear()
+		path_index = 0
+		return
+
 	target_position = grid_to_world(path[path_index])
 	is_moving = true
+
+func _finish_turn_effects():
+	"""End-of-turn status bookkeeping (ticks, end saves, duration countdown)"""
+	if is_dying or not stats or not stats.is_alive():
+		return
+	StatusEffectManager.process_turn_end(self)
+
+func _check_opportunity_attacks(from_tile: Vector2i, to_tile: Vector2i):
+	"""Stepping out of the player's melee reach (adjacent to from_tile but not
+	to_tile) provokes their opportunity attack. CombatManager self-gates the
+	reaction (once per round, status effects, exact adjacency) - just call it."""
+	var world = _get_world()
+	if not world or not world.in_combat:
+		return
+	if not is_instance_valid(player) or not player.stats or not player.stats.is_alive():
+		return
+	var player_pos = player.get_grid_position()
+	if CombatGrid.get_distance_tiles(player_pos, from_tile) == 1 and CombatGrid.get_distance_tiles(player_pos, to_tile) > 1:
+		CombatManager.trigger_opportunity_attack(player, self)
 
 func create_temp_weapon() -> ItemData:
 	"""Create temporary weapon for enemy (TEMPORARY - Phase 2 will give enemies real weapons)"""
@@ -114,35 +207,50 @@ func create_temp_weapon() -> ItemData:
 
 func attack_player():
 	"""Attack the player with animation (REFACTORED)"""
-	if player:
-		# Get weapon (TODO: enemies will have weapons in Phase 2)
-		var weapon = create_temp_weapon()
-		
-		# Attack animation
-		animate_attack(player.global_position)
-		
-		# Wait for animation
-		await get_tree().create_timer(0.15).timeout
-		
-		# Roll attack using CombatManager
-		var result = CombatManager.roll_attack(stats, player.stats, weapon)
-		
-		if result.is_fumble:
-			print("%s fumbled the attack!" % name)
-			DamagePopup.spawn_miss_popup_at(get_parent(), player.global_position + Vector2(0, -tile_size * 0.8))
-		elif result.hit:
-			if result.is_crit:
-				print("%s lands a CRITICAL HIT on Player for %d damage!" % [name, result.damage])
-				DamagePopup.spawn_damage_popup_at(get_parent(), player.global_position + Vector2(0, -tile_size * 0.8), result.damage, true)
-			else:
-				print("%s hits Player for %d damage!" % [name, result.damage])
-				DamagePopup.spawn_damage_popup_at(get_parent(), player.global_position + Vector2(0, -tile_size * 0.8), result.damage, false)
-			
-			# Apply damage using CombatManager
-			CombatManager.apply_damage(player, result.damage, CombatManager.DamageType.PHYSICAL, self)
+	if not is_instance_valid(player) or not player.stats:
+		return
+
+	# Get weapon (TODO: enemies will have weapons in Phase 2)
+	var weapon = create_temp_weapon()
+
+	# Attack animation
+	animate_attack(player.global_position)
+
+	# Wait for animation (pauses with the tree so damage can't resolve
+	# while a pause menu is open)
+	await get_tree().create_timer(0.15, false).timeout
+
+	# Player may have been freed during the animation delay
+	if not is_instance_valid(player) or not player.stats:
+		return
+
+	# Roll attack using CombatManager (nodes unlock status effects, cover and AC mods)
+	var result = CombatManager.roll_attack(stats, player.stats, weapon, false, false, self, player, [])
+	if result.is_empty():
+		return
+
+	if result.get("auto_fail", false):
+		print("%s is incapacitated and cannot attack!" % name)
+		return
+
+	var popup_pos = player.global_position + Vector2(0, -tile_size * 0.8)
+
+	if result.is_fumble:
+		print("%s fumbled the attack!" % name)
+		DamagePopup.spawn_miss_popup_at(get_parent(), popup_pos)
+	elif result.hit:
+		if result.is_crit:
+			print("%s lands a CRITICAL HIT on Player for %d damage!" % [name, result.damage])
+			DamagePopup.spawn_damage_popup_at(get_parent(), popup_pos, result.damage, true)
 		else:
-			print("%s missed Player! (Rolled %d vs AC %d)" % [name, result.total, result.target_ac])
-			DamagePopup.spawn_miss_popup_at(get_parent(), player.global_position + Vector2(0, -tile_size * 0.8))
+			print("%s hits Player for %d damage!" % [name, result.damage])
+			DamagePopup.spawn_damage_popup_at(get_parent(), popup_pos, result.damage, false)
+
+		# Apply damage using CombatManager
+		CombatManager.apply_damage(player, result.damage, CombatManager.DamageType.PHYSICAL, self, result.is_crit)
+	else:
+		print("%s missed Player! (Rolled %d vs AC %d)" % [name, result.total, result.target_ac])
+		DamagePopup.spawn_miss_popup_at(get_parent(), popup_pos)
 
 func animate_attack(target_pos: Vector2):
 	"""Animate a quick lunge toward the target"""
@@ -301,25 +409,35 @@ func _physics_process(delta):
 			path_index += 1
 			
 			# Check if should continue moving
-			if path_index < path.size() and path_index <= moves_per_turn:
+			if path_index < path.size() and path_index <= moves_budget_this_turn:
+				# Leaving the player's melee reach provokes an opportunity attack
+				_check_opportunity_attacks(grid_position, path[path_index])
+				if is_dying or not stats or not stats.is_alive():
+					is_moving = false
+					path.clear()
+					path_index = 0
+					return
 				target_position = grid_to_world(path[path_index])
 			else:
 				# Done moving this turn
 				is_moving = false
 				path.clear()
 				path_index = 0
-				
+
 				# After moving, check if adjacent to player and attack
 				check_and_attack_player()
+
+				# End-of-turn status bookkeeping (ticks, end saves, durations)
+				_finish_turn_effects()
 	
 	# Always redraw to show HP bar
 	queue_redraw()
 
 func check_and_attack_player():
 	"""Check if adjacent to player after moving and attack if so"""
-	if not player:
+	if is_dying or not is_instance_valid(player):
 		return
-	
+
 	var player_pos = player.get_grid_position()
 	var dx = abs(grid_position.x - player_pos.x)
 	var dy = abs(grid_position.y - player_pos.y)
@@ -331,7 +449,7 @@ func check_and_attack_player():
 func _draw():
 	"""Draw HP bar above enemy"""
 	# Only show HP bar when in combat
-	var world = get_tree().root.get_node_or_null("World")
+	var world = _get_world()
 	if world and world.in_combat:
 		draw_hp_bar()
 
@@ -372,15 +490,20 @@ func is_walkable(grid_pos: Vector2i) -> bool:
 		return false
 	
 	# Check if player occupies this position
-	if player and player.get_grid_position() == grid_pos:
+	if is_instance_valid(player) and player.get_grid_position() == grid_pos:
 		return false
-	
+
 	# Check if any other enemy occupies this position
-	var world = get_tree().root.get_node_or_null("World")
+	var world = _get_world()
 	if world and world.has_method("is_position_occupied_by_enemy"):
 		if world.is_position_occupied_by_enemy(grid_pos, self):
 			return false
-	
+
+	# Check if a party companion occupies this position
+	if world and world.has_method("is_position_occupied_by_companion"):
+		if world.is_position_occupied_by_companion(grid_pos, self):
+			return false
+
 	return true
 
 func world_to_grid(world_pos: Vector2) -> Vector2i:
@@ -402,14 +525,22 @@ func get_grid_position() -> Vector2i:
 	return grid_position
 
 func take_damage(amount: int):
-	"""Take damage with visual effects (REFACTORED)"""
+	"""Apply direct damage with visual effects (e.g. traps, hazards).
+	NOTE: attacks should go through CombatManager.apply_damage instead."""
+	if not stats:
+		return
+
+	var still_alive = stats.take_damage(amount)
+	print("%s took %d damage! HP: %d/%d" % [name, amount, stats.current_hp, stats.max_hp])
+
 	# Flash effect
 	flash_damage()
-	
+
 	queue_redraw()
-	
-	if not stats or not stats.is_alive():
-		die()
+
+	if not still_alive:
+		# Route through CombatManager so death events stay consistent
+		CombatManager.handle_death(self)
 
 func flash_damage():
 	"""Quick red flash when taking damage"""
@@ -421,8 +552,24 @@ func flash_damage():
 
 func die():
 	"""Handle death with effects"""
+	if is_dying:
+		return
+	is_dying = true
+
 	print("%s has died!" % name)
-	
+
+	# Stop any movement in progress
+	is_moving = false
+	path.clear()
+	path_index = 0
+
+	# Notify world immediately (before the fade) so the enemy is removed
+	# from the enemies array and initiative right away - otherwise it could
+	# still get a turn or block tiles while fading out
+	var world = _get_world()
+	if world and world.has_method("on_enemy_died"):
+		world.on_enemy_died(self)
+
 	# Death animation - fade out and shrink
 	var sprite = get_node_or_null("Sprite2D")
 	if sprite:
@@ -431,12 +578,7 @@ func die():
 		tween.tween_property(sprite, "modulate:a", 0.0, 0.5)
 		tween.tween_property(sprite, "scale", Vector2.ZERO, 0.5)
 		await tween.finished
-	
-	# Notify world that this enemy died
-	var world = get_tree().root.get_node_or_null("World")
-	if world:
-		world.on_enemy_died(self)
-	
+
 	queue_free()
 
 func get_hp() -> int:

@@ -66,16 +66,16 @@ static func _create_house_templates() -> Array[RoomTemplate]:
 		[1, 1, 1, 1, 1, 1, 1, 1, 1]
 	], [Vector2i(4, 0), Vector2i(4, 6), Vector2i(0, 3), Vector2i(8, 3)], "house", "start"))
 	
-	# L-shaped hallway
+	# L-shaped hallway (rows padded with EMPTY so every row is the same width)
 	house_rooms.append(RoomTemplate.new("hallway_l", [
-		[1, 1, 1, 1, 1],
-		[1, 0, 0, 0, 1],
-		[1, 0, 0, 0, 1],
-		[1, 0, 0, 0, 1],
+		[1, 1, 1, 1, 1, -1, -1],
+		[1, 0, 0, 0, 1, -1, -1],
+		[1, 0, 0, 0, 1, -1, -1],
+		[1, 0, 0, 0, 1, -1, -1],
 		[1, 0, 0, 0, 1, 1, 1],
 		[1, 0, 0, 0, 0, 0, 1],
 		[1, 1, 1, 1, 1, 1, 1]
-	], [Vector2i(2, 0), Vector2i(0, 3), Vector2i(6, 6)], "house", "normal"))
+	], [Vector2i(2, 0), Vector2i(0, 3), Vector2i(6, 5)], "house", "normal"))
 	
 	return house_rooms
 
@@ -253,12 +253,13 @@ static func _create_crypt_templates() -> Array[RoomTemplate]:
 static func _create_forest_templates() -> Array[RoomTemplate]:
 	var forest_rooms: Array[RoomTemplate] = []
 	
-	# Forest clearing
+	# Forest clearing (start room - keep the center tile walkable, the player
+	# spawns on the room center)
 	forest_rooms.append(RoomTemplate.new("clearing", [
 		[-1, 1, 1, 1, 1, 1, -1],
 		[1, 0, 0, 0, 0, 0, 1],
 		[1, 0, 0, 0, 0, 0, 1],
-		[1, 0, 0, 3, 0, 0, 1],
+		[1, 0, 3, 0, 0, 0, 1],
 		[1, 0, 0, 0, 0, 0, 1],
 		[1, 0, 0, 0, 0, 0, 1],
 		[-1, 1, 1, 1, 1, 1, -1]

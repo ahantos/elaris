@@ -32,7 +32,12 @@ func setup(p_dungeon_generator: DungeonGenerator, p_player: GridCharacter):
 	"""Initialize minimap with dungeon and player references"""
 	dungeon_generator = p_dungeon_generator
 	player = p_player
-	
+
+	# Reset exploration state - setup() is also called on dungeon regeneration,
+	# and fog from the old dungeon must not carry over to the new one
+	explored_tiles.clear()
+	last_player_pos = Vector2i(-999, -999)
+
 	if dungeon_generator:
 		# Calculate how many pixels per tile to fit the dungeon in minimap
 		var dungeon_size = Vector2(dungeon_generator.dungeon_width, dungeon_generator.dungeon_height)
@@ -43,12 +48,17 @@ func setup(p_dungeon_generator: DungeonGenerator, p_player: GridCharacter):
 	queue_redraw()
 
 func _process(_delta):
-	# Update exploration around player
-	if fog_of_war_enabled and player and dungeon_generator:
-		update_exploration()
-	
-	# Redraw every frame to show player position
-	queue_redraw()
+	if not player or not dungeon_generator:
+		return
+
+	# Only update exploration and redraw when the player enters a new tile -
+	# redrawing a 200x200 grid every frame is far too expensive
+	var current_pos: Vector2i = player.get_grid_position()
+	if current_pos != last_player_pos:
+		last_player_pos = current_pos
+		if fog_of_war_enabled:
+			update_exploration()
+		queue_redraw()
 
 func update_exploration():
 	"""Mark tiles around player as explored"""
@@ -67,7 +77,9 @@ func update_exploration():
 func _draw():
 	if not dungeon_generator or not player:
 		return
-	
+	if dungeon_generator.dungeon_grid.size() < dungeon_generator.dungeon_height:
+		return
+
 	# Draw background
 	draw_rect(Rect2(Vector2.ZERO, minimap_size), background_color)
 	

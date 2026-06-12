@@ -1,6 +1,15 @@
 # Development Roadmap
 
-## 📊 Current Phase: Phase 2 (Refactor)
+## 🚨 STATUS UPDATE — 2026-06-12
+The 2026-06-11/12 build-out session implemented the **systems** for Phases 2-8 in one pass
+(see CHANGELOG). Phase statuses below are historical; reinterpret as:
+- **Phases 2-8:** systems BUILT & integrated with placeholder content — remaining work is
+  content volume, balance, world placement (NPCs/stations), and polish
+- **Phase 9 (multiplayer):** skipped (optional per this roadmap)
+- **Phase 10 (polish/launch):** unchanged, still ahead
+Current focus: playtesting, balance, and content production within the built systems.
+
+## 📊 Current Phase: Content & Balance (systems complete)
 
 ---
 

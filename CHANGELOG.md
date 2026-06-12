@@ -4,6 +4,40 @@ All notable changes and session notes documented here.
 
 ---
 
+## [Session - June 11-12, 2026] - Full-Systems Build-Out (Phases 2-8)
+
+### 🔧 Review & Fixes
+- Fixed InventoryManager autoload silently failing to parse (2-arg Object.get) — equipment
+  had never actually worked at runtime
+- Fixed attack-crash (missing has_disadvantage_on_physical_rolls), level-up HP wipe,
+  modifier rounding for odd stats < 10, unequip item-loss when inventory full,
+  .has()-on-Resource equip crash, enemy sprite-scale stranded refactor, combat timers
+  running while paused, human.tres +11 STR typo, anchors warnings
+- Removed stray committed tmp files; .gitignore covers *.tmp / tmpclaude*
+
+### 🏗️ Architecture
+- docs/ARCHITECTURE_CONTRACTS.md (binding system contracts), ~50 new EventBus signals,
+  14 new autoload managers (22 total), UIManager exclusive panel system
+
+### ⚔️ Systems Built (placeholder content, fully integrated)
+- **Items/Loot:** 20 materials, 263 items, loot tables, ground drops, starting kits
+- **Progression:** XP table to 40, ASIs, class hit dice, 18 skills, 5 races, character creation
+- **Combat:** 17 status effects, line-of-sight, cover, flanking, opportunity attacks
+- **Magic:** 82 spells, slots, concentration, scrolls/wands, enchanting, spellbook panel
+- **Crafting:** 115 recipes, 4 stations, repair, enchanting, crafting panel
+- **World/Story:** 3 factions, 8 quests + procedural generator, dialogues with skill
+  checks/conditions/effects, 6 random events, Lich King crisis, 9 zones + travel
+- **Social:** 4 companions (2 romanceable), relationships, gifts, party combat
+- **Save v2:** every system serialized (primitives only), v1-save tolerant
+- **Integration:** full keymap (B/C/J/O/P/N panels, Y dialogue, F7/F8 rest), loot/XP on
+  kill, step-on pickup, status-effect turn hooks, spell click-targeting, zone regen
+
+### ✅ Validation
+- Headless boot + 600-frame run: exit 0, zero script errors
+- Scripted gameplay probe through recruit/combat/cast/loot/travel/rest/dialogue/crisis: 19/19
+
+---
+
 ## [Session - October 18, 2025] - Documentation & Planning
 
 ### 📚 Documentation Created

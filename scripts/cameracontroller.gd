@@ -14,7 +14,6 @@ func _ready():
 
 func _process(delta):
 	if not target:
-		print("CameraController: No target set!")
 		return
 	
 	# Get viewport dimensions

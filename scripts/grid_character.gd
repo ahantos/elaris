@@ -46,6 +46,7 @@ var full_preview_path: Array[Vector2i] = []
 
 # Turn-based movement tracking
 var moves_remaining: int = 0
+var moves_granted_this_turn: int = 0
 var turn_number: int = 0
 
 # Attack mode
@@ -56,14 +57,27 @@ var has_attacked_this_turn: bool = false
 # Turn management signal
 signal turn_ended
 
+# Cached world reference (avoids per-call scene tree lookups in hot paths)
+var world_node = null
+
+# Death guard (prevents double death handling)
+var is_dying: bool = false
+
 func _ready():
 	z_index = 200
-	
+
 	# Initialize character stats (NEW)
 	initialize_stats()
-	
+
 	# Register with GameManager (NEW)
 	GameManager.set_player(self)
+
+	# Cache world reference (used in hot paths like is_walkable)
+	world_node = get_tree().root.get_node_or_null("World")
+
+	# Keep HP signal/visuals in sync when CombatManager applies damage directly to stats
+	EventBus.damage_dealt.connect(_on_damage_dealt_event)
+	EventBus.game_loaded.connect(_on_game_loaded)
 	
 	# Auto-detect tile size from dungeon's tilemap
 	if dungeon_generator and dungeon_generator.tilemap and dungeon_generator.tilemap.tile_set:
@@ -140,20 +154,23 @@ func process_wasd_movement(delta):
 	# Normalize diagonal movement
 	if input_dir.length() > 0:
 		input_dir = input_dir.normalized()
-		
+
 		# Cancel click-based movement and previews
 		if is_moving:
 			is_moving = false
 			path.clear()
-		
+
 		if preview_path.size() > 0 or waypoints.size() > 0:
 			cancel_preview()
-		
+
 		# Calculate desired position
 		var movement_delta = input_dir * wasd_exploration_speed * delta
 		var desired_position = position + movement_delta
 		var desired_grid = world_to_grid(desired_position)
-		
+
+		# Track tile changes for step-on loot pickup
+		var previous_grid = grid_position
+
 		# Check if the target tile is walkable
 		if is_walkable(desired_grid):
 			# Move smoothly
@@ -175,16 +192,25 @@ func process_wasd_movement(delta):
 					position = vertical_pos
 					grid_position = world_to_grid(position)
 
+		# Stepped onto a new tile - pick up any ground loot there
+		if grid_position != previous_grid:
+			_check_ground_pickup()
+
 func _input(event):
 	if event is InputEventMouseButton:
 		if event.button_index == MOUSE_BUTTON_LEFT and event.pressed:
 			var click_pos = get_global_mouse_position()
 			var click_grid = world_to_grid(click_pos)
 			var ctrl_held = Input.is_key_pressed(KEY_CTRL)
-			
+
+			# A readied spell (set via the spellbook) intercepts the click
+			if SpellManager.get_pending_cast(self) != "":
+				_handle_pending_spell_click(click_grid)
+				return
+
 			# Check if in attack mode
 			if attack_mode:
-				var world = get_tree().root.get_node_or_null("World")
+				var world = _get_world()
 				if world:
 					var clicked_enemy = world.get_enemy_at_position(click_grid)
 					if clicked_enemy:
@@ -279,7 +305,11 @@ func _input(event):
 					queue_redraw()
 		
 		elif event.keycode == KEY_ESCAPE and event.pressed and not event.echo:
-			if attack_mode:
+			if SpellManager.get_pending_cast(self) != "":
+				SpellManager.clear_pending_cast(self)
+				print("Spell cast cancelled.")
+				queue_redraw()
+			elif attack_mode:
 				attack_mode = false
 				selected_attack_type = ""
 				print("Attack cancelled.")
@@ -383,9 +413,18 @@ func execute_move():
 	
 	if path.size() > 1:
 		path_index = 1
+
+		# Leaving an enemy's melee reach provokes opportunity attacks (combat only)
+		_check_opportunity_attacks(grid_position, path[path_index])
+		if is_dying or not stats or not stats.is_alive():
+			path.clear()
+			path_index = 0
+			queue_redraw()
+			return
+
 		target_position = grid_to_world(path[path_index])
 		is_moving = true
-	
+
 	queue_redraw()
 
 func cancel_preview():
@@ -490,20 +529,34 @@ func _physics_process(delta):
 			position = target_position
 			grid_position = path[path_index]
 			path_index += 1
-			
+
+			# Deduct movement per completed tile so stopping
+			# mid-path still counts the moves already used
+			if turn_based_mode:
+				moves_remaining -= 1
+
+			# Step-on pickup of ground loot
+			_check_ground_pickup()
+
 			if path_index < path.size():
+				# Leaving an enemy's melee reach provokes opportunity attacks
+				_check_opportunity_attacks(grid_position, path[path_index])
+				if is_dying or not stats or not stats.is_alive():
+					is_moving = false
+					path.clear()
+					path_index = 0
+					queue_redraw()
+					return
 				target_position = grid_to_world(path[path_index])
 			else:
 				is_moving = false
-				
+
 				if turn_based_mode:
-					var moves_used = path.size() - 1
-					moves_remaining -= moves_used
-					print("Used ", moves_used, " moves. Remaining: ", moves_remaining)
-					
+					print("Moves remaining: ", moves_remaining)
+
 					if moves_remaining <= 0:
 						print("Out of moves! Press SPACE to end turn.")
-				
+
 				path.clear()
 				path_index = 0
 				queue_redraw()
@@ -612,27 +665,38 @@ func _reconstruct_path(came_from: Dictionary, current: Vector2i) -> Array[Vector
 		path_result.insert(0, current)
 	return path_result
 
+func _get_world():
+	"""Get the cached World node (re-resolves if missing/freed)"""
+	if not is_instance_valid(world_node):
+		world_node = get_tree().root.get_node_or_null("World")
+	return world_node
+
 func is_walkable(grid_pos: Vector2i) -> bool:
 	"""Check if a grid position is walkable"""
 	if not dungeon_generator:
 		return false
-	
+
 	if grid_pos.x < 0 or grid_pos.x >= dungeon_generator.dungeon_width:
 		return false
 	if grid_pos.y < 0 or grid_pos.y >= dungeon_generator.dungeon_height:
 		return false
-	
+
 	var tile_type = dungeon_generator.dungeon_grid[grid_pos.y][grid_pos.x]
 	var is_floor = tile_type == dungeon_generator.TileType.FLOOR or tile_type == dungeon_generator.TileType.DOOR
-	
+
 	if not is_floor:
 		return false
-	
-	var world = get_tree().root.get_node_or_null("World")
+
+	var world = _get_world()
 	if world and world.has_method("is_position_occupied_by_enemy"):
 		if world.is_position_occupied_by_enemy(grid_pos, self):
 			return false
-	
+
+	# Party companions block tiles too
+	if world and world.has_method("is_position_occupied_by_companion"):
+		if world.is_position_occupied_by_companion(grid_pos, self):
+			return false
+
 	return true
 
 func world_to_grid(world_pos: Vector2) -> Vector2i:
@@ -692,43 +756,71 @@ func attack_enemy(enemy: Enemy, attack_type: String):
 	"""Attack an adjacent enemy with animation (REFACTORED)"""
 	if not enemy or not turn_based_mode:
 		return
-	
+
 	if has_attacked_this_turn:
 		print("You've already attacked this turn!")
 		return
-	
-	# Get weapon (TODO: get from InventoryManager in Phase 2)
-	var weapon = create_temp_weapon(attack_type)
-	
-	# Attack animation
-	animate_attack(enemy.global_position)
-	
-	# Wait for animation
-	await get_tree().create_timer(0.15).timeout
-	
-	# Roll attack using CombatManager
-	var result = CombatManager.roll_attack(stats, enemy.stats, weapon)
-	
-	if result.is_fumble:
-		print("💀 FUMBLE! Attack missed completely!")
-		DamagePopup.spawn_miss_popup_at(get_parent(), enemy.global_position + Vector2(0, -tile_size * 0.8))
-	elif result.hit:
-		if result.is_crit:
-			print("💥 CRITICAL HIT! ", result.damage, " damage!")
-			DamagePopup.spawn_damage_popup_at(get_parent(), enemy.global_position + Vector2(0, -tile_size * 0.8), result.damage, true)
-		else:
-			print("⚔️ Hit! ", result.damage, " damage!")
-			DamagePopup.spawn_damage_popup_at(get_parent(), enemy.global_position + Vector2(0, -tile_size * 0.8), result.damage, false)
-		
-		# Apply damage using CombatManager
-		CombatManager.apply_damage(enemy, result.damage, CombatManager.DamageType.PHYSICAL, self)
-	else:
-		print("❌ Miss! (Rolled ", result.total, " vs AC ", result.target_ac, ")")
-		DamagePopup.spawn_miss_popup_at(get_parent(), enemy.global_position + Vector2(0, -tile_size * 0.8))
-	
+
+	# Enforce melee adjacency (Chebyshev distance 1)
+	var enemy_pos = enemy.get_grid_position()
+	var dx = abs(grid_position.x - enemy_pos.x)
+	var dy = abs(grid_position.y - enemy_pos.y)
+	if dx > 1 or dy > 1 or (dx + dy) == 0:
+		print("Enemy is too far away! Must be adjacent.")
+		return
+
+	# Mark the attack as used immediately so input during the
+	# animation delay can't trigger a second attack this turn
 	has_attacked_this_turn = true
 	attack_mode = false
 	selected_attack_type = ""
+
+	# Get weapon (TODO: get from InventoryManager in Phase 2)
+	var weapon = create_temp_weapon(attack_type)
+
+	# Attack animation
+	animate_attack(enemy.global_position)
+
+	# Wait for animation (pauses with the tree so damage can't resolve
+	# while a pause menu is open)
+	await get_tree().create_timer(0.15, false).timeout
+
+	# Target may have been freed during the animation delay
+	if not is_instance_valid(enemy) or not enemy.stats:
+		queue_redraw()
+		return
+
+	# Roll attack using CombatManager (nodes unlock status effects, cover and
+	# AC mods; companion positions enable flanking advantage)
+	var result = CombatManager.roll_attack(stats, enemy.stats, weapon, false, false, self, enemy, _companion_positions())
+	if result.is_empty():
+		queue_redraw()
+		return
+
+	if result.get("auto_fail", false):
+		print("You are incapacitated and cannot attack!")
+		queue_redraw()
+		return
+
+	var popup_pos = enemy.global_position + Vector2(0, -tile_size * 0.8)
+
+	if result.is_fumble:
+		print("💀 FUMBLE! Attack missed completely!")
+		DamagePopup.spawn_miss_popup_at(get_parent(), popup_pos)
+	elif result.hit:
+		if result.is_crit:
+			print("💥 CRITICAL HIT! ", result.damage, " damage!")
+			DamagePopup.spawn_damage_popup_at(get_parent(), popup_pos, result.damage, true)
+		else:
+			print("⚔️ Hit! ", result.damage, " damage!")
+			DamagePopup.spawn_damage_popup_at(get_parent(), popup_pos, result.damage, false)
+
+		# Apply damage using CombatManager
+		CombatManager.apply_damage(enemy, result.damage, CombatManager.DamageType.PHYSICAL, self, result.is_crit)
+	else:
+		print("❌ Miss! (Rolled ", result.total, " vs AC ", result.target_ac, ")")
+		DamagePopup.spawn_miss_popup_at(get_parent(), popup_pos)
+
 	queue_redraw()
 
 func animate_attack(target_pos: Vector2):
@@ -736,10 +828,169 @@ func animate_attack(target_pos: Vector2):
 	var original_pos = global_position
 	var direction = (target_pos - original_pos).normalized()
 	var lunge_distance = tile_size * 0.5
-	
+
 	var tween = create_tween()
 	tween.tween_property(self, "global_position", original_pos + direction * lunge_distance, 0.1)
 	tween.tween_property(self, "global_position", original_pos, 0.15)
+
+# ============================================================================
+# SPELLCASTING (pending casts readied via the spellbook panel)
+# ============================================================================
+
+func _handle_pending_spell_click(click_grid: Vector2i):
+	"""Resolve a readied spell against the clicked tile.
+	Validation failures (bad target / range / line of sight) keep the cast
+	pending so the player can re-aim; ESC cancels it. In combat a successful
+	cast consumes the attack action; out of combat only self/ally (heal & buff)
+	casts are allowed and no action is consumed."""
+	if is_moving:
+		return
+
+	var pending = SpellManager.get_pending_cast(self)
+	var spell = SpellDatabase.get_spell(pending)
+	if spell.is_empty():
+		SpellManager.clear_pending_cast(self)
+		return
+
+	var world = _get_world()
+	var in_world_combat = world != null and world.in_combat
+
+	if in_world_combat and has_attacked_this_turn:
+		EventBus.ui_notification.emit("You have already acted this turn!", "warning")
+		return
+
+	# Resolve the target from the spell's targeting mode
+	var target_type = str(spell.get("target_type", "enemy"))
+	var cast_target = null          # argument handed to SpellManager.cast_spell
+	var target_tile = click_grid    # tile used for range / line-of-sight checks
+
+	match target_type:
+		"enemy":
+			var clicked_enemy = world.get_enemy_at_position(click_grid) if world else null
+			if clicked_enemy == null:
+				EventBus.ui_notification.emit("No enemy there - click a target for %s." % str(spell.get("display_name", pending)), "warning")
+				return
+			cast_target = clicked_enemy
+		"ally", "self":
+			# Simplification: ally-targeted casts resolve on the player
+			cast_target = self
+			target_tile = grid_position
+		_:
+			# "point" / area spells target the clicked tile itself
+			cast_target = click_grid
+
+	# Out of combat, only self/ally casting is allowed
+	if not in_world_combat and target_type in ["enemy", "point"]:
+		EventBus.ui_notification.emit("That spell needs a combat target.", "warning")
+		return
+
+	# Range and line-of-sight validation (range_tiles 0 = self only)
+	if target_tile != grid_position:
+		var range_tiles = int(spell.get("range_tiles", 0))
+		if CombatGrid.get_distance_tiles(grid_position, target_tile) > range_tiles:
+			EventBus.ui_notification.emit("Out of range!", "warning")
+			return
+		if dungeon_generator and not CombatGrid.has_line_of_sight(grid_position, target_tile, dungeon_generator.dungeon_grid):
+			EventBus.ui_notification.emit("No line of sight!", "warning")
+			return
+
+	var result = SpellManager.cast_spell(self, pending, cast_target)
+	if not result.get("ok", false):
+		# Hard failure (no slots / not castable) - drop the pending cast
+		EventBus.ui_notification.emit(str(result.get("reason", "The spell fizzles.")), "warning")
+		SpellManager.clear_pending_cast(self)
+		queue_redraw()
+		return
+
+	SpellManager.clear_pending_cast(self)
+	if in_world_combat:
+		has_attacked_this_turn = true
+
+	# Teleport results (misty step) move the player to the destination
+	var teleport_to = result.get("teleport_to", null)
+	if teleport_to is Vector2i and is_walkable(teleport_to):
+		stop_moving()
+		cancel_preview()
+		grid_position = teleport_to
+		position = grid_to_world(teleport_to)
+		target_position = position
+		_check_ground_pickup()
+
+	_spawn_spell_popups(result)
+	queue_redraw()
+
+func _spawn_spell_popups(result: Dictionary):
+	"""Floating combat text for a spell result's per-target hit entries"""
+	var parent = get_parent()
+	if not parent:
+		return
+	for entry in result.get("hits", []):
+		var target = entry.get("target", null)
+		if target == null or not (target is Node2D) or not is_instance_valid(target):
+			continue
+		var popup_pos = target.global_position + Vector2(0, -tile_size * 0.8)
+		var damage = int(entry.get("damage", 0))
+		var healed = int(entry.get("healed", 0))
+		if damage > 0:
+			DamagePopup.spawn_damage_popup_at(parent, popup_pos, damage, bool(entry.get("is_crit", false)))
+		elif healed > 0:
+			DamagePopup.spawn_heal_popup_at(parent, popup_pos, healed)
+		elif not entry.get("hit", true):
+			DamagePopup.spawn_miss_popup_at(parent, popup_pos)
+
+# ============================================================================
+# COMBAT MOVEMENT HOOKS (opportunity attacks, allies, loot pickup)
+# ============================================================================
+
+func _companion_positions() -> Array:
+	"""Grid positions of living party companions (flanking allies for attack rolls)"""
+	var positions: Array = []
+	var world = _get_world()
+	if not world:
+		return positions
+	var nodes = world.get("companion_nodes")
+	if not (nodes is Dictionary):
+		return positions
+	for node in nodes.values():
+		if node != null and is_instance_valid(node) and node.get("stats") != null and node.stats.is_alive():
+			positions.append(node.get_grid_position())
+	return positions
+
+func _check_opportunity_attacks(from_tile: Vector2i, to_tile: Vector2i):
+	"""Stepping out of an enemy's melee reach (adjacent to from_tile but not
+	to_tile) provokes its opportunity attack. CombatManager self-gates the
+	reaction (once per round, status effects, exact adjacency) - just call it."""
+	var world = _get_world()
+	if not world or not world.in_combat:
+		return
+	var hostiles = world.get("enemies")
+	if not (hostiles is Array):
+		return
+	for enemy in hostiles:
+		if enemy == null or not is_instance_valid(enemy) or enemy.get("is_dying"):
+			continue
+		if enemy.get("stats") == null or not enemy.stats.is_alive():
+			continue
+		var enemy_pos = enemy.get_grid_position()
+		if CombatGrid.get_distance_tiles(enemy_pos, from_tile) == 1 and CombatGrid.get_distance_tiles(enemy_pos, to_tile) > 1:
+			CombatManager.trigger_opportunity_attack(enemy, self)
+			# Stop checking if a reaction dropped us
+			if is_dying or not stats or not stats.is_alive():
+				return
+
+func _check_ground_pickup():
+	"""Pick up any ground loot on the tile the player now occupies"""
+	var world = _get_world()
+	if not world:
+		return
+	var ground = world.get_node_or_null("GroundItems")
+	if not ground:
+		return
+	for drop in ground.get_children():
+		if not is_instance_valid(drop):
+			continue
+		if drop.get("grid_pos") == grid_position and drop.has_method("pickup"):
+			drop.pickup()
 
 # ============================================================================
 # TURN-BASED SYSTEM
@@ -747,9 +998,19 @@ func animate_attack(target_pos: Vector2):
 
 func toggle_turn_based_mode():
 	"""Toggle turn-based mode on/off"""
+	# Turn-based mode is controlled by the world while in combat -
+	# toggling it off mid-combat would desync the combat loop
+	var world = _get_world()
+	if world and world.in_combat:
+		print("Cannot toggle turn-based mode during combat!")
+		return
+
 	turn_based_mode = !turn_based_mode
-	
+
 	if turn_based_mode:
+		# Snap to the grid so turn-based movement starts from a tile center
+		stop_moving()
+		cancel_preview()
 		start_new_turn()
 		print("Turn-based mode ENABLED - Press T to toggle, SPACE to end turn")
 		print("Turn ", turn_number, " - Moves remaining: ", moves_remaining)
@@ -761,24 +1022,73 @@ func start_new_turn():
 	turn_number += 1
 	moves_remaining = stats.get_modified_movement_speed()  # UPDATED - Uses encumbrance
 	has_attacked_this_turn = false
+
+	# Status-effect ticks at the start of the turn (burning, regenerating, ...)
+	StatusEffectManager.process_turn_start(self)
+
+	# A tick may have killed us - the death path owns the rest
+	if is_dying or not stats or not stats.is_alive():
+		return
+
+	# Speed modifiers from status effects (slowed/hasted/restrained)
+	moves_remaining = max(0, moves_remaining + StatusEffectManager.get_speed_modifier_tiles(self))
+	moves_granted_this_turn = moves_remaining
+
 	print("=== Turn ", turn_number, " started ===")
 	print("Movement available: ", moves_remaining, " tiles")
-	
+
 	# Emit event
 	EventBus.turn_started.emit(self)
+
+	# Incapacitated (stunned/paralyzed/frozen): lose the turn. Deferred so the
+	# world's combat loop is never advanced re-entrantly from inside this call.
+	if StatusEffectManager.is_incapacitated(self):
+		moves_remaining = 0
+		EventBus.ui_notification.emit("You are incapacitated and lose your turn!", "warning")
+		print("Player is incapacitated - turn skipped")
+		call_deferred("_auto_end_incapacitated_turn")
+
+func _auto_end_incapacitated_turn():
+	"""Deferred auto end-of-turn while incapacitated (world combat only -
+	outside combat the player can still press SPACE themselves)"""
+	if is_dying or not turn_based_mode or is_moving:
+		return
+	var world = _get_world()
+	if not world or not world.in_combat:
+		return
+	if world.initiative_tracker and not world.initiative_tracker.is_player_turn():
+		return
+	end_turn()
 
 func end_turn():
 	"""Manually end the current turn"""
 	if not turn_based_mode:
 		return
-	
-	print("Turn ", turn_number, " ended. Moves used: ", stats.movement_speed - moves_remaining)
-	
+
+	if is_moving:
+		print("Cannot end turn while moving!")
+		return
+
+	print("Turn ", turn_number, " ended. Moves used: ", max(0, moves_granted_this_turn - moves_remaining))
+
+	var world = _get_world()
+	var in_world_combat = world != null and world.in_combat
+
+	if in_world_combat:
+		# No leftover movement while enemies take their turns
+		moves_remaining = 0
+
+	# End-of-turn status bookkeeping (ticks, end saves, duration countdown)
+	StatusEffectManager.process_turn_end(self)
+
 	# Emit event (NEW)
 	EventBus.turn_ended.emit(self)
 	turn_ended.emit()
-	
-	start_new_turn()
+
+	# In combat the world's initiative loop grants the next turn;
+	# outside combat (manual T mode) we cycle our own turns
+	if not in_world_combat:
+		start_new_turn()
 
 func get_moves_remaining() -> int:
 	"""Get remaining moves this turn"""
@@ -793,23 +1103,44 @@ func get_turn_number() -> int:
 # ============================================================================
 
 func take_damage(amount: int):
-	"""Take damage with visual effects (REFACTORED)"""
+	"""Apply direct damage with visual effects (e.g. traps, hazards).
+	NOTE: attacks should go through CombatManager.apply_damage instead."""
+	if not stats:
+		return
+
+	var still_alive = stats.take_damage(amount)
+	print("%s took %d damage! HP: %d/%d" % [name, amount, stats.current_hp, stats.max_hp])
+
 	# Spawn damage popup
 	var world = get_parent()
 	if world:
 		var popup_pos = global_position + Vector2(0, -tile_size * 0.8)
 		DamagePopup.spawn_damage_popup_at(world, popup_pos, amount, false)
-	
+
 	# Flash effect
 	flash_damage()
-	
+
 	# Emit event
 	EventBus.player_hp_changed.emit(stats.current_hp, stats.max_hp)
-	
+
 	queue_redraw()
-	
-	if not stats.is_alive():
-		die()
+
+	if not still_alive:
+		# Route through CombatManager so death events stay consistent
+		CombatManager.handle_death(self)
+
+func _on_damage_dealt_event(_attacker, target, _amount, _is_critical):
+	"""Keep HP signal/visuals in sync when CombatManager applies damage to stats"""
+	if target == self and stats:
+		flash_damage()
+		EventBus.player_hp_changed.emit(stats.current_hp, stats.max_hp)
+		queue_redraw()
+
+func _on_game_loaded(_slot: int):
+	"""Re-emit HP after SaveManager restores stats directly"""
+	if stats:
+		EventBus.player_hp_changed.emit(stats.current_hp, stats.max_hp)
+	queue_redraw()
 
 func flash_damage():
 	"""Quick red flash when taking damage"""
@@ -837,11 +1168,15 @@ func heal(amount: int):
 
 func die():
 	"""Handle death"""
+	if is_dying:
+		return
+	is_dying = true
+
 	print("%s has died!" % name)
-	
-	# Emit event (NEW)
-	EventBus.character_died.emit(self)
-	
+
+	# NOTE: EventBus.character_died is emitted by CombatManager.handle_death()
+	# before die() is called - emitting it here too would double-fire it
+
 	queue_free()
 
 func get_hp() -> int:
@@ -880,12 +1215,9 @@ func draw_hp_bar():
 # ============================================================================
 
 func gain_experience(amount: int):
-	"""Gain XP and potentially level up (NEW)"""
+	"""Gain XP and potentially level up. Delegates to CharacterStats, which
+	emits EventBus.player_gained_xp itself - emitting here too double-counted."""
 	stats.gain_experience(amount)
-	
-	# Emit event
-	EventBus.player_gained_xp.emit(amount)
-	
 	print("Gained ", amount, " XP! (", stats.experience, "/", stats.experience_to_next_level, ")")
 
 func get_level() -> int:
@@ -915,7 +1247,8 @@ func from_dict(data: Dictionary):
 	
 	if data.has("stats") and stats:
 		stats.from_dict(data.stats)
-	
+		EventBus.player_hp_changed.emit(stats.current_hp, stats.max_hp)
+
 	if data.has("turn_number"):
 		turn_number = data.turn_number
 	

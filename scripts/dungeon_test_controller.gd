@@ -4,11 +4,16 @@ extends Node2D
 @onready var camera: Camera2D = $Camera2D
 
 func _ready():
+	if not dungeon or not camera:
+		push_error("DungeonTestController needs DungeonGenerator and Camera2D child nodes!")
+		return
 	# Center camera on dungeon
 	camera.position = Vector2(dungeon.dungeon_width * 8, dungeon.dungeon_height * 8)
 	camera.zoom = Vector2(0.5, 0.5)
 
 func _input(event):
+	if not dungeon:
+		return
 	if event.is_action_pressed("ui_accept"):
 		# Regenerate same biome
 		dungeon.regenerate()

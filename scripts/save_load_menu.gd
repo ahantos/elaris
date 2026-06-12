@@ -88,14 +88,22 @@ func create_slot_buttons():
 			if current_mode == Mode.LOAD:
 				btn.disabled = true
 		else:
-			var time = Time.get_datetime_dict_from_unix_time(info.timestamp)
-			btn.text = "Slot %d - Level %d\n%04d-%02d-%02d %02d:%02d" % [
-				i + 1, info.player_level,
-				time.year, time.month, time.day, time.hour, time.minute
+			var time = Time.get_datetime_dict_from_unix_time(int(info.timestamp))
+			btn.text = "Slot %d - Level %d - %s\n%04d-%02d-%02d %02d:%02d  |  %d gold" % [
+				i + 1, info.player_level, _get_zone_display_name(info.get("zone_id", "zone_1")),
+				time.year, time.month, time.day, time.hour, time.minute,
+				info.get("gold", 0)
 			]
 		
 		btn.pressed.connect(_on_slot_pressed.bind(i))
 		slots_container.add_child(btn)
+
+func _get_zone_display_name(zone_id: String) -> String:
+	"""Resolve a zone id to its display name for slot labels (falls back to the raw id)."""
+	var zone = ZoneManager.get_zone(zone_id)
+	if zone.is_empty():
+		return zone_id
+	return str(zone.get("display_name", zone_id))
 
 func show_save_menu():
 	"""Show in save mode"""
@@ -130,8 +138,10 @@ func _on_slot_pressed(slot: int):
 		SaveManager.save_game(slot)
 		refresh_slots()
 	else: # LOAD
-		# Don't hide menu or unpause - the scene reload will handle it
-		SaveManager.load_game(slot)
+		# load_game applies data to the live player (no scene reload),
+		# so close the menu and unpause on success
+		if SaveManager.load_game(slot):
+			hide_menu()
 
 func _input(event):
 	if visible and event is InputEventKey and event.pressed and not event.echo:

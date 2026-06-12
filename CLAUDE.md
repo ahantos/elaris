@@ -6,145 +6,101 @@
 **Elevator Pitch:** "Hades meets Battle Brothers meets classic D&D"
 
 ## Tech Stack
-- **Engine:** Godot 4.5
+- **Engine:** Godot 4.5 (exe: `C:\Users\Akos\Desktop\Godot_v4.5-stable_win64.exe\Godot_v4.5-stable_win64_console.exe`)
 - **Language:** GDScript
-- **Architecture:** Manager-based with autoload singletons
-- **Combat:** D&D 5e rules (d20 rolls, AC, advantage/disadvantage, crits)
+- **Architecture:** Manager-based, 22 autoload singletons, EventBus signal hub
 - **Resolution:** 1920x1080
 
-## Project Structure
+## IMPORTANT: Architecture Contracts
+`docs/ARCHITECTURE_CONTRACTS.md` is the binding reference for system boundaries, data
+schemas (spells/quests/dialogues/recipes/effects/companions/zones), item-id naming,
+equipment slot strings, save-format rules (primitives only), and UI panel conventions.
+Read it before modifying any system.
+
+## Validation
+Per-script `--check-only` false-positives on autoload names — do NOT use it. Validate with:
 ```
-elaris/
-├── autoload/           # 8 singleton managers
-│   ├── event_bus.gd
-│   ├── game_manager.gd
-│   ├── combat_manager.gd
-│   ├── inventory_manager.gd
-│   ├── item_database.gd
-│   ├── save_manager.gd
-│   ├── class_database.gd
-│   └── race_database.gd
-├── scripts/            # Core game logic
-│   ├── grid_character.gd   # Player (WASD + click-to-move, combat)
-│   ├── enemy.gd            # AI with A* pathfinding
-│   ├── world.gd            # Main coordinator
-│   ├── dungeon_generator.gd
-│   ├── character_screen.gd # Equipment/inventory UI
-│   └── [UI scripts]
-├── scenes/             # Godot scenes (.tscn)
-│   ├── world.tscn          # Main scene
-│   ├── character.tscn
-│   ├── enemy.tscn
-│   └── dungeon_generator.tscn
-├── data/               # Data resources
-│   ├── stats/character_stats.gd
-│   ├── items/item_data.gd
-│   ├── materials/material_data.gd
-│   ├── classes/*.tres      # Fighter, Wizard, Rogue, Cleric
-│   └── races/*.tres        # Human, Elf, Dwarf, Halfling
-├── ui/                 # UI prefabs
-└── tilesets/           # Tilemap assets
+& "C:\Users\Akos\Desktop\Godot_v4.5-stable_win64.exe\Godot_v4.5-stable_win64_console.exe" --headless --path "C:\Users\Akos\Documents\GitHub\elaris" --quit-after 30
 ```
+Pass = exit 0 + no `SCRIPT ERROR` lines.
 
-## Autoload Managers
+## Autoloads (project.godot order)
+| Autoload | Purpose |
+|---|---|
+| EventBus | Signal hub (all cross-system events; ~90 signals) |
+| GameManager | Game state, settings, player/world/dungeon refs, short/long rests |
+| ItemDatabase | 20 materials, 263 generated items (lazy id regeneration), use_consumable, starting kits |
+| CombatManager | d20 rolls, crits, cover/flanking/status-aware attacks, saves, reactions/opportunity attacks |
+| InventoryManager | Party inventory, gold, weight, equipment (multi-slot rings/trinkets), primitive save format |
+| SaveManager | Multi-slot saves, format v2 (all systems), v1-tolerant |
+| ClassDatabase | 4 classes (.tres) with spell slot tables, hit dice |
+| RaceDatabase | 5 races (.tres) incl. half_orc |
+| SkillDatabase | 18 D&D skills → governing stats |
+| SpellDatabase | 82 spells, 8 schools, lv 0-9 + scroll_/wand_ item registration |
+| RecipeDatabase | 115 recipes across forge/alchemy_table/enchanting_table/cooking_fire |
+| LootManager | Loot tables (goblin/skeleton/bandit/wolf/boss/default), level-scaled tiers |
+| StatusEffectManager | 17 effects, ticks, modifier queries (AC/speed/advantage/incapacitation) |
+| SpellManager | Known spells, slots, casting, concentration, scrolls/wands, enchanting, pending-cast |
+| CraftingManager | can_craft/craft/repair, enchant recipes target equipped items |
+| DialogueManager | Dialogue trees: choices, skill checks, conditions, effects |
+| QuestManager | 8 quests + procedural generator; auto-advances from EventBus |
+| FactionManager | 3 factions, reputation -100..100, status thresholds |
+| WorldEventManager | 6 random events + lich_king_rises crisis (4 phases) |
+| ZoneManager | 9 zones (zone_1 The Borderlands active), travel, biome mapping |
+| CompanionManager | 4 companions (2 romanceable), relationships, gifts, party (cap 3) |
+| UIManager | Exclusive full-screen panel registry; owns pause; ESC closes |
 
-| Manager | File | Purpose |
-|---------|------|---------|
-| `EventBus` | event_bus.gd | Signal hub (combat, inventory, UI events) |
-| `GameManager` | game_manager.gd | Game state, settings, global refs |
-| `CombatManager` | combat_manager.gd | D&D 5e combat (d20, damage, saves) |
-| `InventoryManager` | inventory_manager.gd | Items, equipment, gold, weight |
-| `ItemDatabase` | item_database.gd | Item/material definitions |
-| `SaveManager` | save_manager.gd | Multi-slot save/load |
-| `ClassDatabase` | class_database.gd | Class definitions |
-| `RaceDatabase` | race_database.gd | Race definitions |
+## Key Scene Scripts
+- `scripts/world.gd` — coordinator: combat loop (await-recursive with re-entrancy guards), panel registration, hotkeys, loot/XP on kill, zone travel, companion spawning, load resync
+- `scripts/grid_character.gd` — player: WASD + click-move, attacks (pass nodes for status/cover), spell-targeting click flow, step-on loot pickup, turn hooks
+- `scripts/enemy.gd` — A* AI, enemy_type/enemy_level, turn hooks, opportunity attacks
+- `scripts/companion.gd` — allied follower node (acts in player's initiative slot)
+- `scripts/combat_grid.gd` — static LoS (Bresenham), cover AC bonus, flanking, Chebyshev distance
+- `scripts/ground_item.gd` — dropped-loot node (GroundItem.spawn / pickup)
+- `ui/*.gd` — code-built panels: spellbook, crafting, quest_log, world_map, dialogue, companions, character_creation (+ combat_log)
 
-## Key Systems
-
-### Combat (CombatManager)
-- `roll_attack(attacker, target, weapon, adv, disadv)` → hit/miss/crit/fumble
-- `roll_damage(weapon, attacker, is_crit)` → damage amount
-- `apply_damage(target, amount, type, attacker)` → handles death
-- `make_saving_throw(char, stat, dc, adv, disadv)` → success/fail
-
-### Inventory (InventoryManager)
-- `add_item()`, `remove_item()`, `get_item()`
-- `equip_item(item, character, slot)` — handles multi-slots (rings/trinkets)
-- `unequip_item(character, slot, item_instance)`
-- Weight system: `get_total_weight()`, `is_over_encumbered()`
-- `to_dict()`, `from_dict()` — serialization for saves
-
-### Character Stats (CharacterStats)
-- D&D 6 stats: STR, DEX, CON, INT, WIS, CHA
-- Derived: HP, AC, initiative, movement, carrying capacity
-- Leveling: XP, level, proficiency bonus
-- Equipment bonuses applied via `apply_equipment_bonuses()`
-
-### Items (ItemData)
-- Types: Weapon, Armor (head/chest/legs/hands/feet), Shield, Accessories, Consumables
-- Material system: tier affects damage/armor multipliers
-- Quality (+0 to +3) and Magic (+0 to +3) modifiers
-- Durability system (optional)
-
-## Architecture Conventions
-- **Manager-based:** Logic in managers, not character scripts
-- **Event-driven:** Use EventBus signals for decoupled communication
-- **Data-driven:** Everything configurable via resources
-- **Single responsibility:** Each script has ONE job
-
-## Current Phase
-**Phase 2: Equipment Foundation**
-
-### What Works
-- Grid movement (WASD exploration, click-to-move in combat)
-- Turn-based combat with initiative tracker
-- D&D 5e attack rolls, crits, fumbles, damage
-- Procedural dungeon generation (5 biomes)
-- Enemy AI with A* pathfinding
-- Minimap with fog of war
-- Character screen UI (equipment slots, inventory grid)
-- Save/load system (basic)
-- Class/Race databases loaded
-
-### What's Missing
-- **ItemDatabase.load_items() is empty** — no actual items exist yet
-- Can't test character screen without items
-- No item drops from enemies
-- No ground pickup system
-
-## Key Input Bindings
+## Keymap
 | Key | Action |
-|-----|--------|
+|---|---|
 | WASD | Move (exploration) |
-| Click | Move to / Attack (combat) |
-| Ctrl+Click | Add waypoint |
-| T | Toggle turn-based mode |
-| Space | End turn |
-| 1/2/3 | Select attack type |
-| I | Character screen |
-| G | Toggle grid overlay |
-| M | Toggle minimap fog |
-| R | Regenerate dungeon |
-| F5/F6 | Save/Load menu |
+| Click / Ctrl+Click / RMB | Move-preview & confirm / waypoint / cancel (click casts when a spell is pending) |
+| T / Space | Toggle turn-based / end turn |
+| 1 / 2 / 3 | Light (1d4) / Medium (1d8) / Heavy (1d12) attack |
+| Esc | Cancel attack/pending spell; close open panel |
+| I | Character screen (equipment/inventory; right-click item = use) |
+| B / C / J / O / P / N | Spellbook / Crafting / Quest log / World map / Companions / Character creation |
+| Y | Talk to the Reeve of Brackenford (placeholder dialogue entry; starts main quest) |
+| F7 / F8 | Short / long rest (out of combat) |
+| G / M / R | Grid overlay / minimap fog / regenerate dungeon |
+| F5 / F6 | Save / load menu |
+
+## Conventions (enforced — see contracts doc)
+- Tabs; docstrings; print logging with system prefixes; push_error for programmer errors
+- No class_name on autoloads; data registries in code (not .tres), except classes/races
+- Managers never write CharacterStats fields directly (StatusEffectManager pattern)
+- Save payloads are primitives only; item instances rebuild via ItemDatabase ids
+- New combat-path timers must be pause-bound: `create_timer(t, false)`
+- Preserve hardening: is_instance_valid after awaits, re-entrancy guards in turn flow
+- Node name "World" and player node name are load-bearing (cached lookups, death routing)
+
+## Current State (after 2026-06-11/12 full-systems build-out)
+All Phase 2-8 SYSTEMS are built, integrated, and validated headless (zero script errors;
+19/19 gameplay-probe checks). Content is intentionally placeholder: balance untested,
+zones 2-9 skeletal, minimal quest/dialogue volume.
+
+### Known gaps / next steps
+1. Balance pass (damage/HP/XP/prices/drop rates are placeholder numbers)
+2. NPCs are not world nodes — dialogue entry is the Y hotkey; needs town/NPC placement
+3. Companions: not in initiative tracker (act in player's slot); enemies never target them; their pathing ignores enemy occupancy
+4. Spells: ally-targeting resolves on player; cones/lines approximated as radii; reaction spells (shield/counterspell) not trigger-wired
+5. Crafting stations not placed in world (all stations in one panel)
+6. Save: mid-combat state not persisted (warned); loaded position not validated against regenerated dungeon
+7. Character screen is standalone (predates UIManager) — migration optional
+8. Phase 9 multiplayer: skipped (roadmap marks optional)
+9. Cosmetic: duplicate death prints; ObjectDB leak warnings at quit (Resource registries)
 
 ## Documentation
-- `DESIGN_OVERVIEW.md` — Full 800+ line game design doc
-- `CURRENT_WORK.md` — Session tracking
-- `ROADMAP.md` — Development phases
-- `CHANGELOG.md` — History
-
-## Session Notes
-<!-- Update this section at the end of each session -->
-
-### Latest Session
-- Full codebase exploration completed
-- Identified blocker: ItemDatabase.load_items() is empty
-- Character screen UI exists but untestable without items
-- All 8 autoload managers working
-- Combat system functional with temporary weapon creation
-
-### Next Steps
-1. Create test items in ItemDatabase.load_items()
-2. Add items to player inventory on game start
-3. Test character screen drag-and-drop
-4. Test equipment stat application
+- `docs/ARCHITECTURE_CONTRACTS.md` — system contracts (BINDING)
+- `DESIGN_OVERVIEW.md` — game design doc
+- `ROADMAP.md` — phases (see status update at top)
+- `CURRENT_WORK.md` / `CHANGELOG.md` — session tracking

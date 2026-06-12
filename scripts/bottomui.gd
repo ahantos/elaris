@@ -6,6 +6,9 @@ class_name BottomUI
 
 var player: GridCharacter
 
+# Cached world reference (avoids per-frame scene tree lookups)
+var world_node = null
+
 # UI element references
 var hp_label: Label
 var hp_bar: ProgressBar
@@ -22,12 +25,12 @@ func _ready():
 	# Anchor to bottom of screen
 	set_anchors_preset(Control.PRESET_BOTTOM_WIDE)
 	
-	# Take up bottom 1/4 of screen
+	# Take up bottom 1/4 of screen (width comes from the BOTTOM_WIDE anchors;
+	# setting size directly here triggered the non-equal-anchors warning)
 	var screen_height = get_viewport().size.y
 	var ui_height = screen_height / 4.0
-	
+
 	custom_minimum_size = Vector2(0, ui_height)
-	size = Vector2(get_viewport().size.x, ui_height)
 	offset_top = -ui_height
 	
 	# Background panel
@@ -130,18 +133,18 @@ func create_action_buttons():
 	actions_section.add_theme_constant_override("separation", 12)
 	container.add_child(actions_section)
 	
-	# Light attack button
-	light_btn = create_attack_button("Light Attack", "1 DMG", "Key: 1", Color(1.0, 1.0, 0.0))
+	# Light attack button (attacks roll dice via CombatManager - show the dice)
+	light_btn = create_attack_button("Light Attack", "Light 1d4", "Key: 1", Color(1.0, 1.0, 0.0))
 	light_btn.pressed.connect(_on_light_attack_pressed)
 	actions_section.add_child(light_btn)
-	
+
 	# Medium attack button
-	medium_btn = create_attack_button("Medium Attack", "5 DMG", "Key: 2", Color(1.0, 0.5, 0.0))
+	medium_btn = create_attack_button("Medium Attack", "Medium 1d8", "Key: 2", Color(1.0, 0.5, 0.0))
 	medium_btn.pressed.connect(_on_medium_attack_pressed)
 	actions_section.add_child(medium_btn)
-	
+
 	# Heavy attack button
-	heavy_btn = create_attack_button("Heavy Attack", "10 DMG", "Key: 3", Color(1.0, 0.0, 0.0))
+	heavy_btn = create_attack_button("Heavy Attack", "Heavy 1d12", "Key: 3", Color(1.0, 0.0, 0.0))
 	heavy_btn.pressed.connect(_on_heavy_attack_pressed)
 	actions_section.add_child(heavy_btn)
 	
@@ -156,6 +159,8 @@ func create_attack_button(title: String, damage: String, key_hint: String, color
 	btn.text = title + "\n" + damage + "\n" + key_hint
 	btn.custom_minimum_size = Vector2(115, 85)
 	btn.add_theme_font_size_override("font_size", 13)
+	btn.toggle_mode = true  # Needed so button_pressed reflects the selected attack
+	btn.action_mode = BaseButton.ACTION_MODE_BUTTON_PRESS
 	
 	# Normal style
 	var normal_style = StyleBoxFlat.new()
@@ -321,6 +326,12 @@ func create_status_info():
 	info_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
 	status_section.add_child(info_label)
 
+func _get_world():
+	"""Get the cached World node (re-resolves if missing/freed)"""
+	if not is_instance_valid(world_node):
+		world_node = get_tree().root.get_node_or_null("World")
+	return world_node
+
 func _process(_delta):
 	"""Update UI every frame"""
 	if player:
@@ -368,7 +379,7 @@ func update_display():
 			else:
 				moves_color = Color(1.0, 0.3, 0.3)
 			
-			moves_label.text = "🦶 Moves: %d / %d" % [moves, player.stats.movement_speed]
+			moves_label.text = "🦶 Moves: %d / %d" % [moves, max(moves, player.moves_granted_this_turn)]
 			moves_label.add_theme_color_override("font_color", moves_color)
 			moves_label.visible = true
 		else:
@@ -376,29 +387,29 @@ func update_display():
 	
 	# Update combat status
 	if combat_status_label:
-		var world = get_tree().root.get_node_or_null("World")
+		var world = _get_world()
 		if world and world.in_combat:
 			combat_status_label.visible = true
 		else:
 			combat_status_label.visible = false
 	
-	# Update attack mode indicator
+	# Update attack mode indicator (attacks roll dice via CombatManager)
 	if attack_info_label:
 		if player.attack_mode:
 			var attack_name = ""
-			var damage = 0
+			var damage_dice = ""
 			match player.selected_attack_type:
 				"light":
 					attack_name = "LIGHT ATTACK"
-					damage = player.light_attack_damage
+					damage_dice = "1d4"
 				"medium":
 					attack_name = "MEDIUM ATTACK"
-					damage = player.medium_attack_damage
+					damage_dice = "1d8"
 				"heavy":
 					attack_name = "HEAVY ATTACK"
-					damage = player.heavy_attack_damage
-			
-			attack_info_label.text = "🎯 %s SELECTED (%d DMG) - Click adjacent enemy!" % [attack_name, damage]
+					damage_dice = "1d12"
+
+			attack_info_label.text = "🎯 %s SELECTED (%s) - Click adjacent enemy!" % [attack_name, damage_dice]
 			attack_info_label.visible = true
 		else:
 			attack_info_label.visible = false

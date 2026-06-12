@@ -70,6 +70,10 @@ func add_separator():
 	"""Add a visual separator"""
 	add_message("[color=gray]" + "─".repeat(40) + "[/color]")
 
+func _escape_bbcode(text: String) -> String:
+	"""Escape '[' so arbitrary names can't break BBCode markup"""
+	return text.replace("[", "[lb]")
+
 func clear_log():
 	"""Clear the log"""
 	if not log_text:
@@ -93,34 +97,34 @@ func _on_toggle_pressed():
 # Event handlers
 func _on_turn_started(character: Node):
 	add_separator()
-	var char_name = character.name if character else "Unknown"
+	var char_name = _escape_bbcode(character.name) if character else "Unknown"
 	add_message("[color=cyan]▶ %s's Turn[/color]" % char_name)
 
 func _on_turn_ended(character: Node):
-	var char_name = character.name if character else "Unknown"
+	var char_name = _escape_bbcode(character.name) if character else "Unknown"
 	add_message("[color=gray]◀ %s ended turn[/color]" % char_name)
 
 func _on_damage_dealt(attacker: Node, target: Node, damage: int, is_crit: bool):
-	var attacker_name = attacker.name if attacker else "Unknown"
-	var target_name = target.name if target else "Unknown"
-	
+	var attacker_name = _escape_bbcode(attacker.name) if attacker else "Unknown"
+	var target_name = _escape_bbcode(target.name) if target else "Unknown"
+
 	if is_crit:
 		add_message("[color=red]💥 CRITICAL HIT! %s hit %s for %d damage![/color]" % [attacker_name, target_name, damage])
 	else:
 		add_message("[color=orange]⚔️ %s hit %s for %d damage[/color]" % [attacker_name, target_name, damage])
-	
-	if target and target.has_method("get_hp"):
+
+	if target and target.has_method("get_hp") and target.has_method("get_max_hp"):
 		var hp = target.get_hp()
 		var max_hp = target.get_max_hp()
 		add_message("[color=gray]   %s: %d/%d HP[/color]" % [target_name, hp, max_hp])
 
 func _on_character_died(character: Node):
-	var char_name = character.name if character else "Character"
+	var char_name = _escape_bbcode(character.name) if character else "Character"
 	add_message("[color=red]💀 %s has been slain![/color]" % char_name)
 	add_separator()
 
 func _on_enemy_died(enemy: Node):
-	var enemy_name = enemy.name if enemy else "Enemy"
+	var enemy_name = _escape_bbcode(enemy.name) if enemy else "Enemy"
 	add_message("[color=green]✓ %s defeated![/color]" % enemy_name)
 
 # Custom log functions

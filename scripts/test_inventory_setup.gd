@@ -29,7 +29,7 @@ func create_weapons():
 		"sword_short_bronze", "Bronze Shortsword", "bronze",
 		"1d6", "slashing", false
 	)
-	bronze_sword.equip_slot = "right_weapon"
+	bronze_sword.equip_slot = "main_hand"
 	bronze_sword.weight = 2.0
 	bronze_sword.base_value = 10
 	ItemDatabase.register_item(bronze_sword)
@@ -38,7 +38,7 @@ func create_weapons():
 		"sword_long_iron", "Iron Longsword", "iron",
 		"1d8", "slashing", false
 	)
-	iron_longsword.equip_slot = "right_weapon"
+	iron_longsword.equip_slot = "main_hand"
 	iron_longsword.weight = 3.0
 	iron_longsword.base_value = 50
 	ItemDatabase.register_item(iron_longsword)
@@ -47,7 +47,7 @@ func create_weapons():
 		"sword_long_steel", "Steel Longsword", "steel",
 		"1d8", "slashing", false
 	)
-	steel_longsword.equip_slot = "right_weapon"
+	steel_longsword.equip_slot = "main_hand"
 	steel_longsword.weight = 3.0
 	steel_longsword.base_value = 150
 	steel_longsword.description = "A well-crafted blade of tempered steel."
@@ -58,7 +58,7 @@ func create_weapons():
 		"sword_great_steel", "Steel Greatsword", "steel",
 		"2d6", "slashing", true
 	)
-	greatsword.equip_slot = "right_weapon"
+	greatsword.equip_slot = "main_hand"
 	greatsword.weight = 6.0
 	greatsword.base_value = 250
 	greatsword.description = "A massive two-handed blade."
@@ -69,7 +69,7 @@ func create_weapons():
 		"dagger_iron", "Iron Dagger", "iron",
 		"1d4", "piercing", false
 	)
-	dagger.equip_slot = "right_weapon"
+	dagger.equip_slot = "main_hand"
 	dagger.weight = 1.0
 	dagger.base_value = 20
 	dagger.special_properties = ["finesse", "light", "thrown"]
@@ -82,7 +82,7 @@ func create_weapons():
 		"axe_hand_iron", "Iron Handaxe", "iron",
 		"1d6", "slashing", false
 	)
-	handaxe.equip_slot = "right_weapon"
+	handaxe.equip_slot = "main_hand"
 	handaxe.weight = 2.0
 	handaxe.base_value = 30
 	handaxe.special_properties = ["light", "thrown"]
@@ -92,7 +92,7 @@ func create_weapons():
 		"axe_battle_steel", "Steel Battleaxe", "steel",
 		"1d8", "slashing", false
 	)
-	battleaxe.equip_slot = "right_weapon"
+	battleaxe.equip_slot = "main_hand"
 	battleaxe.weight = 4.0
 	battleaxe.base_value = 100
 	ItemDatabase.register_item(battleaxe)
@@ -102,7 +102,7 @@ func create_weapons():
 		"mace_iron", "Iron Mace", "iron",
 		"1d6", "bludgeoning", false
 	)
-	mace.equip_slot = "right_weapon"
+	mace.equip_slot = "main_hand"
 	mace.weight = 4.0
 	mace.base_value = 50
 	ItemDatabase.register_item(mace)
@@ -112,7 +112,7 @@ func create_weapons():
 		"bow_short", "Shortbow", "oak",
 		"1d6", "piercing", true
 	)
-	shortbow.equip_slot = "right_weapon"
+	shortbow.equip_slot = "ranged"
 	shortbow.is_ranged = true
 	shortbow.range_normal = 80
 	shortbow.range_max = 320
@@ -125,7 +125,7 @@ func create_weapons():
 		"bow_long", "Longbow", "oak",
 		"1d8", "piercing", true
 	)
-	longbow.equip_slot = "right_weapon"
+	longbow.equip_slot = "ranged"
 	longbow.is_ranged = true
 	longbow.range_normal = 150
 	longbow.range_max = 600
@@ -139,7 +139,7 @@ func create_weapons():
 		"sword_long_mithril", "Mithril Longsword", "mithril",
 		"1d8", "slashing", false
 	)
-	mithril_sword.equip_slot = "right_weapon"
+	mithril_sword.equip_slot = "main_hand"
 	mithril_sword.weight = 2.0  # Lighter than steel
 	mithril_sword.base_value = 1000
 	mithril_sword.description = "A blade forged from legendary mithril, light as a feather yet unbreakable."
@@ -218,7 +218,7 @@ func create_armor():
 	# GLOVES/GAUNTLETS
 	var leather_gloves = ItemDatabase.create_armor(
 		"gloves_leather", "Leather Gloves", "leather",
-		"arm", 0
+		"hands", 0
 	)
 	leather_gloves.weight = 0.5
 	leather_gloves.base_value = 10
@@ -226,7 +226,7 @@ func create_armor():
 	
 	var steel_gauntlets = ItemDatabase.create_armor(
 		"gauntlets_steel", "Steel Gauntlets", "steel",
-		"arm", 1
+		"hands", 1
 	)
 	steel_gauntlets.weight = 2.0
 	steel_gauntlets.base_value = 50
@@ -235,7 +235,7 @@ func create_armor():
 	# BOOTS
 	var leather_boots = ItemDatabase.create_armor(
 		"boots_leather", "Leather Boots", "leather",
-		"boots", 0
+		"feet", 0
 	)
 	leather_boots.weight = 2.0
 	leather_boots.base_value = 15
@@ -243,7 +243,7 @@ func create_armor():
 	
 	var steel_boots = ItemDatabase.create_armor(
 		"boots_steel", "Steel Boots", "steel",
-		"boots", 1
+		"feet", 1
 	)
 	steel_boots.weight = 4.0
 	steel_boots.base_value = 75
@@ -268,7 +268,7 @@ func create_accessories():
 	ring_protection.item_id = "ring_protection"
 	ring_protection.item_name = "Ring of Protection"
 	ring_protection.item_type = ItemData.ItemType.ACCESSORY_RING
-	ring_protection.equip_slot = "accessory_1"
+	ring_protection.equip_slot = "rings"
 	ring_protection.armor_class_bonus = 1
 	ring_protection.weight = 0.0
 	ring_protection.base_value = 500
@@ -281,7 +281,7 @@ func create_accessories():
 	amulet_health.item_name = "Amulet of Health"
 	amulet_health.item_type = ItemData.ItemType.ACCESSORY_NECK
 	amulet_health.equip_slot = "neck"
-	amulet_health.constitution_bonus = 2
+	amulet_health.stat_bonuses = {"con": 2}
 	amulet_health.weight = 0.0
 	amulet_health.base_value = 800
 	amulet_health.description = "A glowing amulet that enhances vitality. +2 CON"
@@ -304,7 +304,7 @@ func create_accessories():
 	cloak_elvenkind.item_name = "Cloak of Elvenkind"
 	cloak_elvenkind.item_type = ItemData.ItemType.ACCESSORY_CLOAK
 	cloak_elvenkind.equip_slot = "back"
-	cloak_elvenkind.dexterity_bonus = 1
+	cloak_elvenkind.stat_bonuses = {"dex": 1}
 	cloak_elvenkind.weight = 0.5
 	cloak_elvenkind.base_value = 600
 	cloak_elvenkind.description = "A fine elven cloak that helps the wearer move silently. +1 DEX"
@@ -316,18 +316,13 @@ func create_magic_ring(ring_id: String, ring_name: String, bonus: int, stat: Str
 	ring.item_id = ring_id
 	ring.item_name = ring_name
 	ring.item_type = ItemData.ItemType.ACCESSORY_RING
-	ring.equip_slot = "accessory_1"  # Can go in any accessory slot
+	ring.equip_slot = "rings"  # Multi-item accessory slot
 	ring.weight = 0.0
 	ring.base_value = 300 * bonus
-	
-	match stat:
-		"str": ring.strength_bonus = bonus
-		"dex": ring.dexterity_bonus = bonus
-		"con": ring.constitution_bonus = bonus
-		"int": ring.intelligence_bonus = bonus
-		"wis": ring.wisdom_bonus = bonus
-		"cha": ring.charisma_bonus = bonus
-	
+
+	# ItemData stores stat bonuses in the stat_bonuses Dictionary
+	ring.stat_bonuses = {stat: bonus}
+
 	ring.description = "A magical ring that enhances " + stat.to_upper() + ". +" + str(bonus) + " " + stat.to_upper()
 	return ring
 
@@ -379,7 +374,12 @@ func create_healing_potion(potion_id: String, potion_name: String, heal_dice: St
 	potion.item_type = ItemData.ItemType.CONSUMABLE
 	potion.is_consumable = true
 	potion.consumable_effect = "heal"
-	potion.consumable_power = heal_dice  # Store dice string
+	# consumable_power is an int - store the average roll of the dice string
+	var dice_parts = heal_dice.split("d")
+	if dice_parts.size() == 2:
+		potion.consumable_power = int(int(dice_parts[0]) * (int(dice_parts[1]) + 1) / 2.0)
+	else:
+		potion.consumable_power = 0
 	potion.stackable = true
 	potion.max_stack_size = 5
 	potion.weight = 0.5
@@ -449,7 +449,7 @@ func populate_test_inventory():
 	
 	# Add some accessories
 	add_test_item("ring_strength")
-	add_test_item("ring_dex")
+	add_test_item("ring_dexterity")
 	add_test_item("amulet_health")
 	add_test_item("cloak_protection")
 	

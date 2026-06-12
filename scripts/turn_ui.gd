@@ -50,6 +50,13 @@ func set_enemy_turn(enemy_num: int, total: int):
 	total_enemies = total
 	update_text()
 
+func set_exploration_mode():
+	"""Reset UI when combat ends (called by world.end_combat)"""
+	current_turn_type = "player"
+	enemy_number = 0
+	total_enemies = 0
+	visible = false
+
 func update_text():
 	"""Update the label text with current turn info"""
 	if current_turn_type == "enemy":

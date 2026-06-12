@@ -37,8 +37,8 @@ func add_item(item_instance: Dictionary) -> bool:
 		# Find existing stack
 		for existing in items:
 			if existing.item_data == item_data:
-				# Stack it
-				existing.stack_count = existing.get("stack_count", 1) + 1
+				# Stack it (respect the incoming instance's own stack count)
+				existing.stack_count = existing.get("stack_count", 1) + item_instance.get("stack_count", 1)
 				print("Stacked item: ", item_data.item_name, " (x", existing.stack_count, ")")
 				EventBus.inventory_changed.emit()
 				return true
@@ -180,16 +180,16 @@ func get_encumbrance_speed_penalty() -> int:
 		"overloaded": return -20
 	return 0
 
+func has_disadvantage_on_physical_rolls() -> bool:
+	"""Encumbered or overloaded characters have disadvantage on physical rolls"""
+	return get_encumbrance_level() != "normal"
+
 # === SLOT MANAGEMENT ===
 
 func get_slots_used() -> int:
-	"""Get number of inventory slots currently used"""
-	var used = 0
-	for item in items:
-		var item_data: ItemData = item.item_data
-		var slot_size = item_data.get("slot_size", 1)
-		used += slot_size
-	return used
+	"""Get number of inventory slots currently used (each stack occupies one slot)"""
+	# NOTE: ItemData has no slot_size property; revisit if multi-slot items get added
+	return items.size()
 
 func get_max_slots() -> int:
 	"""Get maximum inventory slots (expandable later)"""
@@ -243,8 +243,11 @@ func equip_item(item_instance: Dictionary, character: CharacterStats, slot: Stri
 	# Handle single-item slots (normal equipment)
 	# Check if slot is occupied
 	if equipped_items[character].has(slot):
-		# Unequip current item first
+		# Unequip current item first; abort if it can't return to inventory
 		unequip_item(character, slot)
+		if equipped_items[character].has(slot):
+			print("Cannot equip ", item_data.item_name, ": slot occupied and inventory full")
+			return false
 	
 	# Equip the item
 	equipped_items[character][slot] = item_instance
@@ -285,14 +288,16 @@ func unequip_item(character: CharacterStats, slot: String, item_instance: Dictio
 			print("Item not found in ", slot)
 			return {}
 		
+		# Add back to inventory first (abort if it doesn't fit)
+		if not add_item(item_instance):
+			print("Cannot unequip ", item_instance.item_data.item_name, ": inventory full")
+			return {}
+
 		slot_array.remove_at(index)
-		
+
 		# Remove the slot key if array is empty
 		if slot_array.is_empty():
 			equipped_items[character].erase(slot)
-		
-		# Add back to inventory
-		add_item(item_instance)
 		
 		# Update character stats
 		recalculate_character_stats(character)
@@ -305,10 +310,13 @@ func unequip_item(character: CharacterStats, slot: String, item_instance: Dictio
 	
 	# Handle single-item slots
 	var unequipped = equipped_items[character][slot]
+
+	# Add back to inventory first (abort if it doesn't fit)
+	if not add_item(unequipped):
+		print("Cannot unequip ", unequipped.item_data.item_name, ": inventory full")
+		return {}
+
 	equipped_items[character].erase(slot)
-	
-	# Add back to inventory
-	add_item(unequipped)
 	
 	# Update character stats
 	recalculate_character_stats(character)
@@ -400,17 +408,100 @@ func set_party_members(members: Array):
 # === DATA EXPORT/IMPORT (for saving) ===
 
 func to_dict() -> Dictionary:
-	"""Export inventory data for saving"""
+	"""Export inventory data for saving (primitives only - see ARCHITECTURE_CONTRACTS.md)"""
+	var item_list: Array = []
+	for item in items:
+		item_list.append(_instance_to_primitive(item))
+
+	var equipped: Dictionary = {}
+	for character in equipped_items:
+		var uid = "player"
+		if "character_uid" in character and character.character_uid != "":
+			uid = character.character_uid
+		var slots: Dictionary = {}
+		for slot in equipped_items[character]:
+			var entry = equipped_items[character][slot]
+			if entry is Array:
+				var arr: Array = []
+				for inst in entry:
+					arr.append(_instance_to_primitive(inst))
+				slots[slot] = arr
+			else:
+				slots[slot] = _instance_to_primitive(entry)
+		equipped[uid] = slots
+
 	return {
-		"items": items.duplicate(),
+		"items": item_list,
 		"gold": gold,
-		"equipped_items": equipped_items.duplicate()
+		"equipped_items": equipped
 	}
 
+func _instance_to_primitive(item_instance: Dictionary) -> Dictionary:
+	"""Serialize an item instance to primitives (rebuilt via ItemDatabase on load)"""
+	var item_data = item_instance.get("item_data")
+	return {
+		"item_id": item_data.item_id if item_data else "",
+		"quality_modifier": item_instance.get("quality_modifier", 0),
+		"magic_modifier": item_instance.get("magic_modifier", 0),
+		"current_durability": item_instance.get("current_durability", 0),
+		"stack_count": item_instance.get("stack_count", 1)
+	}
+
+func _instance_from_primitive(data: Dictionary) -> Dictionary:
+	"""Rebuild an item instance from its primitive save form"""
+	var instance = ItemDatabase.create_item_instance(
+		data.get("item_id", ""),
+		data.get("quality_modifier", 0),
+		data.get("magic_modifier", 0)
+	)
+	if instance.is_empty():
+		return {}
+	instance.current_durability = data.get("current_durability", instance.get("current_durability", 0))
+	if data.get("stack_count", 1) > 1:
+		instance.stack_count = data.get("stack_count", 1)
+	return instance
+
 func from_dict(data: Dictionary):
-	"""Import inventory data from save"""
-	items = data.get("items", [])
+	"""Import inventory data from save (rebuilds instances through ItemDatabase)"""
+	items.clear()
+	for entry in data.get("items", []):
+		var instance = _instance_from_primitive(entry)
+		if not instance.is_empty():
+			items.append(instance)
+
 	gold = data.get("gold", 0)
-	equipped_items = data.get("equipped_items", {})
-	
+
+	# Equipment: resolve character uids back to live CharacterStats
+	equipped_items.clear()
+	var equipped: Dictionary = data.get("equipped_items", {})
+	for uid in equipped:
+		var character = _resolve_character_uid(uid)
+		if character == null:
+			print("InventoryManager: skipping equipment for unknown character uid '", uid, "'")
+			continue
+		equipped_items[character] = {}
+		for slot in equipped[uid]:
+			var entry = equipped[uid][slot]
+			if entry is Array:
+				var arr: Array = []
+				for inst_data in entry:
+					var inst = _instance_from_primitive(inst_data)
+					if not inst.is_empty():
+						arr.append(inst)
+				if not arr.is_empty():
+					equipped_items[character][slot] = arr
+			else:
+				var inst = _instance_from_primitive(entry)
+				if not inst.is_empty():
+					equipped_items[character][slot] = inst
+		recalculate_character_stats(character)
+
+	EventBus.inventory_changed.emit()
+	EventBus.gold_changed.emit(gold)
 	print("InventoryManager: Loaded ", items.size(), " items, ", gold, " gold")
+
+func _resolve_character_uid(uid: String):
+	"""Map a saved character uid back to a live CharacterStats (null if unknown)"""
+	if uid == "player" and GameManager.player and GameManager.player.get("stats"):
+		return GameManager.player.stats
+	return null

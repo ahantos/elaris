@@ -20,6 +20,7 @@ class_name ClassData
 @export var saving_throw_proficiencies: Array[String] = []  # ["str", "con"] for Fighter
 @export var skill_proficiency_count: int = 2  # Number of skill proficiencies at level 1
 @export var skill_proficiency_choices: Array[String] = []  # Available skills to choose from
+@export var tool_proficiencies: Array[String] = []  # e.g. ["thieves_tools"] for Rogue
 
 # Primary ability scores (for quick reference)
 @export var primary_abilities: Array[String] = []  # ["str", "con"] for Fighter, ["int"] for Wizard
@@ -34,7 +35,12 @@ class_name ClassData
 @export var level_1_features: Array[String] = []  # Feature names/IDs
 @export var level_2_features: Array[String] = []
 @export var level_3_features: Array[String] = []
-# ... Continue for all 40 levels as needed
+# Levels 4-40 live in features_by_level (built from the arrays above; extend there)
+
+# level (int) -> Array[String] of feature ids. Built lazily from the exported
+# arrays so feature queries scale to level 40 without 40 exported properties.
+var _features_by_level: Dictionary = {}
+var _features_built: bool = false
 
 # Spellcasting (if applicable)
 @export_group("Spellcasting")
@@ -59,8 +65,21 @@ class_name ClassData
 
 # === HELPER FUNCTIONS ===
 
+func get_hit_die_sides() -> int:
+	"""Get the number of sides on the hit die (6/8/10/12)"""
+	match hit_die:
+		"1d6": return 6
+		"1d8": return 8
+		"1d10": return 10
+		"1d12": return 12
+	# Fallback: parse "XdY" strings generically
+	var parts = hit_die.split("d")
+	if parts.size() == 2 and int(parts[1]) > 0:
+		return int(parts[1])
+	return 10
+
 func get_hit_die_average() -> int:
-	"""Get average value of hit die"""
+	"""Get average value of hit die (rounded up, as used for HP per level)"""
 	match hit_die:
 		"1d6": return 4
 		"1d8": return 5
@@ -68,54 +87,76 @@ func get_hit_die_average() -> int:
 		"1d12": return 7
 	return 5
 
+func _get_slot_entry(slots: Array, character_level: int) -> int:
+	"""Slot table lookup; levels beyond the table clamp to the LAST entry (level-40 support)"""
+	if character_level < 1 or slots.is_empty():
+		return 0
+	var index = clampi(character_level, 1, slots.size()) - 1
+	return slots[index]
+
 func get_spell_slots(character_level: int, spell_level: int) -> int:
-	"""Get number of spell slots at a given character and spell level"""
+	"""Get number of spell slots at a given character and spell level.
+	Character levels beyond the table (21-40) reuse the level-20 entry."""
 	if not is_spellcaster:
 		return 0
-	
-	if character_level < 1 or character_level > spell_slots_level_1.size():
-		return 0
-	
+
 	match spell_level:
-		1: return spell_slots_level_1[character_level - 1] if spell_slots_level_1.size() >= character_level else 0
-		2: return spell_slots_level_2[character_level - 1] if spell_slots_level_2.size() >= character_level else 0
-		3: return spell_slots_level_3[character_level - 1] if spell_slots_level_3.size() >= character_level else 0
-		4: return spell_slots_level_4[character_level - 1] if spell_slots_level_4.size() >= character_level else 0
-		5: return spell_slots_level_5[character_level - 1] if spell_slots_level_5.size() >= character_level else 0
-		6: return spell_slots_level_6[character_level - 1] if spell_slots_level_6.size() >= character_level else 0
-		7: return spell_slots_level_7[character_level - 1] if spell_slots_level_7.size() >= character_level else 0
-		8: return spell_slots_level_8[character_level - 1] if spell_slots_level_8.size() >= character_level else 0
-		9: return spell_slots_level_9[character_level - 1] if spell_slots_level_9.size() >= character_level else 0
-	
+		1: return _get_slot_entry(spell_slots_level_1, character_level)
+		2: return _get_slot_entry(spell_slots_level_2, character_level)
+		3: return _get_slot_entry(spell_slots_level_3, character_level)
+		4: return _get_slot_entry(spell_slots_level_4, character_level)
+		5: return _get_slot_entry(spell_slots_level_5, character_level)
+		6: return _get_slot_entry(spell_slots_level_6, character_level)
+		7: return _get_slot_entry(spell_slots_level_7, character_level)
+		8: return _get_slot_entry(spell_slots_level_8, character_level)
+		9: return _get_slot_entry(spell_slots_level_9, character_level)
+
 	return 0
 
 func get_cantrips_known(character_level: int) -> int:
-	"""Get number of cantrips known at a given level"""
-	if not is_spellcaster or cantrips_known.is_empty():
+	"""Get number of cantrips known at a given level (clamps beyond table to last entry)"""
+	if not is_spellcaster:
 		return 0
-	
-	if character_level < 1 or character_level > cantrips_known.size():
-		return 0
-	
-	return cantrips_known[character_level - 1]
+	return _get_slot_entry(cantrips_known, character_level)
+
+func get_features_by_level() -> Dictionary:
+	"""Get the full level -> Array[String] feature map (levels 1 to 40)"""
+	_ensure_features_built()
+	return _features_by_level
+
+func _ensure_features_built():
+	"""Build the features_by_level Dictionary from the exported per-level arrays"""
+	if _features_built:
+		return
+	_features_by_level = {}
+	if not level_1_features.is_empty():
+		_features_by_level[1] = level_1_features
+	if not level_2_features.is_empty():
+		_features_by_level[2] = level_2_features
+	if not level_3_features.is_empty():
+		_features_by_level[3] = level_3_features
+	_features_built = true
 
 func has_feature_at_level(feature_name: String, level: int) -> bool:
-	"""Check if class has a specific feature at given level"""
-	match level:
-		1: return level_1_features.has(feature_name)
-		2: return level_2_features.has(feature_name)
-		3: return level_3_features.has(feature_name)
-		# ... Add more levels as needed
-	return false
+	"""Check if class has a specific feature at given level (valid for levels 1-40)"""
+	return get_features_at_level(level).has(feature_name)
 
 func get_features_at_level(level: int) -> Array[String]:
-	"""Get all features gained at a specific level"""
-	match level:
-		1: return level_1_features
-		2: return level_2_features
-		3: return level_3_features
-		# ... Add more levels as needed
-	return []
+	"""Get all features gained at a specific level (valid for levels 1-40)"""
+	_ensure_features_built()
+	var features: Array[String] = []
+	if _features_by_level.has(level):
+		features = _features_by_level[level]
+	return features
+
+func get_features_up_to_level(level: int) -> Array[String]:
+	"""Get all features unlocked at or below a given level"""
+	_ensure_features_built()
+	var features: Array[String] = []
+	for feature_level in _features_by_level:
+		if feature_level <= level:
+			features.append_array(_features_by_level[feature_level])
+	return features
 
 func is_proficient_with_armor(armor_type: String) -> bool:
 	"""Check if class is proficient with an armor type"""
@@ -137,8 +178,24 @@ func get_tooltip_text() -> String:
 			primary_str += ", "
 		primary_str += ability
 	tooltip += "[b]Primary Abilities:[/b] " + primary_str + "\n"
-	
+
+	var saves_str = ""
+	for save_stat in saving_throw_proficiencies:
+		if saves_str != "":
+			saves_str += ", "
+		saves_str += save_stat.to_upper()
+	if saves_str != "":
+		tooltip += "[b]Saving Throws:[/b] " + saves_str + "\n"
+
 	if is_spellcaster:
 		tooltip += "[b]Spellcasting Ability:[/b] " + spellcasting_ability.to_upper() + "\n"
-	
+
+	var features_str = ""
+	for feature in level_1_features:
+		if features_str != "":
+			features_str += ", "
+		features_str += feature.capitalize()
+	if features_str != "":
+		tooltip += "[b]Level 1 Features:[/b] " + features_str + "\n"
+
 	return tooltip

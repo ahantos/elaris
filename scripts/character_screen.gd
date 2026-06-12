@@ -459,6 +459,7 @@ func show_character(character: CharacterStats):
 
 func hide_screen():
 	"""Hide the character screen"""
+	cancel_drag()
 	visible = false
 	get_tree().paused = false
 
@@ -520,7 +521,9 @@ func refresh_stats():
 	
 	var init_label = stats_panel.find_child("InitiativeLabel", true, false)
 	if init_label:
-		init_label.text = "Initiative: +%d" % current_character.initiative_bonus
+		var init_bonus = current_character.initiative_bonus
+		var init_str = "+%d" % init_bonus if init_bonus >= 0 else str(init_bonus)
+		init_label.text = "Initiative: %s" % init_str
 	
 	var prof_label = stats_panel.find_child("ProficiencyLabel", true, false)
 	if prof_label:
@@ -566,7 +569,7 @@ func refresh_equipment():
 				button.icon = null
 			else:
 				var item_data: ItemData = equipped.item_data
-				button.text = item_data.item_name[0]  # First letter
+				button.text = item_data.item_name.substr(0, 1)  # First letter (safe on empty names)
 				button.icon = item_data.icon  # Set item icon (will be null until you add icons)
 
 func refresh_inventory():
@@ -582,8 +585,8 @@ func refresh_inventory():
 		var item = items[i]
 		var item_data: ItemData = item.item_data
 		var button = inventory_slots[i]
-		
-		button.text = item_data.item_name[0]
+
+		button.text = item_data.item_name.substr(0, 1)
 		button.icon = item_data.icon  # Set item icon (will be null until you add icons)
 		
 		# Show stack count
@@ -612,11 +615,12 @@ func _on_equipment_slot_gui_input(event: InputEvent, slot_id: String):
 				if not equipped.is_empty():
 					start_drag(equipped, "equipment", slot_id)
 			elif is_dragging:
-				# Drop onto equipment slot
-				end_drag_on_equipment(slot_id)
+				# Release events are delivered to the control that was pressed,
+				# so resolve the actual drop target from the mouse position
+				_end_drag_at_mouse()
 
 func _on_inventory_slot_gui_input(event: InputEvent, index: int):
-	"""Handle inventory slot drag and drop"""
+	"""Handle inventory slot drag and drop (left) and item use (right-click)"""
 	if event is InputEventMouseButton:
 		if event.button_index == MOUSE_BUTTON_LEFT:
 			if event.pressed:
@@ -625,8 +629,85 @@ func _on_inventory_slot_gui_input(event: InputEvent, index: int):
 					var item = InventoryManager.items[index]
 					start_drag(item, "inventory", str(index))
 			elif is_dragging:
-				# Drop onto inventory slot
-				end_drag_on_inventory(index)
+				# Release events are delivered to the control that was pressed,
+				# so resolve the actual drop target from the mouse position
+				_end_drag_at_mouse()
+		elif event.button_index == MOUSE_BUTTON_RIGHT and event.pressed:
+			if not is_dragging:
+				_use_inventory_item(index)
+
+func _use_inventory_item(index: int):
+	"""Right-click use: consumables via ItemDatabase, scrolls/wands via
+	SpellManager. Offensive scrolls/wands need an aimed combat target and are
+	refused here with a notification (no charge/scroll is consumed)."""
+	if index >= InventoryManager.items.size():
+		return
+	var item = InventoryManager.items[index]
+	var item_data: ItemData = item.get("item_data", null)
+	if item_data == null:
+		return
+
+	var user = GameManager.player
+	if user == null or not is_instance_valid(user):
+		return
+
+	# Consumables (potions, food, antidotes, elixirs)
+	if item_data.is_consumable:
+		if ItemDatabase.use_consumable(item, user):
+			print("CharacterScreen: used ", item_data.item_name)
+			refresh_all()
+		return
+
+	# Scrolls and wands cast their embedded spell
+	var item_id := str(item_data.item_id)
+	if item_id.begins_with("scroll_") or item_id.begins_with("wand_"):
+		var prefix := "scroll_" if item_id.begins_with("scroll_") else "wand_"
+		var spell: Dictionary = SpellDatabase.get_spell(item_id.substr(prefix.length()))
+		if spell.is_empty():
+			EventBus.ui_notification.emit("Nothing happens...", "warning")
+			return
+
+		# Damage/point spells need an aimed target - can't be fired from this screen
+		# (passing a null target would resolve the spell on the caster)
+		var target_type := str(spell.get("target_type", "enemy"))
+		if target_type in ["enemy", "point"]:
+			EventBus.ui_notification.emit("That must be aimed at a target - use it in combat.", "warning")
+			return
+
+		var result: Dictionary
+		if prefix == "scroll_":
+			result = SpellManager.use_scroll(item, user, null)
+		else:
+			result = SpellManager.use_wand(item, user, null)
+
+		if result.get("ok", false):
+			print("CharacterScreen: used ", item_data.item_name)
+			refresh_all()
+		elif str(result.get("reason", "")) != "":
+			EventBus.ui_notification.emit(str(result.get("reason", "")), "warning")
+		return
+
+	print("CharacterScreen: ", item_data.item_name, " has no use action")
+
+func _end_drag_at_mouse():
+	"""Route the drop to whichever slot is under the mouse cursor"""
+	var mouse_pos = get_global_mouse_position()
+
+	# Check equipment slots
+	for slot_id in slot_buttons:
+		var button: Button = slot_buttons[slot_id]
+		if button.get_global_rect().has_point(mouse_pos):
+			end_drag_on_equipment(slot_id)
+			return
+
+	# Check inventory slots
+	for i in range(inventory_slots.size()):
+		if inventory_slots[i].get_global_rect().has_point(mouse_pos):
+			end_drag_on_inventory(i)
+			return
+
+	# Released over nothing - cancel
+	cancel_drag()
 
 func start_drag(item: Dictionary, source_type: String, source_id: String):
 	"""Start dragging an item"""
@@ -651,7 +732,7 @@ func create_drag_preview(item: Dictionary):
 	
 	var preview_button = Button.new()
 	preview_button.custom_minimum_size = Vector2(SLOT_SIZE, SLOT_SIZE)
-	preview_button.text = item.item_data.item_name[0]
+	preview_button.text = item.item_data.item_name.substr(0, 1)
 	preview_button.icon = item.item_data.icon  # Show icon in drag preview
 	preview_button.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	preview_button.modulate = Color(1, 1, 1, 0.7)  # Semi-transparent
@@ -702,10 +783,12 @@ func end_drag_on_equipment(target_slot_id: String):
 			print("Moved ", item_data.item_name, " from ", source_slot, " to ", target_slot_id)
 	
 	elif drag_source_type == "inventory":
-		# Equipping from inventory
-		InventoryManager.equip_item(dragging_item, current_character, target_slot_id)
-		print("Equipped ", item_data.item_name, " to ", target_slot_id)
-	
+		# Equipping from inventory (can fail: occupied slot + full inventory)
+		if InventoryManager.equip_item(dragging_item, current_character, target_slot_id):
+			print("Equipped ", item_data.item_name, " to ", target_slot_id)
+		else:
+			print("Could not equip ", item_data.item_name, " to ", target_slot_id)
+
 	cancel_drag()
 
 func end_drag_on_inventory(target_index: int):
@@ -715,10 +798,13 @@ func end_drag_on_inventory(target_index: int):
 	
 	# Handle different source types
 	if drag_source_type == "equipment":
-		# Unequipping to inventory
+		# Unequipping to inventory (can fail: item doesn't fit in inventory)
 		var source_slot = drag_source_id
-		InventoryManager.unequip_item(current_character, source_slot)
-		print("Unequipped ", dragging_item.item_data.item_name, " to inventory")
+		var unequipped = InventoryManager.unequip_item(current_character, source_slot)
+		if unequipped.is_empty():
+			print("Could not unequip ", dragging_item.item_data.item_name, " (inventory full?)")
+		else:
+			print("Unequipped ", dragging_item.item_data.item_name, " to inventory")
 	
 	elif drag_source_type == "inventory":
 		# Reordering inventory (TODO: implement inventory reordering)

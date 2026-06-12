@@ -1,0 +1,25 @@
+[gd_resource type="Resource" script_class="RaceData" load_steps=2 format=3 uid="uid://dmw5h0rc6b3ka"]
+
+[ext_resource type="Script" uid="uid://bce4m71a3t652" path="res://data/races/race_data.gd" id="1_h4orc"]
+
+[resource]
+script = ExtResource("1_h4orc")
+race_id = "half_orc"
+display_name = "Half-Orc"
+description = "Half-orcs combine the strength and ferocity of their orcish heritage with human adaptability. Marked by grayish skin, prominent tusks, and powerful builds, they make fearsome warriors who refuse to fall."
+base_speed = 30
+height_min = 58
+height_max = 80
+weight_min = 140
+weight_max = 250
+str_bonus = 2
+con_bonus = 1
+racial_traits = Array[String](["darkvision", "menacing", "relentless_endurance", "savage_attacks"])
+languages = Array[String](["Common", "Orc"])
+darkvision_range = 60
+skill_proficiencies = Array[String](["intimidation"])
+special_abilities = Array[String](["Menacing: Proficiency in Intimidation", "Relentless Endurance: When reduced to 0 HP but not killed outright, drop to 1 HP instead (once per long rest)", "Savage Attacks: Roll one additional weapon damage die on a critical hit with a melee weapon"])
+typical_alignment = "Chaotic Neutral"
+typical_age_range = "Adult: 14-75"
+cultural_background = "Half-orcs most often live among orc tribes or on the fringes of human society, earning acceptance through strength and deeds. Many become renowned adventurers, soldiers, and champions."
+metadata/_custom_type_script = "uid://bce4m71a3t652"

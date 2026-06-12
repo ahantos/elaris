@@ -10,9 +10,11 @@ var icon_spacing: float = 60.0
 
 func _ready():
 	set_anchors_preset(Control.PRESET_TOP_WIDE)
-	position.y = 50
+	# Vertical placement via offsets - width comes from the TOP_WIDE anchors
+	# (setting size directly here triggered the non-equal-anchors warning)
+	offset_top = 50
+	offset_bottom = 120
 	custom_minimum_size = Vector2(0, 70)
-	size = Vector2(get_viewport().size.x, 70)
 	visible = false
 
 func _process(_delta):
@@ -25,8 +27,8 @@ func setup_initiative(player: GridCharacter, enemies: Array[Enemy]):
 	combatants.clear()
 	visible = true
 	
-	# Add player
-	var player_initiative = randi() % 20 + 1
+	# Add player (d20 + DEX modifier via CombatManager)
+	var player_initiative = CombatManager.roll_initiative(player.stats)
 	var player_sprite = _get_sprite_texture(player)
 	combatants.append({
 		"entity": player,
@@ -43,7 +45,7 @@ func setup_initiative(player: GridCharacter, enemies: Array[Enemy]):
 			
 		var enemy = enemies[i]
 		randomize()
-		var enemy_initiative = (randi() % 20) + 1
+		var enemy_initiative = CombatManager.roll_initiative(enemy.stats)
 		var enemy_sprite = _get_sprite_texture(enemy)
 		combatants.append({
 			"entity": enemy,

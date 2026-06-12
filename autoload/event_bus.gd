@@ -55,6 +55,66 @@ signal game_unpaused()
 signal game_saved(slot: int)
 signal game_loaded(slot: int)
 
+# === STATUS EFFECT EVENTS ===
+# target is a Node (GridCharacter / Enemy / Companion)
+signal status_effect_applied(target, effect_id: String, duration: int)
+signal status_effect_removed(target, effect_id: String)
+signal status_effect_ticked(target, effect_id: String, amount: int)
+signal reaction_triggered(reactor, reaction_id: String, trigger_source)
+
+# === PROGRESSION EVENTS ===
+# stats is a CharacterStats
+signal character_created(stats)
+signal ability_score_increased(stats, stat: String, new_value: int)
+signal skill_check_made(stats, skill: String, dc: int, success: bool)
+
+# === MAGIC EVENTS ===
+# caster is a Node; stats is a CharacterStats
+signal spell_cast(caster, spell_id: String, targets: Array)
+signal spell_learned(stats, spell_id: String)
+signal spell_slot_used(stats, slot_level: int, remaining: int)
+signal spell_slots_restored(stats)
+signal concentration_started(caster, spell_id: String)
+signal concentration_broken(caster, spell_id: String)
+
+# === LOOT EVENTS ===
+signal loot_dropped(source, items: Array)  # items: Array of item instance Dictionaries
+signal item_used(item_instance, user)
+
+# === CRAFTING EVENTS ===
+signal item_crafted(recipe_id: String, item_instance)
+signal recipe_learned(recipe_id: String)
+signal material_gathered(material_id: String, count: int)
+signal item_repaired(item_instance)
+signal item_enchanted(item_instance, enchantment_id: String)
+
+# === DIALOGUE EVENTS ===
+signal dialogue_started(npc_id: String, dialogue_id: String)
+signal dialogue_ended(npc_id: String, dialogue_id: String)
+signal dialogue_choice_made(dialogue_id: String, node_id: String, choice_index: int)
+
+# === QUEST EVENTS (see also WORLD EVENTS above) ===
+signal quest_available(quest_id: String)
+signal quest_advanced(quest_id: String, objective_id: String, progress: int, required: int)
+
+# === WORLD EVENT / CRISIS / ZONE EVENTS ===
+signal random_event_triggered(event_id: String)
+signal crisis_phase_changed(crisis_id: String, phase: int)
+signal zone_changed(old_zone_id: String, new_zone_id: String)
+
+# === COMPANION EVENTS ===
+signal companion_recruited(companion_id: String)
+signal companion_dismissed(companion_id: String)
+signal relationship_changed(companion_id: String, old_value: int, new_value: int)
+signal romance_status_changed(companion_id: String, status: String)
+
+# === REST / TIME EVENTS ===
+signal rest_taken(rest_type: String)  # "short" or "long"
+
+# === UI PANEL EVENTS ===
+signal ui_panel_opened(panel_id: String)
+signal ui_panel_closed(panel_id: String)
+
 # === HELPER FUNCTIONS ===
 
 func notify(message: String, type: String = "info"):
