@@ -671,7 +671,10 @@ func _reg_misc(item_id: String, item_name: String, weight: float,
 # =====================================================================
 
 func register_item(item: ItemData):
-	"""Register an item in the database"""
+	"""Register an item in the database. An item without an icon of its own gets
+	the one ArtLibrary maps to its id (data/art/art_manifest.gd)."""
+	if item.icon == null:
+		item.icon = ArtLibrary.item_icon(item.item_id)
 	items[item.item_id] = item
 
 

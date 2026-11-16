@@ -7,7 +7,8 @@ extends SceneTree
 #   - notifications reach the screen,
 #   - the fixed defects stay fixed (gifting, crafting level, loot pickup, ...),
 #   - a scripted fight runs to its end,
-#   - content ids referenced across systems exist.
+#   - content ids referenced across systems exist,
+#   - every enemy, class, companion, item and biome tile has real art on the 32px grid.
 #
 # IMPORTANT: a script started with --script is compiled before the autoloads
 # exist. Reach them with root.get_node("Name"), never by their global name.
@@ -92,6 +93,7 @@ func _run():
 	await _check_debug_keys(world)
 	_check_starting_character(world)
 	_check_encumbrance(world)
+	await _check_art(world)
 	_check_crafting(world)
 	await _check_companions(world)
 	_check_loot_safety(world)
@@ -329,6 +331,196 @@ func _check_class_data():
 	check(differences.is_empty(), "wizard and cleric share the 5e full-caster slot table", str(differences))
 	check(wizard.get_spell_slots(11, 5) == 2 and wizard.get_spell_slots(17, 9) == 1 and wizard.get_spell_slots(20, 7) == 2,
 		"wizard high-level slots match 5e (two 5th at 11, a 9th at 17, two 7th at 20)")
+
+# ---------------------------------------------------------------------------
+#  Art: every game id resolves to a real texture, and the map is on the 32px grid
+# ---------------------------------------------------------------------------
+
+func _check_art(world):
+	var art = load("res://scripts/art_library.gd")
+	var manifest = load("res://data/art/art_manifest.gd")
+	var items = _mgr("ItemDatabase")
+	var dungeon = world.current_dungeon
+	var player = world.player
+	var enemy = world.enemies[0]
+
+	# Nothing so far (boot, dungeon, spawns, item registration) may have fallen back
+	check(art.get_missing().is_empty(), "no art fell back to the missing-art checker while booting", str(art.get_missing()))
+	var problems: Array = art.validate_manifest()
+	for problem in problems:
+		print("[SMOKE]   art: ", problem)
+	check(problems.is_empty(), "every file in the art manifest exists and has the right size", "%d problems" % problems.size())
+
+	# Grid and scale
+	check(dungeon.tilemap is TileMapLayer and dungeon.tilemap.tile_set != null
+		and dungeon.tilemap.tile_set.tile_size == Vector2i(32, 32),
+		"the dungeon draws on a TileMapLayer with 32x32 tiles")
+	check(player.tile_size == 32 and enemy.tile_size == 32, "player and enemies move on the 32px grid",
+		"%d / %d" % [player.tile_size, enemy.tile_size])
+	var zoom: Vector2 = dungeon.camera.zoom
+	check(is_equal_approx(zoom.x, roundf(zoom.x)) and is_equal_approx(zoom.x, zoom.y), "camera zoom is a whole number", str(zoom))
+	check(int(ProjectSettings.get_setting("rendering/textures/canvas_textures/default_texture_filter", 1)) == 0,
+		"textures are drawn unfiltered (nearest neighbour)")
+
+	# Tiles: every biome and role, and what the generator actually drew
+	var roles: Array = ["floor", "wall", "door", "decoration"]
+	var tile_gaps: Array = []
+	for biome in load("res://scripts/room_library.gd").get_available_biomes():
+		for tile_type in range(roles.size()):
+			var role: String = art.tile_role(tile_type)
+			var textures: Array = art.tile_textures(biome, role)
+			var real: bool = role == roles[tile_type] and not textures.is_empty()
+			for texture in textures:
+				if art.is_fallback(texture):
+					real = false
+			var source_id: int = art.tile_source_id(biome, role, Vector2i(3, 7))
+			if not real or not dungeon.tilemap.tile_set.has_source(source_id):
+				tile_gaps.append("%s/%s" % [biome, roles[tile_type]])
+	check(tile_gaps.is_empty(), "every biome has real floor, wall, door and decoration tiles", str(tile_gaps))
+
+	var used := 0
+	var features := 0
+	for row in dungeon.dungeon_grid:
+		for tile_type in row:
+			if tile_type != -1:
+				used += 1
+				if tile_type != 0:
+					features += 1
+	check(dungeon.tilemap.get_used_cells().size() == used and dungeon.feature_layer.get_used_cells().size() == features,
+		"the map has a floor tile under every cell and a feature tile on every wall, door and decoration",
+		"%d/%d floor, %d/%d features" % [dungeon.tilemap.get_used_cells().size(), used, dungeon.feature_layer.get_used_cells().size(), features])
+
+	# Variants come from the cell, not from the random number generator
+	seed(4242)
+	var expected_roll: int = randi()
+	seed(4242)
+	var first_pass: Array = []
+	var distinct: Dictionary = {}
+	for y in range(12):
+		for x in range(12):
+			var variant_id: int = art.tile_source_id("forest", "floor", Vector2i(x, y))
+			first_pass.append(variant_id)
+			distinct[variant_id] = true
+	var rng_untouched: bool = randi() == expected_roll
+	var second_pass: Array = []
+	for y in range(12):
+		for x in range(12):
+			second_pass.append(art.tile_source_id("forest", "floor", Vector2i(x, y)))
+	seed(20261116)  # back to the run's seed; the probe above re-seeded the generator
+	check(rng_untouched and first_pass == second_pass and distinct.size() >= 2,
+		"tile variants depend only on the cell and leave the random number generator alone",
+		"rng untouched %s, repeatable %s, %d variants" % [rng_untouched, first_pass == second_pass, distinct.size()])
+
+	# Creatures
+	var enemy_gaps: Array = []
+	for enemy_type in world.ENEMY_TYPE_DEFS.keys():
+		if art.is_fallback(art.enemy_sprite(enemy_type)):
+			enemy_gaps.append(enemy_type)
+	check(enemy_gaps.is_empty(), "every spawnable enemy type has a sprite", str(enemy_gaps))
+
+	var class_gaps: Array = []
+	for class_id in [""] + _mgr("ClassDatabase").get_all_class_ids():
+		if art.is_fallback(art.player_sprite(class_id)):
+			class_gaps.append(class_id)
+	check(class_gaps.is_empty(), "the player has a sprite for every class", str(class_gaps))
+
+	var companion_gaps: Array = []
+	var companion_defs: Dictionary = _mgr("CompanionManager").companion_definitions
+	for companion_id in companion_defs.keys():
+		if art.is_fallback(art.companion_sprite(companion_id, str(companion_defs[companion_id].get("class_id", "")))):
+			companion_gaps.append(companion_id)
+	check(companion_gaps.is_empty(), "every companion has a sprite", str(companion_gaps))
+
+	var player_sprite: Sprite2D = player.get_node_or_null("Sprite2D")
+	var enemy_sprite: Sprite2D = enemy.get_node_or_null("Sprite2D")
+	check(player_sprite != null and player_sprite.texture == art.player_sprite(player.stats.class_id)
+		and player_sprite.scale.is_equal_approx(Vector2.ONE),
+		"the player in the world wears the sprite of their class at one tile")
+	check(enemy_sprite != null and enemy_sprite.texture == art.enemy_sprite(enemy.enemy_type)
+		and enemy_sprite.scale.is_equal_approx(Vector2.ONE) and enemy_sprite.modulate == Color.WHITE,
+		"an enemy in the world wears the sprite of its type, untinted, at one tile")
+	check(world.initiative_tracker._get_sprite_texture(enemy) == art.enemy_sprite(enemy.enemy_type),
+		"the initiative bar shows a combatant's own sprite")
+
+	# The class is set after the player node is ready (new game, creation, load)
+	var class_before: String = player.stats.class_id
+	player.stats.class_id = "wizard"
+	await _frames(2)
+	var followed: bool = player_sprite.texture == art.player_sprite("wizard") and art.player_sprite("wizard") != art.player_sprite("fighter")
+	player.stats.class_id = class_before
+	await _frames(2)
+	check(followed and player_sprite.texture == art.player_sprite(class_before), "the player's sprite follows a change of class")
+
+	# Loot on the floor
+	var ground_script = load("res://scripts/ground_item.gd")
+	var bag = ground_script.spawn(world.ground_items_node, player.grid_position + Vector2i(2, 0), player.tile_size,
+		[items.create_item_instance("iron_dagger")], 5)
+	var coins = ground_script.spawn(world.ground_items_node, player.grid_position + Vector2i(3, 0), player.tile_size, [], 5)
+	var bag_sprite: Sprite2D = bag.get_node_or_null("Sprite2D")
+	var coin_sprite: Sprite2D = coins.get_node_or_null("Sprite2D")
+	check(bag_sprite != null and coin_sprite != null
+		and not art.is_fallback(bag_sprite.texture) and not art.is_fallback(coin_sprite.texture)
+		and bag_sprite.texture == art.loot_marker(true) and coin_sprite.texture == art.loot_marker(false),
+		"loot on the floor is a sprite: a bag for items, coins for gold alone")
+	bag.free()
+	coins.free()
+
+	# Items
+	var icon_gaps: Array = []
+	for item_id in items.items.keys():
+		if art.is_fallback(items.items[item_id].icon):
+			icon_gaps.append(item_id)
+	icon_gaps.sort()
+	check(icon_gaps.is_empty(), "every item in ItemDatabase has an icon (%d items)" % items.items.size(),
+		"%d without: %s" % [icon_gaps.size(), str(icon_gaps.slice(0, 12))])
+	check(items.items["steel_longsword"].icon == items.items["longsword"].icon
+		and items.items["iron_plate_boots"].icon != items.items["hide_boots"].icon,
+		"material variants share the icon of their base type")
+
+	# The character sheet shows the icon instead of the name, and keeps count and tooltip
+	var sheet = world.character_screen
+	sheet.show_character(player.stats)
+	var weapon_slot: Button = sheet.slot_buttons["main_hand"]
+	var weapon_icon: TextureRect = weapon_slot.get_node_or_null("ItemIcon")
+	check(weapon_icon != null and weapon_icon.texture != null and not art.is_fallback(weapon_icon.texture)
+		and weapon_slot.text == "" and weapon_slot.tooltip_text != "",
+		"an equipment slot shows the item's icon, no name text, and keeps its tooltip")
+	var stacked_ok := false
+	var inventory = _mgr("InventoryManager")
+	for i in range(min(inventory.items.size(), sheet.inventory_slots.size())):
+		if int(inventory.items[i].get("stack_count", 1)) > 1:
+			var slot: Button = sheet.inventory_slots[i]
+			var count_label: Label = slot.get_node_or_null("StackCount")
+			var slot_icon: TextureRect = slot.get_node_or_null("ItemIcon")
+			stacked_ok = (count_label != null and count_label.text == "x%d" % int(inventory.items[i].stack_count)
+				and slot_icon != null and slot_icon.texture != null and slot.text == "" and slot.tooltip_text != "")
+			break
+	check(stacked_ok, "an inventory slot shows the icon with the stack count over it")
+	sheet.hide_screen()
+	paused = false
+
+	# The checklist the art gets drawn against lists every file
+	var checklist := FileAccess.get_file_as_string(ProjectSettings.globalize_path("res://docs/ART_CHECKLIST.md"))
+	var unlisted: Array = []
+	for entry in art.all_entries():
+		if not str(entry["path"]).trim_prefix("res://") in checklist:
+			unlisted.append(entry["path"])
+	check(unlisted.is_empty() and manifest.TILE_SIZE == 32, "docs/ART_CHECKLIST.md lists every file in the art manifest",
+		"%d not listed - run tools/art_checklist.gd: %s" % [unlisted.size(), str(unlisted.slice(0, 5))])
+
+	# Last, on purpose: unknown ids give the visible fallback, never null, and are reported
+	check(art.get_missing().is_empty(), "no art fell back to the missing-art checker during the art checks", str(art.get_missing()))
+	var fallback: Texture2D = art.fallback_texture()
+	var fell_back: bool = (fallback != null
+		and art.enemy_sprite("no_such_enemy") == fallback
+		and art.item_icon("no_such_item") == fallback
+		and art.player_sprite("no_such_class") == fallback
+		and art.companion_sprite("no_such_companion", "") == fallback
+		and art.tile_texture("no_such_biome", "floor", Vector2i.ZERO) == fallback
+		and dungeon.tilemap.tile_set.has_source(art.tile_source_id("no_such_biome", "wall", Vector2i.ZERO)))
+	check(fell_back and art.get_missing().size() == 6, "unknown ids get the visible missing-art texture and are reported",
+		"%d reported" % art.get_missing().size())
+	art.clear_missing()
 
 # ---------------------------------------------------------------------------
 #  Content: every id referenced across systems must exist

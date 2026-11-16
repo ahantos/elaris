@@ -4,8 +4,8 @@ class_name GridCharacter
 
 # Grid-based character with click-to-move, WASD movement, and data-driven stats
 
-@export var tile_size: int = 16
-@export var move_speed: float = 200.0
+@export var tile_size: int = 32
+@export var move_speed: float = 400.0  # Pixels per second (12.5 tiles on the 32px grid, as before)
 @export var dungeon_generator: DungeonGenerator
 @export var path_preview_color: Color = Color(0, 1, 0, 0.5)
 @export var waypoint_color: Color = Color(1, 1, 0, 0.8)
@@ -17,7 +17,7 @@ class_name GridCharacter
 
 # WASD movement (exploration only)
 var wasd_movement_enabled: bool = true
-var wasd_exploration_speed: float = 150.0  # Pixels per second for WASD movement
+var wasd_exploration_speed: float = 300.0  # Pixels per second for WASD movement (about 9 tiles)
 
 # CHARACTER STATS (NEW - data-driven)
 var stats: CharacterStats
@@ -63,6 +63,9 @@ var world_node = null
 # Death guard (prevents double death handling)
 var is_dying: bool = false
 
+# Class id the sprite was last chosen for (see _refresh_sprite)
+var _sprite_class_id: String = ""
+
 func _ready():
 	z_index = 200
 
@@ -83,13 +86,8 @@ func _ready():
 	if dungeon_generator and dungeon_generator.tilemap and dungeon_generator.tilemap.tile_set:
 		tile_size = int(dungeon_generator.tilemap.tile_set.tile_size.x)
 	
-	# Auto-scale sprite to fit tile size
-	var sprite = get_node_or_null("Sprite2D")
-	if sprite and sprite.texture:
-		var texture_size = sprite.texture.get_size()
-		var target_size = tile_size * 0.8
-		var scale_factor = target_size / max(texture_size.x, texture_size.y)
-		sprite.scale = Vector2(scale_factor, scale_factor)
+	# Sprite for the character's class, drawn at one tile
+	_refresh_sprite()
 	
 	# Spawn in first room
 	if dungeon_generator:
@@ -134,7 +132,18 @@ func initialize_stats():
 	
 	print("Player stats initialized: HP ", stats.current_hp, "/", stats.max_hp)
 
+func _refresh_sprite():
+	"""Show the sprite ArtLibrary has for the character's class, one tile big.
+	_process calls this again whenever the class changes (the class is set after
+	_ready: new-game defaults, character creation, loading a save)."""
+	_sprite_class_id = stats.class_id if stats else ""
+	ArtLibrary.fit_sprite(get_node_or_null("Sprite2D"), ArtLibrary.player_sprite(_sprite_class_id), tile_size)
+
 func _process(delta):
+	# The sprite follows the character's class
+	if stats and stats.class_id != _sprite_class_id:
+		_refresh_sprite()
+
 	# WASD movement (only in exploration mode)
 	if wasd_movement_enabled and not turn_based_mode:
 		process_wasd_movement(delta)
@@ -1194,9 +1203,11 @@ func draw_hp_bar():
 	if not stats:
 		return
 	
-	var bar_width = tile_size * 1.2
-	var bar_height = 6.0
-	var bar_offset = Vector2(-bar_width / 2, -tile_size * 0.8)
+	# Narrower than a tile so neighbours' bars do not run together, and on whole
+	# pixels so the edges stay sharp at 2x
+	var bar_width = round(tile_size * 0.8)
+	var bar_height = 4.0
+	var bar_offset = Vector2(-bar_width / 2, -tile_size / 2.0 - bar_height - 3.0)
 	
 	# Background
 	draw_rect(Rect2(bar_offset, Vector2(bar_width, bar_height)), Color.BLACK)

@@ -5,18 +5,22 @@ class_name InitiativeTracker
 
 var combatants: Array[Dictionary] = []
 var current_index: int = 0
-var icon_size: Vector2 = Vector2(48, 48)
-var icon_spacing: float = 60.0
+var icon_size: Vector2 = Vector2(64, 64)   # 32px sprites drawn at 2x
+var icon_spacing: float = 88.0
+
+const FRAME_TOP := 8.0       # gap between the bar's top edge and a token's frame
+const FRAME_PADDING := 4.0   # frame around the sprite
+const ROLL_BASELINE := 108.0 # where the initiative rolls are written, below every frame
 
 func _ready():
 	# anchors AND offsets: set_anchors_preset alone keeps the current 0x0 rect,
 	# which gave this bar zero width and drew the icons off the left edge
 	set_anchors_and_offsets_preset(Control.PRESET_TOP_WIDE)
-	# Below the turn banner (which ends near y=55); the current combatant's icon
-	# is drawn 1.5x and would otherwise overlap the banner text
+	# Below the turn banner (which ends near y=55); the current combatant's frame
+	# is drawn a little larger and would otherwise overlap the banner text
 	offset_top = 66
-	offset_bottom = 136
-	custom_minimum_size = Vector2(0, 70)
+	offset_bottom = 176
+	custom_minimum_size = Vector2(0, 110)
 	visible = false
 
 func _process(_delta):
@@ -134,63 +138,46 @@ func is_player_turn() -> bool:
 	return current.is_player
 
 func _draw():
-	"""Draw the initiative order"""
+	"""Draw the initiative order: one framed token per combatant, the sprite at
+	twice its size (32px art, unfiltered), the roll underneath. Green frame for
+	the player, red for enemies, a thick gold one for whoever's turn it is."""
 	if combatants.is_empty():
 		return
-	
-	# Calculate starting X position to center the icons
+
+	# Calculate starting X position to center the tokens
 	var total_width = combatants.size() * icon_spacing
 	var start_x = (size.x - total_width) / 2.0
-	
+	var font = ThemeDB.fallback_font
+
 	for i in range(combatants.size()):
 		var combatant = combatants[i]
-		var x_pos = start_x + i * icon_spacing + icon_spacing / 2.0
-		var y_pos = 10.0
-		
-		# Determine colors
-		var bg_color = Color(0.2, 0.2, 0.2, 0.8)
-		var border_color = Color.WHITE
+		var is_current: bool = i == current_index
+		var center = Vector2(start_x + i * icon_spacing + icon_spacing / 2.0, FRAME_TOP + FRAME_PADDING + icon_size.y / 2.0)
+
+		var frame = Rect2(center - icon_size / 2.0, icon_size).grow(FRAME_PADDING)
+		var bg_color = Color(0.08, 0.08, 0.11, 0.9)
+		var border_color = Color(0.3, 1.0, 0.3) if combatant.is_player else Color(1.0, 0.3, 0.3)
 		var border_width = 2.0
-		var icon_scale = 1.0
-		
-		if i == current_index:
+		if is_current:
 			# Highlight current turn - make it obvious
-			bg_color = Color(1.0, 0.9, 0.0, 1.0)
-			border_color = Color(1.0, 1.0, 1.0)
-			border_width = 6.0
-			icon_scale = 1.5
-		elif combatant.is_player:
-			border_color = Color(0.3, 1.0, 0.3)
-		else:
-			border_color = Color(1.0, 0.3, 0.3)
-		
-		var scaled_icon_size = icon_size * icon_scale
-		var center = Vector2(x_pos, y_pos + icon_size.y / 2)
-		
-		# Draw background circle
-		draw_circle(center, scaled_icon_size.x / 2, bg_color)
-		
-		# Draw border
-		draw_arc(center, scaled_icon_size.x / 2, 0, TAU, 32, border_color, border_width)
-		
-		# Draw sprite
+			frame = frame.grow(4.0)
+			bg_color = Color(0.30, 0.26, 0.08, 1.0)
+			border_color = Color(1.0, 0.85, 0.1)
+			border_width = 5.0
+
+		draw_rect(frame, bg_color)
+		draw_rect(frame, border_color, false, border_width)
+
+		# The sprite, untinted: each enemy type has its own art
 		if combatant.sprite:
-			var sprite_pos = Vector2(x_pos - scaled_icon_size.x / 2, y_pos + (icon_size.y - scaled_icon_size.y) / 2)
-			var sprite_rect = Rect2(sprite_pos, scaled_icon_size)
-			# Enemies share one placeholder sprite and differ only by tint -
-			# carry that tint into the bar so they can be told from the player
-			var sprite_color = Color.WHITE
-			if not combatant.is_player and is_instance_valid(combatant.entity) and "enemy_color" in combatant.entity:
-				sprite_color = combatant.entity.enemy_color
-			draw_texture_rect(combatant.sprite, sprite_rect, false, sprite_color)
-		
+			draw_texture_rect(combatant.sprite, Rect2(center - icon_size / 2.0, icon_size), false)
+
 		# Draw initiative number below
 		var initiative_text = str(combatant.initiative)
-		var font = ThemeDB.fallback_font
-		var font_size = 20 if i == current_index else 14
+		var font_size = 20 if is_current else 14
 		var text_size = font.get_string_size(initiative_text, HORIZONTAL_ALIGNMENT_CENTER, -1, font_size)
-		var text_color = Color.WHITE
-		draw_string(font, Vector2(x_pos - text_size.x / 2, y_pos + icon_size.y + 20), initiative_text, HORIZONTAL_ALIGNMENT_CENTER, -1, font_size, text_color)
+		var text_color = Color(1.0, 0.9, 0.3) if is_current else Color.WHITE
+		draw_string(font, Vector2(center.x - text_size.x / 2, ROLL_BASELINE), initiative_text, HORIZONTAL_ALIGNMENT_CENTER, -1, font_size, text_color)
 
 func remove_combatant(entity: Node):
 	"""Remove a specific combatant (e.g., when they die)"""

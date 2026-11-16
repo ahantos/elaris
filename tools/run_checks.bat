@@ -4,7 +4,7 @@ rem
 rem   tools\run_checks.bat             both
 rem   tools\run_checks.bat --no-shots  smoke test only (no window)
 rem
-rem Output goes to tools\out\ (smoke.log, tour.log, screenshots\).
+rem Output goes to tools\out\ (import.log, smoke.log, tour.log, screenshots\).
 rem Set GODOT_EXE to use a different engine binary.
 setlocal
 
@@ -20,6 +20,11 @@ if not exist "%GODOT_EXE%" (
 )
 
 set RESULT=0
+
+rem New PNGs and new class_name scripts do not exist for the engine until they are
+rem imported. The editor does this on its own; a command-line run has to ask.
+echo [checks] import, headless...
+"%GODOT_EXE%" --headless --path "%PROJECT%" --import > "%OUT%\import.log" 2>&1
 
 echo [checks] smoke test, headless...
 "%GODOT_EXE%" --headless --path "%PROJECT%" --script res://tools/smoke_test.gd > "%OUT%\smoke.log" 2>&1

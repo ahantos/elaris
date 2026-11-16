@@ -44,6 +44,99 @@ func _shot(label: String):
 	var error := root.get_texture().get_image().save_png(path)
 	print("[TOUR] ", path, "" if error == OK else "  (save failed: %d)" % error)
 
+# ---------------------------------------------------------------------------
+#  Art: one shot per biome with every creature and loot sprite standing on that
+#  biome's floor, then one of everything the game draws over the map itself.
+#  Add "-- --grid" to the command line to see the combat grid in the biome shots.
+# ---------------------------------------------------------------------------
+
+func _art_tour(world):
+	var art = load("res://scripts/art_library.gd")
+	var manifest = load("res://data/art/art_manifest.gd")
+	var player = world.player
+	var start_biome: String = world.current_dungeon.biome_type
+	var show_grid: bool = "--grid" in OS.get_cmdline_user_args()  # combat grid in the biome shots
+
+	for biome in load("res://scripts/room_library.gd").get_available_biomes():
+		await world.regenerate_dungeon(biome)
+		await _wait(0.5)
+		if show_grid:
+			world.grid_overlay.set_enabled(true)
+		var sheet := _add_art_sheet(world, art, manifest)
+		await _wait(0.2)
+		await _shot("biome_" + biome)
+		sheet.free()
+
+	# Back to the biome the rest of the tour expects
+	await world.regenerate_dungeon(start_biome)
+	await _wait(0.5)
+
+	# Path preview through two waypoints, attack range, loot, floating numbers
+	var here: Vector2i = player.grid_position
+	player.add_waypoint(here + Vector2i(4, 0))
+	player.add_waypoint(here + Vector2i(4, 3))
+	player.attack_mode = true
+	player.selected_attack_type = "heavy"
+	player.queue_redraw()
+	var ground_script = load("res://scripts/ground_item.gd")
+	var dagger: Dictionary = root.get_node("ItemDatabase").create_item_instance("iron_dagger")
+	var drops: Array = [
+		ground_script.spawn(world.ground_items_node, here + Vector2i(-3, 1), player.tile_size, [dagger], 0),
+		ground_script.spawn(world.ground_items_node, here + Vector2i(-4, 1), player.tile_size, [], 25),
+	]
+	var popups = load("res://scripts/damage_popup.gd")
+	var tile := float(player.tile_size)
+	popups.spawn_damage_popup_at(world, player.global_position + Vector2(-3, -2) * tile, 7, false)
+	popups.spawn_damage_popup_at(world, player.global_position + Vector2(0, -3) * tile, 12, true)
+	popups.spawn_miss_popup_at(world, player.global_position + Vector2(3, -2) * tile)
+	popups.spawn_heal_popup_at(world, player.global_position + Vector2(-5, -1) * tile, 5)
+	await _wait(0.25)
+	await _shot("map_overlays")
+	player.attack_mode = false
+	player.selected_attack_type = ""
+	player.cancel_preview()
+	for drop in drops:
+		drop.free()
+	await _wait(2.0)  # the floating numbers have gone before the next shot
+
+func _add_art_sheet(world, art, manifest) -> Node2D:
+	"""Stand every creature and loot sprite on the floor tiles around the player.
+	Sprites only, no game objects: nothing moves, attacks or starts a fight."""
+	var textures: Array = []
+	for enemy_type in manifest.ENEMY_SPRITES.keys():
+		textures.append(art.enemy_sprite(enemy_type))
+	for class_id in manifest.PLAYER_SPRITES.keys():
+		textures.append(art.player_sprite(class_id))
+	for companion_id in manifest.COMPANION_SPRITES.keys():
+		textures.append(art.companion_sprite(companion_id))
+	textures.append(art.loot_marker(true))
+	textures.append(art.loot_marker(false))
+
+	var sheet := Node2D.new()
+	sheet.name = "ArtSheet"
+	sheet.z_index = 150
+	world.add_child(sheet)
+
+	var player = world.player
+	var grid: Array = world.current_dungeon.dungeon_grid
+	var next := 0
+	for radius in range(1, 6):
+		for dy in range(-radius, radius + 1):
+			for dx in range(-radius, radius + 1):
+				if max(abs(dx), abs(dy)) != radius or next >= textures.size():
+					continue
+				var cell: Vector2i = player.grid_position + Vector2i(dx, dy)
+				if cell.y < 0 or cell.y >= grid.size() or cell.x < 0 or cell.x >= grid[cell.y].size():
+					continue
+				if grid[cell.y][cell.x] != 0:
+					continue
+				var sprite := Sprite2D.new()
+				art.fit_sprite(sprite, textures[next], player.tile_size)
+				sprite.position = player.grid_to_world(cell)
+				sheet.add_child(sprite)
+				next += 1
+	return sheet
+
 func _run():
 	seed(20261116)
 	change_scene_to_file(MAIN_SCENE)
@@ -64,11 +157,13 @@ func _run():
 
 	var camera = world.current_dungeon.camera
 	var zoom = camera.zoom
-	camera.zoom = Vector2(0.55, 0.55)
+	camera.zoom = Vector2(0.5, 0.5)  # exactly half: unfiltered tiles shrink evenly
 	await _wait(1.2)
 	await _shot("dungeon_overview")
 	camera.zoom = zoom
 	await _wait(0.8)
+
+	await _art_tour(world)
 
 	world.character_screen.show_character(player.stats)
 	await _wait(0.3)

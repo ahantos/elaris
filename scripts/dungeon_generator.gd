@@ -21,18 +21,15 @@ class_name DungeonGenerator
 
 @export_group("Grid Settings")
 @export var show_grid: bool = true
-@export var grid_color: Color = Color(0, 0, 0, 0.5)
+@export var grid_color: Color = Color(1, 1, 1, 0.14)  # Light: the placeholder floors are dark
 @export var grid_thickness: float = 1.0
 
 @export_group("Camera Settings")
-@export var initial_camera_zoom: float = 3.5  # Higher = more zoomed in
+@export var initial_camera_zoom: float = 2.0  # Whole numbers keep 32px tiles sharp (2.0 = 64 screen pixels per tile)
 
 @export_group("Debug")
 @export var auto_generate_on_ready: bool = true
 @export var show_debug_info: bool = true
-
-@export_group("TileSet Settings")
-@export var tileset_path: String = "res://tilesets/dungeon_tileset.tres"
 
 enum TileType {
 	EMPTY = -1,
@@ -44,7 +41,12 @@ enum TileType {
 
 var camera: Camera2D = null
 var grid_overlay: GridOverlay = null
-var tilemap: TileMap = null
+# Two layers sharing one TileSet (ArtLibrary.get_tileset(), 32x32 cells):
+# tilemap holds a floor tile under every used cell, feature_layer holds the walls,
+# doors and decorations drawn on top of it. Other scripts read
+# tilemap.tile_set.tile_size to learn the tile size.
+var tilemap: TileMapLayer = null
+var feature_layer: TileMapLayer = null
 
 # Cached world reference (avoids per-frame scene tree lookups in _process)
 var world_node = null
@@ -56,13 +58,15 @@ var start_room: Dictionary = {}
 var boss_room: Dictionary = {}
 
 func _ready():
-	tilemap = get_node_or_null("TileMap")
-	if not tilemap:
-		push_error("TileMap child node not found!")
+	tilemap = get_node_or_null("Ground")
+	feature_layer = get_node_or_null("Features")
+	if not tilemap or not feature_layer:
+		push_error("Ground / Features TileMapLayer child nodes not found!")
 		return
 	
-	if not tilemap.tile_set and FileAccess.file_exists(tileset_path):
-		tilemap.tile_set = load(tileset_path)
+	# One TileSet for every biome, built from the PNGs under assets/tiles/
+	tilemap.tile_set = ArtLibrary.get_tileset()
+	feature_layer.tile_set = tilemap.tile_set
 	
 	camera = get_node_or_null("Camera2D")
 	if not camera:
@@ -101,26 +105,28 @@ func _process(delta):
 		var screen_offset = viewport_height * 0.14  # Increased from 0.125 to 0.14 (14%)
 		var world_offset = screen_offset / camera.zoom.y  # Convert to world space
 
-		# Apply slight compensation for extreme zoom levels
-		var zoom_factor = clamp(camera.zoom.y / 3.5, 0.8, 1.2)  # Updated baseline to 3.5
+		# Apply slight compensation for extreme zoom levels (1.0 at the starting zoom)
+		var zoom_factor = clamp(camera.zoom.y / initial_camera_zoom, 0.8, 1.2)
 		world_offset *= zoom_factor
 
 		var target_pos = world.player.global_position + Vector2(0, world_offset)
 		camera.global_position = camera.global_position.lerp(target_pos, 5.0 * delta)
 
-	# Zoom controls
-	if Input.is_action_pressed("ui_page_up"):
-		camera.zoom += Vector2(0.05, 0.05) * delta * 60.0
-		camera.zoom.x = clamp(camera.zoom.x, 0.5, 10.0)
-		camera.zoom.y = clamp(camera.zoom.y, 0.5, 10.0)
-	if Input.is_action_pressed("ui_page_down"):
-		camera.zoom -= Vector2(0.05, 0.05) * delta * 60.0
-		camera.zoom.x = clamp(camera.zoom.x, 0.5, 10.0)
-		camera.zoom.y = clamp(camera.zoom.y, 0.5, 10.0)
+	# Zoom controls: one whole step per key press (1x to 4x). Pixel art is drawn
+	# unfiltered, so a zoom like 2.3 would make tile pixels uneven in size.
+	if Input.is_action_just_pressed("ui_page_up"):
+		_step_camera_zoom(1)
+	if Input.is_action_just_pressed("ui_page_down"):
+		_step_camera_zoom(-1)
 
 	# NOTE: R-key regeneration is handled by world.gd (which also respawns
 	# the player and enemies). Handling it here too caused double/per-frame
 	# regeneration that left the player standing in EMPTY tiles.
+
+func _step_camera_zoom(step: int):
+	"""Zoom in or out by one whole level, kept between 1x and 4x"""
+	var level: float = clamp(round(camera.zoom.x) + step, 1.0, 4.0)
+	camera.zoom = Vector2(level, level)
 
 func set_camera_target(target: Node2D):
 	"""Make camera follow a target - snaps to position immediately"""
@@ -129,11 +135,14 @@ func set_camera_target(target: Node2D):
 		var screen_offset = viewport_height * 0.14  # Increased from 0.125 to 0.14
 		var world_offset = screen_offset / camera.zoom.y
 		
-		# Apply zoom compensation
-		var zoom_factor = clamp(camera.zoom.y / 3.5, 0.8, 1.2)  # Updated baseline to 3.5
+		# Apply zoom compensation (1.0 at the starting zoom)
+		var zoom_factor = clamp(camera.zoom.y / initial_camera_zoom, 0.8, 1.2)
 		world_offset *= zoom_factor
 		
 		camera.global_position = target.global_position + Vector2(0, world_offset)
+		# Without this the smoothing glides in from wherever the camera was (the old
+		# dungeon after a regeneration), which is not "immediately"
+		camera.reset_smoothing()
 
 func generate_dungeon():
 	_initialize_grid()
@@ -353,24 +362,29 @@ func _add_corridor_walls():
 	dungeon_grid = temp_grid
 
 func _render_to_tilemap():
-	if not tilemap or not tilemap.tile_set:
-		push_error("TileMap not ready!")
-		return
-	
-	var source_id = tilemap.tile_set.get_source_id(0) if tilemap.tile_set.get_source_count() > 0 else -1
-	if source_id == -1:
-		push_error("No tile source!")
+	if not tilemap or not tilemap.tile_set or not feature_layer:
+		push_error("TileMapLayer not ready!")
 		return
 	
 	tilemap.clear()
+	feature_layer.clear()
 	
+	# Every used cell gets a floor tile; walls, doors and decorations go on the
+	# layer above it, so their art may be transparent (trees, statues). Which
+	# variant a cell shows comes from its coordinates (ArtLibrary.cell_hash),
+	# never from the random number generator: drawing must not disturb a seed.
 	for y in range(dungeon_height):
 		for x in range(dungeon_width):
 			var tile_type = dungeon_grid[y][x]
-			if tile_type != TileType.EMPTY:
-				tilemap.set_cell(0, Vector2i(x, y), source_id, Vector2i(tile_type, 0))
+			if tile_type == TileType.EMPTY:
+				continue
+			var cell = Vector2i(x, y)
+			tilemap.set_cell(cell, ArtLibrary.tile_source_id(biome_type, "floor", cell), Vector2i.ZERO)
+			if tile_type != TileType.FLOOR:
+				feature_layer.set_cell(cell, ArtLibrary.tile_source_id(biome_type, ArtLibrary.tile_role(tile_type), cell), Vector2i.ZERO)
 	
-	tilemap.force_update()
+	tilemap.update_internals()
+	feature_layer.update_internals()
 
 func regenerate():
 	generate_dungeon()
@@ -378,7 +392,7 @@ func regenerate():
 func get_start_position() -> Vector2:
 	if start_room.is_empty():
 		return Vector2.ZERO
-	var tile_size: Vector2 = Vector2(16, 16)
+	var tile_size: Vector2 = Vector2(ArtLibrary.TILE_SIZE, ArtLibrary.TILE_SIZE)
 	if tilemap and tilemap.tile_set:
 		tile_size = tilemap.tile_set.tile_size
 	return Vector2(float(start_room.center.x) * tile_size.x, float(start_room.center.y) * tile_size.y)
@@ -386,7 +400,7 @@ func get_start_position() -> Vector2:
 func get_boss_position() -> Vector2:
 	if boss_room.is_empty():
 		return Vector2.ZERO
-	var tile_size: Vector2 = Vector2(16, 16)
+	var tile_size: Vector2 = Vector2(ArtLibrary.TILE_SIZE, ArtLibrary.TILE_SIZE)
 	if tilemap and tilemap.tile_set:
 		tile_size = tilemap.tile_set.tile_size
 	return Vector2(float(boss_room.center.x) * tile_size.x, float(boss_room.center.y) * tile_size.y)
