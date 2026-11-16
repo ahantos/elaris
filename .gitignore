@@ -5,3 +5,6 @@
 # Editor/tooling temp files
 *.tmp
 tmpclaude*
+
+# Check output (logs, screenshots)
+tools/out/

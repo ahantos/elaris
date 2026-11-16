@@ -38,6 +38,11 @@ var companion_nodes: Dictionary = {}
 # Re-entrancy guard: SPACE pressed again while companion turns are resolving
 var _advancing_turn: bool = false
 
+# Development shortcuts, only live while GameManager.debug_keys is on (F3):
+# R regenerate dungeon, N re-create character, Y talk to the Reeve from anywhere,
+# M toggle minimap fog
+const DEBUG_KEYCODES: Array = [KEY_R, KEY_N, KEY_Y, KEY_M]
+
 func _ready():
 	# Register with GameManager
 	GameManager.set_world(self)
@@ -100,7 +105,6 @@ func _ready():
 	_connect_world_signals()
 	_apply_new_game_defaults()
 
-	print("World: Press Y to talk to the Reeve of Brackenford")
 	print("World: integration ready (panels, loot, companions, zones, spells)")
 
 func _register_ui_panels():
@@ -156,7 +160,9 @@ func _apply_new_game_defaults():
 		var kit_class = player.stats.class_id if player.stats.class_id != "" else "fighter"
 		for instance in ItemDatabase.get_starting_kit(kit_class):
 			InventoryManager.add_item(instance)
-		print("World: starting kit granted (", kit_class, ")")
+		# Wear the kit: an unequipped fighter starts at AC 11 instead of 17
+		var worn = InventoryManager.auto_equip_from_inventory(player.stats)
+		print("World: starting kit granted (", kit_class, "), ", worn, " items equipped")
 
 	EventBus.player_hp_changed.emit(player.stats.current_hp, player.stats.max_hp)
 
@@ -169,18 +175,21 @@ func _on_character_created(new_stats):
 	if not is_instance_valid(player) or new_stats == null:
 		return
 
-	# CharacterStats.movement_speed arrives from race data in FEET (25/30);
-	# grid_character treats movement_speed as TILES (initialize_stats sets 6).
-	# Mirror the feet -> tiles conversion (feet / 5).
-	if new_stats.movement_speed >= 10:
-		new_stats.movement_speed = max(1, int(new_stats.movement_speed / 5.0))
+	# A confirmed creation replaces the character outright. Drop the old
+	# character's equipment bookkeeping and bag first, so nothing is orphaned
+	# under the old stats object and no second starting kit piles up.
+	if player.stats:
+		InventoryManager.equipped_items.erase(player.stats)
+	InventoryManager.items.clear()
 
 	player.stats = new_stats
 	InventoryManager.set_party_members([new_stats])
 
-	# Starting kit for the chosen class
+	# Starting kit for the chosen class, worn straight away
 	for instance in ItemDatabase.get_starting_kit(new_stats.class_id):
 		InventoryManager.add_item(instance)
+	InventoryManager.auto_equip_from_inventory(new_stats)
+	EventBus.inventory_changed.emit()
 
 	EventBus.player_hp_changed.emit(new_stats.current_hp, new_stats.max_hp)
 
@@ -210,6 +219,19 @@ func _process(_delta):
 
 func _input(event):
 	if event is InputEventKey and event.pressed and not event.echo:
+		# F3 switches the debug keys on and off (off by default)
+		if event.keycode == KEY_F3:
+			GameManager.debug_keys = not GameManager.debug_keys
+			if GameManager.debug_keys:
+				EventBus.ui_notification.emit("Debug keys ON: R new dungeon, N new character, Y talk to the Reeve, M reveal map", "info")
+			else:
+				EventBus.ui_notification.emit("Debug keys OFF", "info")
+			return
+
+		# Development shortcuts: ignored unless the debug keys are switched on
+		if event.keycode in DEBUG_KEYCODES and not GameManager.debug_keys:
+			return
+
 		# Manual grid toggle with G key
 		if event.keycode == KEY_G:
 			if grid_overlay:
@@ -767,6 +789,18 @@ func _grant_death_rewards(enemy: Enemy):
 	var tile_size = player.tile_size if is_instance_valid(player) else 16
 	GroundItemScript.spawn(ground_items_node, enemy.grid_position, tile_size, drops, gold_amount)
 	EventBus.loot_dropped.emit(enemy, drops)
+
+func drop_items_at_player(instances: Array, gold_amount: int = 0):
+	"""Put items on the ground on the player's tile. Called by
+	InventoryManager.add_item_or_drop when the bag refuses something the game
+	handed the player (crafted item, quest/dialogue/event reward)."""
+	if instances.is_empty() and gold_amount <= 0:
+		return
+	if not is_instance_valid(player) or ground_items_node == null or not is_instance_valid(ground_items_node):
+		push_warning("World: nowhere to drop items - they are lost")
+		return
+	GroundItemScript.spawn(ground_items_node, player.get_grid_position(), player.tile_size, instances, gold_amount)
+	EventBus.ui_notification.emit("Your pack is full - it was left at your feet.", "warning")
 
 # ============================================================================
 # COMPANIONS (recruit/dismiss -> scene nodes; combat turns run in

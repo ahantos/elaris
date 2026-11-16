@@ -1,106 +1,85 @@
 # Elaris - Project Context
 
-## Quick Summary
-**Elaris (Dungeon Delver)** — Grid-based, turn-based dungeon crawler RPG using D&D 5e rules. Built in Godot 4.5 with GDScript.
+Grid-based, turn-based dungeon crawler using D&D 5e rules. Godot 4.5, GDScript.
+Pitch: "Hades meets Battle Brothers meets classic D&D".
 
-**Elevator Pitch:** "Hades meets Battle Brothers meets classic D&D"
+## Read first
+- `docs/ASSESSMENT_AND_PLAN_2026-11.md` - what actually works, what does not, the
+  phased plan, and the design decisions already made. Source of truth for state.
+- `docs/ARCHITECTURE_CONTRACTS.md` - ids, schemas and rules every system follows.
+- `CURRENT_WORK.md` - where the work is right now.
 
-## Tech Stack
-- **Engine:** Godot 4.5 (exe: `C:\Users\Akos\Desktop\Godot_v4.5-stable_win64.exe\Godot_v4.5-stable_win64_console.exe`)
-- **Language:** GDScript
-- **Architecture:** Manager-based, 22 autoload singletons, EventBus signal hub
-- **Resolution:** 1920x1080
+## State in one paragraph
+A working combat prototype (walk a small dungeon, fight, loot, level, save) surrounded
+by systems that exist as code but are mostly unreachable in play: spells (the default
+character is a fighter), crafting beyond the basics, quests past the first objective,
+zones, factions, and companions outside a debug button. No menu, no game over, no town,
+no art, no audio. Phase 0 made everything that exists visible and stopped it crashing. Do not
+describe a system as working because its manager runs; check that a player can reach it.
 
-## IMPORTANT: Architecture Contracts
-`docs/ARCHITECTURE_CONTRACTS.md` is the binding reference for system boundaries, data
-schemas (spells/quests/dialogues/recipes/effects/companions/zones), item-id naming,
-equipment slot strings, save-format rules (primitives only), and UI panel conventions.
-Read it before modifying any system.
+## Running and checking
+- Engine: `C:\Users\Akos\Desktop\Godot_v4.5-stable_win64.exe\Godot_v4.5-stable_win64_console.exe`
+  (the folder really is named `.exe`). Override with `GODOT_EXE`.
+- **`tools\run_checks.bat`** - run before every commit. Headless smoke test, then a
+  windowed screenshot tour written to `tools/out/screenshots/`. `--no-shots` skips the
+  window. Look at the pictures after any change to UI or the map.
+- A headless boot only proves the scripts parse. It cannot see layout. That is how
+  every panel shipped off-screen once.
+- Scripts started with `--script` are compiled before the autoloads exist: reach them
+  with `root.get_node("Name")`, never by global name.
+- Per-script `--check-only` false-positives on autoload names. Do not use it.
 
-## Validation
-Per-script `--check-only` false-positives on autoload names — do NOT use it. Validate with:
-```
-& "C:\Users\Akos\Desktop\Godot_v4.5-stable_win64.exe\Godot_v4.5-stable_win64_console.exe" --headless --path "C:\Users\Akos\Documents\GitHub\elaris" --quit-after 30
-```
-Pass = exit 0 + no `SCRIPT ERROR` lines.
+## Architecture
+- 22 autoload singletons, listed in `project.godot` (databases, then managers, then
+  UIManager). `EventBus` carries all cross-system signals.
+- `scripts/world.gd` - main scene script: spawning, the combat loop, hotkeys, panel
+  registration, loot and XP on kill. Too large; split planned in Phase 1.
+- `scripts/grid_character.gd` (player), `scripts/enemy.gd`, `scripts/companion.gd` -
+  three unrelated scripts; a shared combatant model is Phase 2.
+- `ui/*.gd` - panels built in code and registered with `UIManager`, which owns
+  exclusivity and pausing. `ui/notification_toasts.gd` draws `EventBus.ui_notification`.
+- `scripts/character_screen.gd`, `scripts/save_load_menu.gd` - older screens with their
+  own pause handling.
+- `tools/` - checks. `art_source/` - source art, hidden from Godot by `.gdignore`.
 
-## Autoloads (project.godot order)
-| Autoload | Purpose |
-|---|---|
-| EventBus | Signal hub (all cross-system events; ~90 signals) |
-| GameManager | Game state, settings, player/world/dungeon refs, short/long rests |
-| ItemDatabase | 20 materials, 263 generated items (lazy id regeneration), use_consumable, starting kits |
-| CombatManager | d20 rolls, crits, cover/flanking/status-aware attacks, saves, reactions/opportunity attacks |
-| InventoryManager | Party inventory, gold, weight, equipment (multi-slot rings/trinkets), primitive save format |
-| SaveManager | Multi-slot saves, format v2 (all systems), v1-tolerant |
-| ClassDatabase | 4 classes (.tres) with spell slot tables, hit dice |
-| RaceDatabase | 5 races (.tres) incl. half_orc |
-| SkillDatabase | 18 D&D skills → governing stats |
-| SpellDatabase | 82 spells, 8 schools, lv 0-9 + scroll_/wand_ item registration |
-| RecipeDatabase | 115 recipes across forge/alchemy_table/enchanting_table/cooking_fire |
-| LootManager | Loot tables (goblin/skeleton/bandit/wolf/boss/default), level-scaled tiers |
-| StatusEffectManager | 17 effects, ticks, modifier queries (AC/speed/advantage/incapacitation) |
-| SpellManager | Known spells, slots, casting, concentration, scrolls/wands, enchanting, pending-cast |
-| CraftingManager | can_craft/craft/repair, enchant recipes target equipped items |
-| DialogueManager | Dialogue trees: choices, skill checks, conditions, effects |
-| QuestManager | 8 quests + procedural generator; auto-advances from EventBus |
-| FactionManager | 3 factions, reputation -100..100, status thresholds |
-| WorldEventManager | 6 random events + lich_king_rises crisis (4 phases) |
-| ZoneManager | 9 zones (zone_1 The Borderlands active), travel, biome mapping |
-| CompanionManager | 4 companions (2 romanceable), relationships, gifts, party (cap 3) |
-| UIManager | Exclusive full-screen panel registry; owns pause; ESC closes |
+## Rules that bite
+- Layout: `set_anchors_and_offsets_preset()`, not `set_anchors_preset()`, on any Control
+  that is already in the tree. The latter keeps the current rectangle.
+- Speed is in feet on `CharacterStats` (30 = 6 tiles). `get_modified_movement_speed()`
+  returns tiles.
+- Anything the game gives the player goes through `InventoryManager.add_item_or_drop()`.
+- Item instances are Dictionaries wrapping an `ItemData` Resource. `Object.get()` takes
+  one argument; a default value on a Resource is a script error.
+- Save payloads are primitives only; items rebuild from ids.
+- Combat timers are pause-bound: `create_timer(t, false)`. Check `is_instance_valid`
+  after every await.
+- The node name "World" is load-bearing (cached lookups).
+- New content ids are checked by `tools/content_validator.gd`. A dangling reference
+  fails the smoke test unless it is listed, with a reason, in `KNOWN_GAPS`.
 
-## Key Scene Scripts
-- `scripts/world.gd` — coordinator: combat loop (await-recursive with re-entrancy guards), panel registration, hotkeys, loot/XP on kill, zone travel, companion spawning, load resync
-- `scripts/grid_character.gd` — player: WASD + click-move, attacks (pass nodes for status/cover), spell-targeting click flow, step-on loot pickup, turn hooks
-- `scripts/enemy.gd` — A* AI, enemy_type/enemy_level, turn hooks, opportunity attacks
-- `scripts/companion.gd` — allied follower node (acts in player's initiative slot)
-- `scripts/combat_grid.gd` — static LoS (Bresenham), cover AC bonus, flanking, Chebyshev distance
-- `scripts/ground_item.gd` — dropped-loot node (GroundItem.spawn / pickup)
-- `ui/*.gd` — code-built panels: spellbook, crafting, quest_log, world_map, dialogue, companions, character_creation (+ combat_log)
-
-## Keymap
+## Keys
 | Key | Action |
 |---|---|
-| WASD | Move (exploration) |
-| Click / Ctrl+Click / RMB | Move-preview & confirm / waypoint / cancel (click casts when a spell is pending) |
-| T / Space | Toggle turn-based / end turn |
-| 1 / 2 / 3 | Light (1d4) / Medium (1d8) / Heavy (1d12) attack |
-| Esc | Cancel attack/pending spell; close open panel |
-| I | Character screen (equipment/inventory; right-click item = use) |
-| B / C / J / O / P / N | Spellbook / Crafting / Quest log / World map / Companions / Character creation |
-| Y | Talk to the Reeve of Brackenford (placeholder dialogue entry; starts main quest) |
-| F7 / F8 | Short / long rest (out of combat) |
-| G / M / R | Grid overlay / minimap fog / regenerate dungeon |
-| F5 / F6 | Save / load menu |
+| WASD / click | Move. Ctrl+click adds waypoints, right-click cancels |
+| 1 / 2 / 3 | Light / medium / heavy attack, then click an adjacent enemy |
+| Space | End turn |
+| T | Toggle turn mode outside combat |
+| I | Character sheet (drag to equip, right-click to use) |
+| B / C / J / O / P | Spellbook / crafting / quest log / world map / companions |
+| F5 / F6 | Save / load |
+| F7 / F8 | Short / long rest |
+| G | Grid overlay |
+| Esc | Cancel, or close the open panel |
+| F3 | Toggle debug keys: R new dungeon, N new character, Y talk to the Reeve, M reveal map |
 
-## Conventions (enforced — see contracts doc)
-- Tabs; docstrings; print logging with system prefixes; push_error for programmer errors
-- No class_name on autoloads; data registries in code (not .tres), except classes/races
-- Managers never write CharacterStats fields directly (StatusEffectManager pattern)
-- Save payloads are primitives only; item instances rebuild via ItemDatabase ids
-- New combat-path timers must be pause-bound: `create_timer(t, false)`
-- Preserve hardening: is_instance_valid after awaits, re-entrancy guards in turn flow
-- Node name "World" and player node name are load-bearing (cached lookups, death routing)
+## Decisions already made (2026-11-16)
+Weapon-based action bar replaces the three attack buttons. The player controls each
+party member, with an AI option. Towns are a screen, with a world map of locations.
+Durability is a core mechanic; its design is still open. Levels 1-5 first. Art is
+32x32, own art later, DCSS CC0 tiles as placeholders. Multiplayer is shelved. Names
+and lore are deferred. Details in section 8 of the plan.
 
-## Current State (after 2026-06-11/12 full-systems build-out)
-All Phase 2-8 SYSTEMS are built, integrated, and validated headless (zero script errors;
-19/19 gameplay-probe checks). Content is intentionally placeholder: balance untested,
-zones 2-9 skeletal, minimal quest/dialogue volume.
-
-### Known gaps / next steps
-1. Balance pass (damage/HP/XP/prices/drop rates are placeholder numbers)
-2. NPCs are not world nodes — dialogue entry is the Y hotkey; needs town/NPC placement
-3. Companions: not in initiative tracker (act in player's slot); enemies never target them; their pathing ignores enemy occupancy
-4. Spells: ally-targeting resolves on player; cones/lines approximated as radii; reaction spells (shield/counterspell) not trigger-wired
-5. Crafting stations not placed in world (all stations in one panel)
-6. Save: mid-combat state not persisted (warned); loaded position not validated against regenerated dungeon
-7. Character screen is standalone (predates UIManager) — migration optional
-8. Phase 9 multiplayer: skipped (roadmap marks optional)
-9. Cosmetic: duplicate death prints; ObjectDB leak warnings at quit (Resource registries)
-
-## Documentation
-- `docs/ARCHITECTURE_CONTRACTS.md` — system contracts (BINDING)
-- `DESIGN_OVERVIEW.md` — game design doc
-- `ROADMAP.md` — phases (see status update at top)
-- `CURRENT_WORK.md` / `CHANGELOG.md` — session tracking
+## Working agreement
+- Small commits on a branch per phase. Commit and push only when asked.
+- A feature is done when a player can reach it, it has been seen working in the
+  running game, and Ákos has played it.

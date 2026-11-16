@@ -42,7 +42,8 @@ const COLOR_HEADER  := Color(0.85, 0.75, 0.4)
 
 func _ready():
 	"""Build the entire panel in code. Call on instantiation."""
-	set_anchors_preset(Control.PRESET_FULL_RECT)
+	# anchors AND offsets: set_anchors_preset alone keeps the current 0x0 rect
+	set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 	_build_ui()
 	_connect_event_bus()
 
@@ -74,8 +75,8 @@ func _build_ui():
 	title.text = "Crafting"
 	title.set_anchors_preset(Control.PRESET_TOP_WIDE)
 	title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	title.position = Vector2(0, 8)
-	title.size = Vector2(900, 32)
+	title.offset_top = 8
+	title.offset_bottom = 40
 	_style_label(title, 20, COLOR_HEADER)
 	panel_rect.add_child(title)
 
@@ -366,10 +367,9 @@ func _on_craft_pressed():
 	_refresh_detail(_selected_recipe_id)
 
 func _on_close_pressed():
-	if has_method("hide"):
-		hide()
-	elif get_parent() and get_parent().has_method("close_panel"):
-		get_parent().close_panel("crafting")
+	"""Close via UIManager so the pause it set is released (a bare hide() left
+	the game paused with nothing on screen)."""
+	UIManager.close_panel("crafting")
 
 func _on_toggle_unlearned(pressed: bool):
 	_show_unlearned = pressed

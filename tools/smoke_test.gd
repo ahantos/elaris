@@ -1,0 +1,445 @@
+extends SceneTree
+# tools/smoke_test.gd - headless regression check for the whole game.
+#
+# Run it through tools/run_checks.bat (which also fails on any SCRIPT ERROR in
+# the log). It boots the real main scene and checks that:
+#   - every UI panel and HUD strip is laid out on screen,
+#   - notifications reach the screen,
+#   - the fixed defects stay fixed (gifting, crafting level, loot pickup, ...),
+#   - a scripted fight runs to its end,
+#   - content ids referenced across systems exist.
+#
+# IMPORTANT: a script started with --script is compiled before the autoloads
+# exist. Reach them with root.get_node("Name"), never by their global name.
+
+const MAIN_SCENE := "res://scenes/world.tscn"
+
+# Dangling references that are known and scheduled. A new dangling id fails the
+# run; so does an entry here that no longer occurs (delete it when it is fixed).
+const KNOWN_GAPS := {
+	"quest mq_03_the_herald: kill target 'boss' is not a spawnable enemy type":
+		"No boss enemy exists until the Phase 2 bestiary.",
+	"companion kaelen: recruit dialogue 'recruit_kaelen' is not defined":
+		"Recruit dialogues are Phase 4 content; companions join through the debug button until then.",
+	"companion lyra: recruit dialogue 'recruit_lyra' is not defined":
+		"Recruit dialogues are Phase 4 content.",
+	"companion brom: recruit dialogue 'recruit_brom' is not defined":
+		"Recruit dialogues are Phase 4 content.",
+	"companion whisper: recruit dialogue 'recruit_whisper' is not defined":
+		"Recruit dialogues are Phase 4 content.",
+}
+
+var _passed: int = 0
+var _failures: Array = []
+
+func _initialize():
+	_run()
+
+# ---------------------------------------------------------------------------
+#  Helpers
+# ---------------------------------------------------------------------------
+
+func check(condition: bool, label: String, detail: String = ""):
+	if condition:
+		_passed += 1
+		print("[SMOKE] pass  ", label)
+	else:
+		_failures.append(label)
+		print("[SMOKE] FAIL  ", label, ("  -> " + detail) if detail != "" else "")
+
+func _wait(seconds: float):
+	await create_timer(seconds, true, false, true).timeout  # ignores pause and time scale
+
+func _frames(count: int = 2):
+	for i in range(count):
+		await process_frame
+
+func _mgr(mgr_name: String) -> Node:
+	return root.get_node(mgr_name)
+
+func _finish():
+	print("[SMOKE] ---------------------------------------------")
+	print("[SMOKE] %d passed, %d failed" % [_passed, _failures.size()])
+	for label in _failures:
+		print("[SMOKE]   failed: ", label)
+	print("[SMOKE] RESULT: ", "PASS" if _failures.is_empty() else "FAIL")
+	quit(0 if _failures.is_empty() else 1)
+
+# ---------------------------------------------------------------------------
+#  Run
+# ---------------------------------------------------------------------------
+
+func _run():
+	seed(20261116)
+	change_scene_to_file(MAIN_SCENE)
+	await _wait(2.0)
+
+	var world = root.get_node_or_null("World")
+	check(world != null, "main scene boots with a World node")
+	if world == null:
+		_finish()
+		return
+
+	var player = world.player
+	check(is_instance_valid(player) and player.stats != null, "player spawned with stats")
+	check(world.current_dungeon.placed_rooms.size() >= 2, "dungeon generated at least two rooms")
+	check(world.enemies.size() >= 1, "at least one enemy spawned")
+	check(world.current_dungeon.dungeon_grid[player.grid_position.y][player.grid_position.x] == 0,
+		"player stands on a floor tile")
+
+	await _check_layout(world)
+	await _check_notifications()
+	await _check_debug_keys(world)
+	_check_starting_character(world)
+	_check_encumbrance(world)
+	_check_crafting(world)
+	await _check_companions(world)
+	_check_loot_safety(world)
+	_check_scroll_use(world)
+	_check_class_data()
+	_check_content()
+	await _check_fight(world)
+	_check_casters(world)  # last: replaces the player's stats
+
+	_finish()
+
+# ---------------------------------------------------------------------------
+#  Layout: every panel fills the screen and keeps its content on it
+# ---------------------------------------------------------------------------
+
+func _check_layout(world):
+	var ui = _mgr("UIManager")
+	var dialogue = _mgr("DialogueManager")
+	var screen := Rect2(Vector2.ZERO, root.get_visible_rect().size)
+	check(screen.size == Vector2(1920, 1080), "design resolution is 1920x1080", str(screen.size))
+
+	for panel_id in ui.panels.keys():
+		if panel_id == "dialogue":
+			dialogue.start_dialogue("reeve_marta", "reeve_marta")
+		ui.open_panel(panel_id)
+		await _frames(3)
+		var control: Control = ui.panels[panel_id].control
+		check(control.visible and control.get_global_rect().is_equal_approx(screen),
+			"panel '%s' fills the screen" % panel_id, str(control.get_global_rect()))
+		var content_ok := true
+		var worst := ""
+		var widest := 0.0
+		for child in control.get_children():
+			if not (child is Control) or not child.visible:
+				continue
+			var rect: Rect2 = child.get_global_rect()
+			widest = max(widest, rect.size.x)
+			if not screen.grow(1.0).encloses(rect):
+				content_ok = false
+				worst = "%s at %s" % [child.name, str(rect)]
+		check(content_ok and widest >= 400.0, "panel '%s' content is on screen" % panel_id, worst)
+		if panel_id == "dialogue":
+			dialogue.end_dialogue()
+		ui.close_panel()
+		await _frames(1)
+	check(not paused, "closing panels releases the pause")
+
+	# Crafting panel's own X button must release the pause too
+	ui.open_panel("crafting")
+	await _frames(2)
+	ui.panels["crafting"].control._on_close_pressed()
+	await _frames(1)
+	check(not paused and not ui.is_panel_open(), "crafting panel X button closes through UIManager")
+
+	# HUD strips
+	check(is_equal_approx(world.turn_ui.size.x, screen.size.x), "turn banner spans the screen width", str(world.turn_ui.size))
+	check(is_equal_approx(world.initiative_tracker.size.x, screen.size.x), "initiative bar spans the screen width", str(world.initiative_tracker.size))
+	var bottom: Rect2 = world.bottom_ui.get_global_rect()
+	check(is_equal_approx(bottom.size.x, screen.size.x) and is_equal_approx(bottom.end.y, screen.size.y) and bottom.size.y >= 200.0,
+		"bottom bar spans the screen and sits on its lower edge", str(bottom))
+
+	# Character sheet and save menu (older screens)
+	world.character_screen.show_character(world.player.stats)
+	await _frames(2)
+	check(world.character_screen.visible, "character sheet opens")
+	world.character_screen.hide_screen()
+	paused = false
+	await _frames(1)
+
+func _check_notifications():
+	var ui = _mgr("UIManager")
+	var bus = _mgr("EventBus")
+	check(ui.toasts != null, "UIManager owns a notification renderer")
+	if ui.toasts == null:
+		return
+	bus.ui_notification.emit("smoke-test notification", "warning")
+	await _frames(2)
+	check("smoke-test notification" in ui.toasts.get_visible_messages(), "ui_notification is drawn on screen")
+
+func _press(keycode: Key):
+	"""Send a real key press and release through the viewport"""
+	for pressed in [true, false]:
+		var event := InputEventKey.new()
+		event.keycode = keycode
+		event.physical_keycode = keycode
+		event.pressed = pressed
+		root.push_input(event)
+
+func _check_debug_keys(world):
+	var game = _mgr("GameManager")
+	var ui = _mgr("UIManager")
+	check(not game.debug_keys, "debug keys are off by default")
+	var start_before: Vector2i = world.current_dungeon.start_room.center
+	var first_enemy = world.enemies[0]
+	_press(KEY_R)
+	_press(KEY_N)
+	_press(KEY_Y)
+	await _wait(0.4)
+	check(world.current_dungeon.start_room.center == start_before and is_instance_valid(first_enemy)
+		and not ui.is_panel_open() and not paused,
+		"R, N and Y do nothing while debug keys are off")
+	_press(KEY_F3)
+	await _frames(2)
+	check(game.debug_keys, "F3 switches the debug keys on")
+	_press(KEY_F3)
+	await _frames(2)
+	check(not game.debug_keys, "F3 switches them off again")
+
+# ---------------------------------------------------------------------------
+#  Starting character and rules fixes
+# ---------------------------------------------------------------------------
+
+func _check_starting_character(world):
+	var inv = _mgr("InventoryManager")
+	var stats = world.player.stats
+	check(stats.class_id == "fighter", "default character is a fighter")
+	check(not inv.get_equipped_item(stats, "chest").is_empty(), "starting armour is worn")
+	check(not inv.get_equipped_item(stats, "main_hand").is_empty(), "starting weapon is wielded")
+	check(stats.armor_class >= 16, "equipped starting kit raises AC", "AC %d" % stats.armor_class)
+	check(stats.movement_speed == 30 and stats.get_modified_movement_speed() == 6,
+		"speed is stored in feet and converts to 6 tiles",
+		"%d ft / %d tiles" % [stats.movement_speed, stats.get_modified_movement_speed()])
+
+func _check_encumbrance(world):
+	var inv = _mgr("InventoryManager")
+	var combat = _mgr("CombatManager")
+	var player = world.player
+	var enemy = world.enemies[0]
+	var gold_before: int = inv.gold
+	inv.gold += 12000  # 240 lb of coin; set directly to skip the "Gained gold" toast
+	check(inv.get_encumbrance_level() == "encumbered", "test setup: party is encumbered", inv.get_encumbrance_level())
+	check(player.stats.get_modified_movement_speed() == 4, "encumbered party member keeps 4 tiles of movement",
+		str(player.stats.get_modified_movement_speed()))
+	check(enemy.stats.get_modified_movement_speed() == 6, "enemy speed ignores the party's load",
+		str(enemy.stats.get_modified_movement_speed()))
+	var enemy_roll: Dictionary = combat.roll_attack(enemy.stats, player.stats, enemy.create_temp_weapon(), false, false, enemy, player, [])
+	check(not enemy_roll.get("disadvantage", false), "enemy attacks are not at disadvantage from the party's load")
+	var player_roll: Dictionary = combat.roll_attack(player.stats, enemy.stats, player.create_temp_weapon("medium"), false, false, player, enemy, [])
+	check(player_roll.get("disadvantage", false), "encumbered party member attacks at disadvantage")
+	inv.gold = gold_before
+	check(player.stats.get_modified_movement_speed() == 6, "movement returns to 6 tiles once the load is gone")
+
+func _check_crafting(world):
+	var craft = _mgr("CraftingManager")
+	check(craft._get_player() == world.player, "crafting can see the player")
+	check(craft._get_player_level() == world.player.stats.level, "crafting reads the player's real level",
+		"%d vs %d" % [craft._get_player_level(), world.player.stats.level])
+
+func _check_companions(world):
+	var comp = _mgr("CompanionManager")
+	var inv = _mgr("InventoryManager")
+	var items = _mgr("ItemDatabase")
+	check(comp.recruit("kaelen"), "companion can be recruited")
+	await _wait(0.3)
+	check(world.companion_nodes.has("kaelen") and is_instance_valid(world.companion_nodes["kaelen"]), "recruited companion appears in the world")
+
+	var sword: Dictionary = items.create_item_instance("iron_longsword")
+	inv.add_item(sword)
+	var before: int = comp.get_relationship("kaelen")
+	check(comp.give_gift("kaelen", sword), "gifting an item works")
+	check(comp.get_relationship("kaelen") == before + comp.GIFT_DELTA_LOVED, "a loved gift raises the relationship by the loved amount",
+		"%d -> %d" % [before, comp.get_relationship("kaelen")])
+	var potion: Dictionary = items.create_item_instance("potion_healing_minor")
+	inv.add_item(potion)
+	before = comp.get_relationship("lyra")
+	comp.recruit("lyra")
+	check(comp.give_gift("lyra", potion) and comp.get_relationship("lyra") == before + comp.GIFT_DELTA_LIKED,
+		"a consumable matches the 'type:consumable' gift preference")
+
+	comp.dismiss("kaelen")
+	await _wait(0.2)
+	check(not world.companion_nodes.has("kaelen"), "dismissed companion leaves the world")
+	check(comp.rejoin_party("kaelen"), "dismissed companion can rejoin")
+	await _wait(0.3)
+	check("kaelen" in comp.get_party() and world.companion_nodes.has("kaelen"), "rejoined companion is back in the party and the world")
+	comp.dismiss("kaelen")
+	comp.dismiss("lyra")
+	await _wait(0.2)
+
+func _check_loot_safety(world):
+	var inv = _mgr("InventoryManager")
+	var items = _mgr("ItemDatabase")
+	var ground_script = load("res://scripts/ground_item.gd")
+	var gold_before: int = inv.gold
+	inv.gold += 12000  # over the weight limit: the bag refuses new items
+
+	var drop = ground_script.spawn(world.ground_items_node, world.player.grid_position + Vector2i(1, 0), world.player.tile_size,
+		[items.create_item_instance("iron_longsword")], 0)
+	drop.pickup()
+	check(is_instance_valid(drop) and not drop.is_queued_for_deletion() and drop.item_instances.size() == 1,
+		"loot the bag refuses stays on the ground")
+
+	var children_before: int = world.ground_items_node.get_child_count()
+	var went_in: bool = inv.add_item_or_drop(items.create_item_instance("iron_dagger"))
+	check(not went_in and world.ground_items_node.get_child_count() == children_before + 1,
+		"an item the game hands over is dropped at the player's feet when the bag is full")
+
+	inv.gold = gold_before
+	drop.pickup()
+	check(drop.is_queued_for_deletion(), "the same loot is picked up once there is room")
+	for node in world.ground_items_node.get_children():
+		node.queue_free()
+
+func _check_scroll_use(world):
+	var inv = _mgr("InventoryManager")
+	var items = _mgr("ItemDatabase")
+	var spells = _mgr("SpellDatabase")
+	var scroll_id := ""
+	for spell in spells.get_all_spells():
+		var candidate := "scroll_" + str(spell.get("spell_id", ""))
+		if str(spell.get("target_type", "")) == "enemy" and items.get_item(candidate) != null:
+			scroll_id = candidate
+			break
+	check(scroll_id != "", "test setup: an enemy-target scroll item exists")
+	if scroll_id == "":
+		return
+	var scroll: Dictionary = items.create_item_instance(scroll_id)
+	inv.add_item(scroll)
+	var index: int = inv.items.find(scroll)
+	world.character_screen._use_inventory_item(index)
+	check(not inv.get_item(scroll.instance_id).is_empty(), "using an aimed scroll from the sheet does not destroy it", scroll_id)
+	inv.remove_item(scroll.instance_id)
+
+func _check_class_data():
+	var classes = _mgr("ClassDatabase")
+	var wizard = classes.get_class_data("wizard")
+	var cleric = classes.get_class_data("cleric")
+	check("int" in wizard.saving_throw_proficiencies and "wis" in wizard.saving_throw_proficiencies,
+		"wizard saves are INT and WIS", str(wizard.saving_throw_proficiencies))
+	var differences: Array = []
+	for level in range(1, 21):
+		for slot_level in range(1, 10):
+			if wizard.get_spell_slots(level, slot_level) != cleric.get_spell_slots(level, slot_level):
+				differences.append("L%d/slot%d" % [level, slot_level])
+	check(differences.is_empty(), "wizard and cleric share the 5e full-caster slot table", str(differences))
+	check(wizard.get_spell_slots(11, 5) == 2 and wizard.get_spell_slots(17, 9) == 1 and wizard.get_spell_slots(20, 7) == 2,
+		"wizard high-level slots match 5e (two 5th at 11, a 9th at 17, two 7th at 20)")
+
+# ---------------------------------------------------------------------------
+#  Content: every id referenced across systems must exist
+# ---------------------------------------------------------------------------
+
+func _check_content():
+	var validator = load("res://tools/content_validator.gd")
+	var issues: Array = validator.find_issues(root)
+	var unexpected: Array = []
+	for issue in issues:
+		if KNOWN_GAPS.has(issue):
+			print("[SMOKE] known ", issue, "  (", KNOWN_GAPS[issue], ")")
+		else:
+			unexpected.append(issue)
+	for issue in unexpected:
+		print("[SMOKE]   dangling: ", issue)
+	check(unexpected.is_empty(), "no new dangling content references", "%d found" % unexpected.size())
+	var stale: Array = []
+	for gap in KNOWN_GAPS.keys():
+		if not gap in issues:
+			stale.append(gap)
+	check(stale.is_empty(), "the known-gaps list has no stale entries", str(stale))
+
+# ---------------------------------------------------------------------------
+#  A scripted fight, start to finish
+# ---------------------------------------------------------------------------
+
+func _check_fight(world):
+	var player = world.player
+	var stats = player.stats
+	var xp_before: int = stats.experience
+
+	# Nearest enemy; stand next to it
+	var target = null
+	var best := 1e9
+	for enemy in world.enemies:
+		var d: float = Vector2(enemy.grid_position - player.grid_position).length()
+		if d < best:
+			best = d
+			target = enemy
+	var placed := false
+	for offset in [Vector2i(1, 0), Vector2i(-1, 0), Vector2i(0, 1), Vector2i(0, -1)]:
+		var tile: Vector2i = target.grid_position + offset
+		if player.is_walkable(tile):
+			player.teleport_to_grid(tile)
+			placed = true
+			break
+	check(placed, "test setup: player placed next to an enemy")
+	if not placed:
+		return
+
+	Engine.time_scale = 6.0
+	await _wait(0.5)
+	check(world.in_combat, "combat starts when an enemy is near")
+	check(world.initiative_tracker.combatants.size() >= 2, "initiative holds the player and the enemy")
+
+	var rounds := 0
+	while world.in_combat and is_instance_valid(player) and rounds < 40:
+		var waited := 0.0
+		while world.in_combat and not world.initiative_tracker.is_player_turn() and waited < 6.0:
+			await _wait(0.05)
+			waited += 0.05
+		if not world.in_combat:
+			break
+		stats.current_hp = stats.max_hp  # the fight is about flow, not balance
+		var adjacent = null
+		for enemy in world.enemies:
+			if is_instance_valid(enemy) and enemy.stats and enemy.stats.is_alive():
+				var delta: Vector2i = enemy.grid_position - player.grid_position
+				if max(abs(delta.x), abs(delta.y)) == 1:
+					adjacent = enemy
+					break
+		if adjacent != null:
+			player.attack_enemy(adjacent, "heavy")
+			await _wait(0.15)
+		player.end_turn()
+		await _wait(0.1)
+		rounds += 1
+	Engine.time_scale = 1.0
+
+	check(is_instance_valid(player), "player survives the scripted fight")
+	check(not world.in_combat, "combat ends when the nearby enemies are dead", "still in combat after %d rounds" % rounds)
+	check(stats.experience > xp_before, "kills award XP", "%d -> %d" % [xp_before, stats.experience])
+	check(not player.turn_based_mode, "player returns to free movement after combat")
+
+# ---------------------------------------------------------------------------
+#  Casters: starting spells and spells gained on level-up
+# ---------------------------------------------------------------------------
+
+func _check_casters(world):
+	var spells = _mgr("SpellManager")
+	var spell_db = _mgr("SpellDatabase")
+	var inv = _mgr("InventoryManager")
+	var builder = load("res://data/stats/character_builder.gd")
+
+	var cleric = builder.build("cleric", "human", {"str": 12, "dex": 10, "con": 14, "int": 10, "wis": 16, "cha": 12}, "Smoke Cleric")
+	var cleric_spells: Array = spells.get_known_spells(cleric)
+	check("sacred_flame" in cleric_spells and not "light" in cleric_spells,
+		"cleric starts with a damage cantrip rather than Light", str(cleric_spells.slice(0, 4)))
+
+	var wizard = builder.build("wizard", "elf", {"str": 8, "dex": 14, "con": 12, "int": 16, "wis": 12, "cha": 10}, "Smoke Wizard")
+	check(wizard.movement_speed == 30 and wizard.get_modified_movement_speed() == 6, "a built character's speed is 30 ft / 6 tiles")
+	world.player.stats = wizard
+	inv.set_party_members([wizard])
+	var known: Array = spells.get_known_spells(wizard)
+	check("fire_bolt" in known and not "eldritch_blast" in known, "wizard starts with Fire Bolt and without Eldritch Blast", str(known.slice(0, 4)))
+
+	wizard.gain_experience(900)  # level 3: second-level slots open
+	check(wizard.level == 3, "test setup: wizard reached level 3", str(wizard.level))
+	var has_second := false
+	for spell_id in spells.get_known_spells(wizard):
+		if int(spell_db.get_spell(spell_id).get("level", 0)) == 2:
+			has_second = true
+	check(spells.get_max_slots(wizard, 2) > 0 and has_second, "levelling up grants spells for the new spell level")

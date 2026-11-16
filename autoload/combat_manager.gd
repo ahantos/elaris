@@ -97,8 +97,9 @@ func roll_attack(attacker_stats: CharacterStats, target_stats: CharacterStats,
 			"auto_fail": true
 		}
 
-	# Check for encumbrance disadvantage
-	if InventoryManager.has_disadvantage_on_physical_rolls():
+	# Encumbrance disadvantage - only for whoever is carrying the party's load
+	# (it used to apply to every attacker, enemies included)
+	if InventoryManager.is_party_member(attacker_stats) and InventoryManager.has_disadvantage_on_physical_rolls():
 		disadvantage = true
 		print("⚠️ Heavily encumbered! Disadvantage on attack roll")
 
@@ -343,7 +344,7 @@ func make_saving_throw(character_stats: CharacterStats, stat: String, dc: int,
 
 	# Check for encumbrance disadvantage on physical saves (STR, DEX, CON)
 	if stat_key in ["str", "strength", "dex", "dexterity", "con", "constitution"]:
-		if InventoryManager.has_disadvantage_on_physical_rolls():
+		if InventoryManager.is_party_member(character_stats) and InventoryManager.has_disadvantage_on_physical_rolls():
 			disadvantage = true
 			print("⚠️ Heavily encumbered! Disadvantage on %s save" % stat.to_upper())
 

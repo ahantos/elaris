@@ -90,7 +90,7 @@ func initialize_stats():
 	# Override HP with enemy's max_hp
 	stats.max_hp = max_hp
 	stats.current_hp = current_hp
-	stats.movement_speed = moves_per_turn
+	stats.movement_speed = moves_per_turn * CharacterStats.FEET_PER_TILE  # stats hold feet
 	stats.character_name = enemy_type.capitalize()
 	stats.level = enemy_level
 	moves_budget_this_turn = moves_per_turn

@@ -41,7 +41,8 @@ var _status_label:     Label
 
 func _ready():
 	"""Build the panel entirely in code."""
-	set_anchors_preset(Control.PRESET_FULL_RECT)
+	# anchors AND offsets: set_anchors_preset alone keeps the current 0x0 rect
+	set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 	_build_ui()
 	_connect_signals()
 
@@ -358,8 +359,9 @@ func _refresh_detail():
 	_party_check.set_pressed_no_signal(in_party)
 	_party_check.disabled = not recruited
 
-	# Recruit debug button: show only when not yet recruited
-	_recruit_btn.visible  = not recruited
+	# Recruit debug button: only when not yet recruited AND debug keys are on (F3).
+	# Until recruit dialogues exist this is the only way to gain a companion.
+	_recruit_btn.visible  = not recruited and GameManager.debug_keys
 
 	_give_btn.disabled = not recruited
 
@@ -403,7 +405,9 @@ func _on_party_toggled(pressed: bool):
 	if _selected_companion_id == "":
 		return
 	if pressed:
-		CompanionManager.recruit(_selected_companion_id)
+		# The checkbox is only enabled for recruited companions, so ticking it
+		# means "come back", not "recruit" (recruit() rejects recruited ones)
+		CompanionManager.rejoin_party(_selected_companion_id)
 	else:
 		CompanionManager.dismiss(_selected_companion_id)
 	_refresh_roster()

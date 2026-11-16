@@ -9,9 +9,11 @@ var enemy_number: int = 0
 var total_enemies: int = 0
 
 func _ready():
-	# Position at top center
-	set_anchors_preset(Control.PRESET_TOP_WIDE)
-	position.y = 10
+	# Top centre: full-width strip, text centred in it.
+	# (anchors AND offsets - set_anchors_preset alone keeps the current 0x0 rect,
+	# which left this label stuck in the top-left corner)
+	set_anchors_and_offsets_preset(Control.PRESET_TOP_WIDE)
+	offset_top = 10
 	horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	
 	# Style the label

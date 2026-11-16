@@ -23,7 +23,8 @@ var _choices_box: VBoxContainer
 
 func _ready():
 	"""Build the panel in code and hook DialogueManager session signals."""
-	set_anchors_preset(Control.PRESET_FULL_RECT)
+	# anchors AND offsets: set_anchors_preset alone keeps the current 0x0 rect
+	set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 	_build_ui()
 	EventBus.dialogue_started.connect(_on_dialogue_started)
 	EventBus.dialogue_ended.connect(_on_dialogue_ended)

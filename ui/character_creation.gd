@@ -43,7 +43,8 @@ var _stat_buttons: Dictionary = {}  # stat key -> OptionButton
 
 func _ready():
 	"""Build the entire panel in code and populate it from the databases."""
-	set_anchors_preset(Control.PRESET_FULL_RECT)
+	# anchors AND offsets: set_anchors_preset alone keeps the current 0x0 rect
+	set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 	_reset_stat_assignment()
 	_build_ui()
 	_refresh_lists()

@@ -90,7 +90,7 @@ func _apply_event_effects(event: Dictionary):
 			if instance.is_empty():
 				push_error("WorldEvents: event item not found: " + item_id)
 				break
-			InventoryManager.add_item(instance)
+			InventoryManager.add_item_or_drop(instance)
 
 	# Full heal (wandering_healer)
 	if bool(effects.get("heal_full", false)):

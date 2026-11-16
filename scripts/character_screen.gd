@@ -208,7 +208,8 @@ func create_positioned_equipment_slot(parent: Control, slot_id: String, label_te
 	button.text = ""
 	button.name = "slot_" + slot_id
 	button.mouse_filter = Control.MOUSE_FILTER_PASS
-	
+	_style_slot_button(button)
+
 	# Check if this is an expandable slot (rings or trinkets)
 	if slot_id == "rings" or slot_id == "trinkets":
 		button.pressed.connect(_on_expandable_slot_pressed.bind(slot_id))
@@ -421,11 +422,61 @@ func create_inventory_slot(index: int) -> Button:
 	button.text = ""
 	button.name = "inv_slot_" + str(index)
 	button.mouse_filter = Control.MOUSE_FILTER_PASS
-	
+	_style_slot_button(button)
+
 	# Connect drag signals
 	button.gui_input.connect(_on_inventory_slot_gui_input.bind(index))
 	
 	return button
+
+func _style_slot_button(button: Button):
+	"""Small wrapped text so a slot can show an item's name until icons exist"""
+	button.add_theme_font_size_override("font_size", 10)
+	button.clip_text = true
+
+func _slot_label(item_instance: Dictionary) -> String:
+	"""Short two-line name for a slot: the last two words of the item name
+	('Iron Chain Mail' -> 'Chain / Mail'), plus the stack count."""
+	var item_data: ItemData = item_instance.get("item_data")
+	if item_data == null:
+		return ""
+	var words: PackedStringArray = item_data.item_name.split(" ", false)
+	var label := ""
+	if words.size() >= 2:
+		label = words[words.size() - 2] + "\n" + words[words.size() - 1]
+	elif words.size() == 1:
+		label = words[0]
+	var stack: int = int(item_instance.get("stack_count", 1))
+	if stack > 1:
+		label += "\nx" + str(stack)
+	return label
+
+func _item_tooltip(item_instance: Dictionary) -> String:
+	"""Hover text for an item: name, what it does, weight, value, condition"""
+	var item_data: ItemData = item_instance.get("item_data")
+	if item_data == null:
+		return ""
+	var lines: Array = [item_data.item_name]
+	if item_data.damage_dice != "":
+		var damage := "Damage: " + item_data.damage_dice
+		if item_data.damage_type != "":
+			damage += " " + item_data.damage_type
+		lines.append(damage)
+	if item_data.armor_class_bonus > 0:
+		lines.append("Armour: +%d AC" % item_data.armor_class_bonus)
+	if item_data.equip_slot != "":
+		lines.append("Slot: " + item_data.equip_slot.replace("_", " "))
+	var max_durability: int = int(item_instance.get("max_durability", 0))
+	if max_durability > 0:
+		lines.append("Condition: %d / %d" % [int(item_instance.get("current_durability", 0)), max_durability])
+	lines.append("Weight: %s lb   Value: %d gp" % [str(snappedf(item_data.weight, 0.1)), item_data.base_value])
+	if item_data.description != "":
+		lines.append("")
+		lines.append(item_data.description)
+	if item_data.is_consumable or str(item_data.item_id).begins_with("scroll_") or str(item_data.item_id).begins_with("wand_"):
+		lines.append("")
+		lines.append("Right-click to use")
+	return "\n".join(lines)
 
 func create_tooltip():
 	"""Create tooltip for item hover"""
@@ -480,7 +531,15 @@ func refresh_stats():
 	# Name and level
 	var name_label = stats_panel.find_child("NameLabel", true, false)
 	if name_label:
-		name_label.text = "Character Name"  # TODO: Add name to CharacterStats
+		var display_name := str(current_character.character_name)
+		if display_name == "":
+			display_name = "Adventurer"
+		var identity: Array = []
+		if current_character.race_id != "":
+			identity.append(str(current_character.race_id).capitalize())
+		if current_character.class_id != "":
+			identity.append(str(current_character.class_id).capitalize())
+		name_label.text = display_name if identity.is_empty() else "%s — %s" % [display_name, " ".join(identity)]
 	
 	var level_label = stats_panel.find_child("LevelLabel", true, false)
 	if level_label:
@@ -531,8 +590,9 @@ func refresh_stats():
 	
 	var speed_label = stats_panel.find_child("SpeedLabel", true, false)
 	if speed_label:
-		var speed = current_character.movement_speed + InventoryManager.get_encumbrance_speed_penalty()
-		speed_label.text = "Speed: %d ft" % max(0, speed)
+		speed_label.text = "Speed: %d ft (%d tiles)" % [
+			current_character.get_modified_speed_feet(),
+			current_character.get_modified_movement_speed()]
 	
 	# Encumbrance
 	var enc_label = stats_panel.find_child("EncumbranceLabel", true, false)
@@ -567,10 +627,12 @@ func refresh_equipment():
 			if equipped.is_empty():
 				button.text = ""
 				button.icon = null
+				button.tooltip_text = ""
 			else:
 				var item_data: ItemData = equipped.item_data
-				button.text = item_data.item_name.substr(0, 1)  # First letter (safe on empty names)
+				button.text = _slot_label(equipped)
 				button.icon = item_data.icon  # Set item icon (will be null until you add icons)
+				button.tooltip_text = _item_tooltip(equipped)
 
 func refresh_inventory():
 	"""Update inventory grid"""
@@ -578,7 +640,8 @@ func refresh_inventory():
 	for slot in inventory_slots:
 		slot.text = ""
 		slot.icon = null
-	
+		slot.tooltip_text = ""
+
 	# Fill with items
 	var items = InventoryManager.items
 	for i in range(min(items.size(), inventory_slots.size())):
@@ -586,12 +649,9 @@ func refresh_inventory():
 		var item_data: ItemData = item.item_data
 		var button = inventory_slots[i]
 
-		button.text = item_data.item_name.substr(0, 1)
+		button.text = _slot_label(item)  # short name + stack count
 		button.icon = item_data.icon  # Set item icon (will be null until you add icons)
-		
-		# Show stack count
-		if item.has("stack_count") and item.stack_count > 1:
-			button.text += "\nx" + str(item.stack_count)
+		button.tooltip_text = _item_tooltip(item)
 	
 	# Update slot counter
 	var slot_label = inventory_panel.find_child("SlotLabel", true, false)
@@ -651,14 +711,9 @@ func _use_inventory_item(index: int):
 	if user == null or not is_instance_valid(user):
 		return
 
-	# Consumables (potions, food, antidotes, elixirs)
-	if item_data.is_consumable:
-		if ItemDatabase.use_consumable(item, user):
-			print("CharacterScreen: used ", item_data.item_name)
-			refresh_all()
-		return
-
-	# Scrolls and wands cast their embedded spell
+	# Scrolls and wands cast their embedded spell. This check comes BEFORE the
+	# consumable branch: scrolls are flagged consumable too, and use_consumable
+	# has no "cast_spell" case, so it used to delete the scroll without casting.
 	var item_id := str(item_data.item_id)
 	if item_id.begins_with("scroll_") or item_id.begins_with("wand_"):
 		var prefix := "scroll_" if item_id.begins_with("scroll_") else "wand_"
@@ -685,6 +740,13 @@ func _use_inventory_item(index: int):
 			refresh_all()
 		elif str(result.get("reason", "")) != "":
 			EventBus.ui_notification.emit(str(result.get("reason", "")), "warning")
+		return
+
+	# Consumables (potions, food, antidotes, elixirs)
+	if item_data.is_consumable:
+		if ItemDatabase.use_consumable(item, user):
+			print("CharacterScreen: used ", item_data.item_name)
+			refresh_all()
 		return
 
 	print("CharacterScreen: ", item_data.item_name, " has no use action")

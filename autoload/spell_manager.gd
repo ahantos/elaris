@@ -9,6 +9,15 @@ extends Node
 const MAX_ENCHANT_BONUS: int = 3
 const INCAPACITATING_EFFECTS: Array = ["stunned", "paralyzed", "frozen"]
 
+# Cantrips a class is handed first when it has more choices than its budget.
+# Stand-in for a real spell-choice screen: plain alphabetical order used to give
+# the cleric the no-op Light ahead of a damage cantrip. Anything not listed
+# follows in alphabetical order.
+const CANTRIP_PRIORITY: Dictionary = {
+	"wizard": ["fire_bolt", "ray_of_frost", "shocking_grasp", "chill_touch", "toll_the_dead", "poison_spray"],
+	"cleric": ["sacred_flame", "toll_the_dead", "guidance"],
+}
+
 # CharacterStats -> Array[String] of known spell_ids
 var known_spells: Dictionary = {}
 
@@ -28,7 +37,20 @@ func _ready():
 	EventBus.status_effect_applied.connect(_on_status_effect_applied)
 	EventBus.character_died.connect(_on_combatant_died)
 	EventBus.enemy_died.connect(_on_combatant_died)
+	EventBus.player_leveled_up.connect(_on_player_leveled_up)
 	print("SpellManager: initialized (slots, casting, concentration online)")
+
+
+func _on_player_leveled_up(_new_level: int):
+	"""A level-up can open a new spell level or a bigger cantrip budget: grant
+	the class spells for it. (Spells were only ever granted once, to an empty
+	list, so a level-3 wizard had second-level slots and nothing to cast.)"""
+	var player = GameManager.player
+	if player == null or not is_instance_valid(player) or player.get("stats") == null:
+		return
+	var learned = grant_class_spells(player.stats)
+	if learned > 0:
+		EventBus.ui_notification.emit("You learned %d new spell(s)." % learned, "success")
 
 
 # === SPELL KNOWLEDGE ===
@@ -72,7 +94,7 @@ func get_known_spells(stats) -> Array:
 
 func grant_class_spells(stats) -> int:
 	"""Auto-learn class-appropriate spells up to the character's castable level:
-	cantrips up to the class cantrip budget (deterministic alphabetical order) and
+	cantrips up to the class cantrip budget (CANTRIP_PRIORITY first, then alphabetical) and
 	every class spell of each level the character has at least one slot for.
 	Classless / non-caster characters are silently skipped. Returns spells learned."""
 	if stats == null or not stats is CharacterStats:
@@ -86,13 +108,21 @@ func grant_class_spells(stats) -> int:
 	var character_level = mini(int(stats.level), 20)
 	var learned = 0
 
-	# Cantrips: respect the class cantrip budget, stable alphabetical order
+	# Cantrips: respect the class cantrip budget; preferred cantrips first,
+	# the rest in stable alphabetical order
 	var budget = class_data.get_cantrips_known(character_level)
-	var cantrip_ids: Array = []
+	var available: Array = []
 	for spell in SpellDatabase.get_spells_by_level(0):
 		if stats.class_id in spell.get("classes", []):
-			cantrip_ids.append(str(spell.get("spell_id", "")))
-	cantrip_ids.sort()
+			available.append(str(spell.get("spell_id", "")))
+	available.sort()
+	var cantrip_ids: Array = []
+	for preferred in CANTRIP_PRIORITY.get(stats.class_id, []):
+		if preferred in available:
+			cantrip_ids.append(preferred)
+	for spell_id in available:
+		if not spell_id in cantrip_ids:
+			cantrip_ids.append(spell_id)
 	for spell_id in cantrip_ids:
 		if budget <= 0:
 			break

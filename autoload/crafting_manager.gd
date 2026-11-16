@@ -185,7 +185,8 @@ func craft(recipe_id: String) -> Dictionary:
 		if instance.is_empty():
 			push_error("Crafting: create_item_instance failed for '%s'" % output_id)
 			continue
-		InventoryManager.add_item(instance)
+		# Never lose a crafted item: it drops at the player's feet if the bag is full
+		InventoryManager.add_item_or_drop(instance)
 		last_instance = instance
 
 	if last_instance.is_empty():
@@ -324,9 +325,12 @@ func repair_item(item_instance: Dictionary) -> bool:
 # ---------------------------------------------------------------------------
 
 func _get_player() -> Node:
-	"""Safe access to GameManager.player — may be null headless."""
-	if Engine.has_singleton("GameManager"):
-		return GameManager.player
+	"""GameManager.player, or null before the world has spawned one.
+	(Engine.has_singleton() is for engine singletons and is always false for
+	autoloads - testing it here made the player permanently invisible to crafting.)"""
+	var player = GameManager.player
+	if player != null and is_instance_valid(player):
+		return player
 	return null
 
 func _get_player_level() -> int:

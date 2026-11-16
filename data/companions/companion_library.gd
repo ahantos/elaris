@@ -147,7 +147,7 @@ static func get_all() -> Dictionary:
 			"iron_dagger",
 			"steel_dagger",
 			"thieves_tools",
-			"trinket_lucky_coin",
+			"trinket_luck",
 		],
 		"gift_liked": [
 			"type:misc",         # trinkets, tools
