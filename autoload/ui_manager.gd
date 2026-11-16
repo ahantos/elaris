@@ -30,6 +30,14 @@ func _ready():
 
 	print("UIManager initialized")
 
+func reset():
+	"""Close whatever is open and release the pause. Registered panels stay:
+	they live under this autoload and are reused by the next World scene.
+	Called by GameManager.reset_game_state()."""
+	if open_panel_id != "":
+		close_panel()
+	get_tree().paused = false
+
 func register_panel(panel_id: String, panel: Control, pauses_game: bool = true):
 	"""Register a full-screen panel. It is reparented under UIManager's CanvasLayer and hidden."""
 	if panels.has(panel_id):
@@ -91,8 +99,21 @@ func is_panel_open(panel_id: String = "") -> bool:
 	return open_panel_id == panel_id
 
 func _unhandled_input(event):
-	# ESC closes the open panel (consumed so gameplay ESC handlers don't also fire)
-	if event is InputEventKey and event.pressed and event.keycode == KEY_ESCAPE:
+	# ESC closes the open panel (consumed so gameplay ESC handlers don't also
+	# fire). With nothing open, in a running game, it opens the pause menu.
+	# Anything that uses ESC itself (cancelling an attack or a readied spell,
+	# closing the character sheet or the save menu) marks the event handled in
+	# _input, so it never reaches this point.
+	if event is InputEventKey and event.pressed and not event.echo and event.keycode == KEY_ESCAPE:
 		if open_panel_id != "":
 			close_panel()
 			get_viewport().set_input_as_handled()
+		elif _can_open_pause_menu():
+			open_panel("pause_menu")
+			get_viewport().set_input_as_handled()
+
+func _can_open_pause_menu() -> bool:
+	if not panels.has("pause_menu") or get_tree().paused or GameManager.is_game_over:
+		return false
+	var world = GameManager.world
+	return world != null and is_instance_valid(world)

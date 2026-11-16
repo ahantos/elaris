@@ -8,9 +8,9 @@ were built as code and not as a game; see the assessment.
 
 | Phase | Delivers | Status |
 |---|---|---|
-| 0. Truthful baseline | Everything that exists is visible and stops crashing; checks in the repo | Implemented 2026-11-16, awaiting playtest and commit |
-| 1. Game shell and state | Menu, character creation as new game, game over, seeded dungeons, real saves, placeholder art at 32 px | Next |
-| 2. Combat core | One combatant model, action economy, weapon-based action bar, ranged attacks, 5e armour, durability wear, bestiary and behaviours, combat simulator | Needs the durability decision |
+| 0. Truthful baseline | Everything that exists is visible and stops crashing; checks in the repo | Done, committed 2026-11-16 |
+| 1. Game shell and state | Menu, character creation as new game, game over, seeded dungeons, real saves, placeholder art at 32 px | Done, committed 2026-11-16, awaiting playtest. Input map and the rest of the `world.gd` split moved to Phase 2 |
+| 2. Combat core | One combatant model, action economy, weapon-based action bar, ranged attacks, 5e armour, durability wear, bestiary and behaviours, combat simulator, input map | Next. Needs the durability decision |
 | 3. Dungeons | More rooms with roles, doors, chests, traps, line-of-sight vision, a goal and an exit | |
 | 4. Town and economy | Town screen, world map, NPCs, shops, repair, quest turn-in; main quest completable | |
 | **Milestone 1** | **First playable**: menu to character to town to dungeon and back | |

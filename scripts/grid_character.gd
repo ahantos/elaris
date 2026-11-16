@@ -145,7 +145,7 @@ func _process(delta):
 		_refresh_sprite()
 
 	# WASD movement (only in exploration mode)
-	if wasd_movement_enabled and not turn_based_mode:
+	if wasd_movement_enabled and not turn_based_mode and not is_dying:
 		process_wasd_movement(delta)
 
 func process_wasd_movement(delta):
@@ -208,6 +208,8 @@ func process_wasd_movement(delta):
 			_check_ground_pickup()
 
 func _input(event):
+	if is_dying:
+		return  # the dead take no input
 	if event is InputEventMouseButton:
 		if event.button_index == MOUSE_BUTTON_LEFT and event.pressed:
 			var click_pos = get_global_mouse_position()
@@ -316,15 +318,19 @@ func _input(event):
 					queue_redraw()
 		
 		elif event.keycode == KEY_ESCAPE and event.pressed and not event.echo:
+			# Cancelling something uses the key up: mark it handled so ESC does
+			# not also open the pause menu on the same press
 			if SpellManager.get_pending_cast(self) != "":
 				SpellManager.clear_pending_cast(self)
 				print("Spell cast cancelled.")
 				queue_redraw()
+				get_viewport().set_input_as_handled()
 			elif attack_mode:
 				attack_mode = false
 				selected_attack_type = ""
 				print("Attack cancelled.")
 				queue_redraw()
+				get_viewport().set_input_as_handled()
 
 func add_waypoint(destination: Vector2i):
 	"""Add a waypoint to the queue (Ctrl+Click)"""
@@ -1188,7 +1194,19 @@ func die():
 	# NOTE: EventBus.character_died is emitted by CombatManager.handle_death()
 	# before die() is called - emitting it here too would double-fire it
 
-	queue_free()
+	# The body stays in the scene: freeing the player used to leave the game
+	# with no way forward (and blocked loading). Stop everything, fade, and hand
+	# over to the game-over flow.
+	is_moving = false
+	path.clear()
+	path_index = 0
+	attack_mode = false
+	selected_attack_type = ""
+	cancel_preview()
+	SpellManager.clear_pending_cast(self)
+	modulate = Color(1, 1, 1, 0.35)
+	queue_redraw()
+	GameManager.game_over()
 
 func get_hp() -> int:
 	"""Get current HP (REFACTORED)"""

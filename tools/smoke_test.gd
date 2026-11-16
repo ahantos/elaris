@@ -13,7 +13,10 @@ extends SceneTree
 # IMPORTANT: a script started with --script is compiled before the autoloads
 # exist. Reach them with root.get_node("Name"), never by their global name.
 
-const MAIN_SCENE := "res://scenes/world.tscn"
+const WORLD_SCENE := "res://scenes/world.tscn"
+const MENU_SCENE := "res://scenes/main_menu.tscn"
+const TEST_SAVE_DIR := "user://saves_smoke_test/"
+const TEST_SLOT := 3
 
 # Dangling references that are known and scheduled. A new dangling id fails the
 # run; so does an entry here that no longer occurs (delete it when it is fixed).
@@ -58,6 +61,38 @@ func _frames(count: int = 2):
 func _mgr(mgr_name: String) -> Node:
 	return root.get_node(mgr_name)
 
+func _clear_test_saves():
+	var dir := DirAccess.open(TEST_SAVE_DIR)
+	if dir:
+		for file_name in dir.get_files():
+			dir.remove(file_name)
+
+func _world() -> Node:
+	"""The current World scene, or null while another scene is showing"""
+	return root.get_node_or_null("World")
+
+func _grid_hash(world) -> int:
+	"""One number for the whole dungeon layout"""
+	return hash(world.current_dungeon.dungeon_grid)
+
+func _enemy_summary(world) -> Array:
+	"""Type, level, HP and position of every living enemy, in a stable order"""
+	var rows: Array = []
+	for enemy in world.enemies:
+		if is_instance_valid(enemy) and enemy.stats and enemy.stats.is_alive():
+			rows.append("%s L%d %d/%d @%d,%d" % [enemy.enemy_type, enemy.enemy_level, enemy.stats.current_hp,
+				enemy.stats.max_hp, enemy.grid_position.x, enemy.grid_position.y])
+	rows.sort()
+	return rows
+
+func _free_floor_near(world, origin: Vector2i, min_distance: int = 3) -> Vector2i:
+	"""A walkable tile a few steps from origin (not on it)"""
+	for radius in range(min_distance, min_distance + 6):
+		for offset in [Vector2i(radius, 0), Vector2i(-radius, 0), Vector2i(0, radius), Vector2i(0, -radius)]:
+			if world.player.is_walkable(origin + offset):
+				return origin + offset
+	return origin
+
 func _finish():
 	print("[SMOKE] ---------------------------------------------")
 	print("[SMOKE] %d passed, %d failed" % [_passed, _failures.size()])
@@ -72,11 +107,17 @@ func _finish():
 
 func _run():
 	seed(20261116)
-	change_scene_to_file(MAIN_SCENE)
+	# Saves written by this run go to a scratch folder, never the player's own
+	var saves = _mgr("SaveManager")
+	saves.use_save_directory(TEST_SAVE_DIR)
+	_clear_test_saves()
+
+	# Part 1: the world scene on its own (what the editor's F6 does)
+	change_scene_to_file(WORLD_SCENE)
 	await _wait(2.0)
 
 	var world = root.get_node_or_null("World")
-	check(world != null, "main scene boots with a World node")
+	check(world != null, "the world scene boots on its own")
 	if world == null:
 		_finish()
 		return
@@ -101,8 +142,12 @@ func _run():
 	_check_class_data()
 	_check_content()
 	await _check_fight(world)
-	_check_casters(world)  # last: replaces the player's stats
+	_check_casters(world)  # last in part 1: replaces the player's stats
 
+	# Part 2: the game as a player meets it - menu, new game, save, load, death
+	await _check_game_flow()
+
+	_clear_test_saves()
 	_finish()
 
 # ---------------------------------------------------------------------------
@@ -256,12 +301,17 @@ func _check_companions(world):
 	check(comp.give_gift("kaelen", sword), "gifting an item works")
 	check(comp.get_relationship("kaelen") == before + comp.GIFT_DELTA_LOVED, "a loved gift raises the relationship by the loved amount",
 		"%d -> %d" % [before, comp.get_relationship("kaelen")])
-	var potion: Dictionary = items.create_item_instance("potion_healing_minor")
-	inv.add_item(potion)
+	# Potions stack, so gift the stack that is in the bag, not a fresh instance
+	var potion: Dictionary = {}
+	for carried in inv.items:
+		if carried.item_data.item_id == "potion_healing_minor":
+			potion = carried
 	before = comp.get_relationship("lyra")
 	comp.recruit("lyra")
-	check(comp.give_gift("lyra", potion) and comp.get_relationship("lyra") == before + comp.GIFT_DELTA_LIKED,
+	check(not potion.is_empty() and comp.give_gift("lyra", potion) and comp.get_relationship("lyra") == before + comp.GIFT_DELTA_LIKED,
 		"a consumable matches the 'type:consumable' gift preference")
+	check(not comp.give_gift("lyra", items.create_item_instance("iron_dagger")) and comp.get_relationship("lyra") == before + comp.GIFT_DELTA_LIKED,
+		"an item that is not in the bag cannot be gifted")
 
 	comp.dismiss("kaelen")
 	await _wait(0.2)
@@ -572,6 +622,10 @@ func _check_fight(world):
 	if not placed:
 		return
 
+	# The fight checks flow, not balance: enough HP that no crit can end it
+	stats.max_hp = 500
+	stats.current_hp = 500
+
 	Engine.time_scale = 6.0
 	await _wait(0.5)
 	check(world.in_combat, "combat starts when an enemy is near")
@@ -585,7 +639,7 @@ func _check_fight(world):
 			waited += 0.05
 		if not world.in_combat:
 			break
-		stats.current_hp = stats.max_hp  # the fight is about flow, not balance
+		stats.current_hp = stats.max_hp
 		var adjacent = null
 		for enemy in world.enemies:
 			if is_instance_valid(enemy) and enemy.stats and enemy.stats.is_alive():
@@ -600,8 +654,10 @@ func _check_fight(world):
 		await _wait(0.1)
 		rounds += 1
 	Engine.time_scale = 1.0
+	stats.recalculate_derived_stats()  # back to the real maximum
+	stats.current_hp = stats.max_hp
 
-	check(is_instance_valid(player), "player survives the scripted fight")
+	check(is_instance_valid(player) and stats.is_alive(), "player survives the scripted fight")
 	check(not world.in_combat, "combat ends when the nearby enemies are dead", "still in combat after %d rounds" % rounds)
 	check(stats.experience > xp_before, "kills award XP", "%d -> %d" % [xp_before, stats.experience])
 	check(not player.turn_based_mode, "player returns to free movement after combat")
@@ -635,3 +691,253 @@ func _check_casters(world):
 		if int(spell_db.get_spell(spell_id).get("level", 0)) == 2:
 			has_second = true
 	check(spells.get_max_slots(wizard, 2) > 0 and has_second, "levelling up grants spells for the new spell level")
+
+# ---------------------------------------------------------------------------
+#  The game as a player meets it: menu, new game, save, load, death, old saves
+# ---------------------------------------------------------------------------
+
+func _check_game_flow():
+	var game = _mgr("GameManager")
+	var saves = _mgr("SaveManager")
+	var inv = _mgr("InventoryManager")
+	var quests = _mgr("QuestManager")
+	var comp = _mgr("CompanionManager")
+	var effects = _mgr("StatusEffectManager")
+	var spells = _mgr("SpellManager")
+	var combat = _mgr("CombatManager")
+	var items = _mgr("ItemDatabase")
+	var ui = _mgr("UIManager")
+
+	# --- main menu, no saves yet ---
+	game.go_to_main_menu()
+	await _wait(0.5)
+	var menu = current_scene
+	check(menu != null and menu.name == "MainMenu", "the main menu opens")
+	if menu == null or menu.name != "MainMenu":
+		return
+	check(menu.get_node("%ContinueButton").disabled and menu.get_node("%LoadButton").disabled,
+		"Continue and Load are disabled when there is no save")
+	check(_world() == null and not paused and inv.items.is_empty() and inv.gold == inv.STARTING_GOLD
+		and quests.quest_states.is_empty() and comp.get_party().is_empty() and spells.known_spells.is_empty(),
+		"returning to the menu wipes the previous game's state")
+
+	# --- New Game -> character creation ---
+	menu.get_node("%NewGameButton").pressed.emit()
+	await _wait(0.5)
+	var creation = current_scene
+	check(creation != null and creation.name == "CharacterCreationScreen", "New Game opens character creation")
+	if creation == null or creation.name != "CharacterCreationScreen":
+		return
+	var panel = creation.panel
+	check(panel.get_global_rect().is_equal_approx(Rect2(Vector2.ZERO, root.get_visible_rect().size)),
+		"the creation panel fills the screen", str(panel.get_global_rect()))
+	panel._name_edit.text = "Smoke Tester"
+	panel._class_list.select(panel._class_ids.find("wizard"))
+	panel._on_class_selected(0)
+	panel._race_list.select(panel._race_ids.find("elf"))
+	panel._on_race_selected(0)
+	check(panel._skill_pick_count() == 2 and panel._get_chosen_skills().size() == 2,
+		"creation offers the class's skill choices with a valid default")
+	panel._skill_list.deselect_all()
+	panel._on_confirm_pressed()
+	await _frames(2)
+	check(current_scene == creation, "creation refuses to confirm with the wrong number of skills")
+	var skill_count: int = panel._skill_ids.size()
+	panel._skill_list.select(skill_count - 1, false)
+	panel._skill_list.select(skill_count - 2, false)
+	var chosen: Array = panel._get_chosen_skills()
+	panel._on_confirm_pressed()
+	await _wait(1.0)
+
+	var world = _world()
+	check(world != null, "confirming creation starts the game")
+	if world == null:
+		return
+	var stats = world.player.stats
+	check(stats.character_name == "Smoke Tester" and stats.class_id == "wizard" and stats.race_id == "elf",
+		"the game starts with the created character", "%s / %s / %s" % [stats.character_name, stats.class_id, stats.race_id])
+	check(chosen.size() == 2 and chosen[0] in stats.skill_proficiencies and chosen[1] in stats.skill_proficiencies,
+		"the chosen skills are the character's skills", str(stats.skill_proficiencies))
+	check(not inv.get_equipped_item(stats, "main_hand").is_empty(), "the new character's starting kit is equipped")
+	check("fire_bolt" in spells.get_known_spells(stats), "a new wizard knows spells")
+	check(world.enemies.size() >= 1 and world.current_dungeon.is_floor_tile(world.player.grid_position),
+		"the new game has enemies and the player stands on floor")
+	await _frames(4)
+	check(saves.save_exists(saves.AUTOSAVE_SLOT), "starting a new game writes the autosave")
+
+	# --- change the world, save it ---
+	var seed_saved: int = world.current_dungeon.dungeon_seed
+	var grid_saved: int = _grid_hash(world)
+	var spot: Vector2i = _free_floor_near(world, world.player.grid_position, 4)
+	world.player.teleport_to_grid(spot)
+	await _frames(4)  # the minimap explores around the new position
+	var victim = world.enemies[0]
+	victim.stats.current_hp = max(1, victim.stats.current_hp - 3)
+	var ground_script = load("res://scripts/ground_item.gd")
+	ground_script.spawn(world.ground_items_node, spot + Vector2i(1, 0), world.player.tile_size,
+		[items.create_item_instance("iron_dagger")], 7)
+	inv.gold += 123
+	quests.start_quest("mq_01_strange_tidings")
+	comp.recruit("kaelen")
+	await _wait(0.3)
+	world.companion_nodes["kaelen"].stats.current_hp = 5
+	stats.current_hp = max(1, stats.max_hp - 2)
+	var expected := {
+		"pos": world.player.grid_position,
+		"hp": stats.current_hp,
+		"gold": inv.gold,
+		"enemies": _enemy_summary(world),
+		"explored": world.minimap.explored_tiles.size(),
+		"bag": inv.items.size(),
+	}
+	check(expected.explored > 0, "test setup: some of the map is explored")
+	check(saves.save_game(TEST_SLOT), "the game saves to a slot")
+
+	# --- change it further, then load: the save must win ---
+	inv.gold += 999
+	world.player.teleport_to_grid(_free_floor_near(world, spot, 7))
+	victim.stats.current_hp = 1
+	effects.apply_effect(world.player, "blessed", 5)
+	inv.add_item(items.create_item_instance("iron_dagger"))
+	check(game.load_game(TEST_SLOT), "the save loads")
+	await _wait(1.0)
+	world = _world()
+	check(world != null and world.player != null, "loading starts a fresh world")
+	if world == null:
+		return
+	stats = world.player.stats
+	check(world.current_dungeon.dungeon_seed == seed_saved and _grid_hash(world) == grid_saved,
+		"the loaded dungeon is the same dungeon", "seed %d vs %d" % [world.current_dungeon.dungeon_seed, seed_saved])
+	check(world.player.grid_position == expected.pos, "the player is where they saved", str(world.player.grid_position))
+	check(stats.character_name == "Smoke Tester" and stats.current_hp == expected.hp, "the character and their HP are restored",
+		"%s %d" % [stats.character_name, stats.current_hp])
+	check(inv.gold == expected.gold and inv.items.size() == expected.bag, "gold and bag are as saved, not as left",
+		"gold %d bag %d" % [inv.gold, inv.items.size()])
+	check(not inv.get_equipped_item(stats, "main_hand").is_empty(), "equipment is restored")
+	check(_enemy_summary(world) == expected.enemies, "the enemies are the same ones, with the same wounds",
+		"%s vs %s" % [str(_enemy_summary(world)), str(expected.enemies)])
+	var drop_ok := false
+	for drop in world.ground_items_node.get_children():
+		if drop.grid_pos == expected.pos + Vector2i(1, 0) and drop.gold == 7 and drop.item_instances.size() == 1:
+			drop_ok = true
+	check(drop_ok, "loot on the ground is still there")
+	check(world.minimap.explored_tiles.size() == expected.explored, "the explored map is restored",
+		"%d vs %d" % [world.minimap.explored_tiles.size(), expected.explored])
+	check(quests.get_quest_status("mq_01_strange_tidings") == "active", "quest progress is restored")
+	check("kaelen" in comp.get_party() and world.companion_nodes.has("kaelen")
+		and world.companion_nodes["kaelen"].stats.current_hp == 5, "the companion is back with their saved HP")
+	check(effects.get_active_effects(world.player).is_empty(), "status effects from before the load are gone")
+	check("fire_bolt" in spells.get_known_spells(stats), "known spells are restored")
+
+	# --- no saving in combat ---
+	var enemy = world.enemies[0]
+	for offset in [Vector2i(1, 0), Vector2i(-1, 0), Vector2i(0, 1), Vector2i(0, -1)]:
+		if world.player.is_walkable(enemy.grid_position + offset):
+			world.player.teleport_to_grid(enemy.grid_position + offset)
+			break
+	await _wait(0.5)
+	check(world.in_combat, "test setup: combat started")
+	check(saves.can_save() != "" and not saves.save_game(TEST_SLOT + 1) and not saves.save_exists(TEST_SLOT + 1),
+		"saving is refused during combat")
+
+	# --- death leads to a screen with a way back ---
+	combat.apply_damage(world.player, 9999, combat.DamageType.PHYSICAL, enemy, false)
+	await _frames(4)
+	check(game.is_game_over and is_instance_valid(world.player) and not world.in_combat,
+		"death ends the fight and keeps the world intact")
+	check(world._game_over_screen != null and is_instance_valid(world._game_over_screen) and paused,
+		"the game-over screen is shown")
+	check(saves.can_save() != "", "saving is refused after death")
+	if world._game_over_screen != null and is_instance_valid(world._game_over_screen):
+		check(not world._game_over_screen.get_node("%LoadButton").disabled, "game over offers the last save")
+		world._game_over_screen.get_node("%LoadButton").pressed.emit()
+	await _wait(1.0)
+	world = _world()
+	check(world != null and not game.is_game_over and not paused and world.player.stats.is_alive()
+		and world.player.stats.current_hp == expected.hp, "loading from game over brings the character back")
+	if world == null:
+		return
+
+	# --- pause menu on ESC ---
+	_press(KEY_ESCAPE)
+	await _frames(3)
+	check(ui.is_panel_open("pause_menu") and paused, "ESC opens the pause menu and pauses")
+	_press(KEY_ESCAPE)
+	await _frames(3)
+	check(not ui.is_panel_open() and not paused, "ESC closes the pause menu again")
+	world.player.attack_mode = true
+	world.player.selected_attack_type = "light"
+	world.player.turn_based_mode = true
+	_press(KEY_ESCAPE)
+	await _frames(3)
+	check(not world.player.attack_mode and not ui.is_panel_open(), "ESC cancels a selected attack without opening the menu")
+	world.player.turn_based_mode = false
+
+	# --- older save formats ---
+	var raw: Dictionary = saves._read_save_data(TEST_SLOT)
+	var v2: Dictionary = raw.duplicate(true)
+	v2.erase("world")
+	v2["version"] = 2
+	_write_raw_save(saves, 5, v2)
+	_write_raw_save(saves, 6, {"version": "0.1.0", "timestamp": 1000, "position_x": 5, "position_y": 5,
+		"hp": 7, "max_hp": 12, "gold": 77, "player_level": 1})
+	_write_raw_save(saves, 7, {"version": 99, "timestamp": 2000})
+
+	var migrated: Dictionary = saves.read_save(5)
+	check(int(migrated.get("version", 0)) == saves.SAVE_FORMAT_VERSION and migrated.get("world") is Dictionary
+		and int(migrated.get("migrated_from", 0)) == 2, "a format-2 save is migrated on read")
+	check(int(saves.get_save_info(6).get("gold", -1)) == 77, "a format-1 save is readable in the slot list")
+	check(saves.read_save(7).is_empty() and not game.load_game(7) and _world() == world,
+		"a save from a newer version is refused and nothing changes")
+
+	check(game.load_game(5), "a format-2 save loads")
+	await _wait(1.0)
+	world = _world()
+	check(world != null and world.current_dungeon.is_floor_tile(world.player.grid_position) and world.enemies.size() >= 1
+		and world.player.stats.character_name == "Smoke Tester" and inv.gold == expected.gold,
+		"a format-2 save gets a new dungeon with the player at its entrance")
+
+	check(game.load_game(6), "a format-1 save loads")
+	await _wait(1.0)
+	world = _world()
+	check(world != null and world.current_dungeon.is_floor_tile(world.player.grid_position) and inv.gold == 77
+		and world.player.stats.class_id == "fighter" and not inv.get_equipped_item(world.player.stats, "main_hand").is_empty(),
+		"a format-1 save keeps its gold and gets a default character")
+
+	# --- back at the menu, Continue is on offer ---
+	game.go_to_main_menu()
+	await _wait(0.5)
+	menu = current_scene
+	check(menu != null and menu.name == "MainMenu" and not menu.get_node("%ContinueButton").disabled,
+		"with a save present the main menu offers Continue")
+	if menu == null or menu.name != "MainMenu":
+		return
+
+	# --- Load Game from the menu, through the slot list a player clicks ---
+	menu.get_node("%LoadButton").pressed.emit()
+	await _frames(3)
+	var slot_list = menu._load_menu
+	check(slot_list.visible, "Load Game opens the slot list")
+	var slot_button: Button = null
+	var has_autosave_row := false
+	for child in slot_list.slots_container.get_children():
+		if child is Button and not child.is_queued_for_deletion():
+			if child.text.begins_with("Slot %d " % (TEST_SLOT + 1)) and not child.disabled:
+				slot_button = child
+			if child.text.begins_with("Autosave"):
+				has_autosave_row = true
+	check(has_autosave_row, "the slot list shows the autosave when loading")
+	check(slot_button != null and "Smoke Tester" in slot_button.text, "a used slot names its character",
+		slot_button.text if slot_button else "no button")
+	if slot_button != null:
+		slot_button.pressed.emit()
+		await _wait(1.0)
+		world = _world()
+		check(world != null and not paused and world.player.stats.character_name == "Smoke Tester",
+			"clicking a slot in the menu loads that game")
+
+func _write_raw_save(saves, slot: int, data: Dictionary):
+	"""Write a payload exactly as given (used to fake older save formats)"""
+	var file := FileAccess.open(saves._get_save_path(slot), FileAccess.WRITE)
+	file.store_var(data)
+	file.close()

@@ -65,6 +65,13 @@ func _ready():
 	print("Companions: %d companions loaded" % companion_definitions.size())
 
 
+func reset():
+	"""Back to a fresh game: nobody recruited, relationships at their defaults.
+	Called by GameManager.reset_game_state()."""
+	companion_states.clear()
+	_load_definitions()
+
+
 func _load_definitions():
 	"""Load companion_library.gd at runtime (avoids hard class_name dependency)."""
 	var path = "res://data/companions/companion_library.gd"
@@ -270,6 +277,11 @@ func give_gift(companion_id: String, item_instance: Dictionary) -> bool:
 
 	if item_instance.is_empty() or not item_instance.has("instance_id"):
 		push_error("Companions: give_gift() — invalid item_instance")
+		return false
+
+	# Only something actually in the bag can be given away
+	if InventoryManager.get_item(str(item_instance.instance_id)).is_empty():
+		EventBus.ui_notification.emit("You are not carrying that.", "warning")
 		return false
 
 	var defn: Dictionary = companion_definitions[companion_id]

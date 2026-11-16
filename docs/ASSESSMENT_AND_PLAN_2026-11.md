@@ -2,14 +2,16 @@
 
 Date: 2026-11-16. Covers commit `9f6e24c` (main, in sync with origin), Godot 4.5.
 
-When this was written, `CLAUDE.md`, `ROADMAP.md` and `CURRENT_WORK.md` said the Phase
+When this was written, `CLAUDE.md`, `ROADMAP.md` and `PROGRESS.md` said the Phase
 2–8 systems were "built, integrated and validated". They were built. Most were not
 integrated, and the validation could not see the problems below. Those files have since
 been rewritten to match this document.
 
-**Progress since:** Phase 0 was implemented the same day. Sections 3 to 5 describe the
-game as it was at `9f6e24c`; `CHANGELOG.md` lists what Phase 0 fixed and
-`CURRENT_WORK.md` lists what was deliberately left for later phases.
+**Progress since:** Phases 0 and 1 were implemented the same day. Sections 3 to 5
+describe the game as it was at `9f6e24c`; `CHANGELOG.md` lists what each phase
+changed and `PROGRESS.md` lists what was deliberately left for later. Two Phase 1
+items moved to Phase 2, where the code they touch is rebuilt: the input map and the
+rest of the `world.gd` split.
 
 ---
 
@@ -319,7 +321,7 @@ Make what exists visible and stop it crashing. No design decisions needed.
 - Delete the dead code.
 - Add `tools/`: a smoke test (boot, scripted fight, assertions) and a screenshot tour,
   with one command to run both.
-- Rewrite `CLAUDE.md`, `ROADMAP.md`, `CURRENT_WORK.md` to match reality; revise the
+- Rewrite `CLAUDE.md`, `ROADMAP.md`, `PROGRESS.md` to match reality; revise the
   contracts doc (drop the agent ownership matrix and the code-only UI rule).
 
 Exit: every existing panel is readable and usable; no known script-error path; the

@@ -52,6 +52,10 @@ func _ready():
 	EventBus.combat_ended.connect(_on_combat_ended)
 	print("CombatManager initialized")
 
+func reset():
+	"""Back to a fresh game. Called by GameManager.reset_game_state()."""
+	reactions_used.clear()
+
 # === ATTACK SYSTEM ===
 
 func roll_attack(attacker_stats: CharacterStats, target_stats: CharacterStats,

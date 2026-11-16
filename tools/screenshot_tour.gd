@@ -9,7 +9,8 @@ extends SceneTree
 #
 # Like every --script file it must reach autoloads with root.get_node("Name").
 
-const MAIN_SCENE := "res://scenes/world.tscn"
+const MENU_SCENE := "res://scenes/main_menu.tscn"
+const TOUR_SAVE_DIR := "user://saves_tour/"
 
 var _out_dir: String = ""
 var _index: int = 0
@@ -139,10 +140,33 @@ func _add_art_sheet(world, art, manifest) -> Node2D:
 				next += 1
 	return sheet
 
+func _clear_tour_saves():
+	var dir := DirAccess.open(TOUR_SAVE_DIR)
+	if dir:
+		for file_name in dir.get_files():
+			dir.remove(file_name)
+
 func _run():
 	seed(20261116)
-	change_scene_to_file(MAIN_SCENE)
+	# The tour's autosave goes to a scratch folder, never the player's saves
+	root.get_node("SaveManager").use_save_directory(TOUR_SAVE_DIR)
+	_clear_tour_saves()
+
+	# Front of the game: menu, settings, character creation
+	change_scene_to_file(MENU_SCENE)
+	await _wait(1.5)
+	await _shot("main_menu")
+	current_scene.get_node("%SettingsButton").pressed.emit()
+	await _wait(0.3)
+	await _shot("settings")
+	current_scene._settings.close()
+	current_scene.get_node("%NewGameButton").pressed.emit()
+	await _wait(0.8)
+	await _shot("character_creation")
+	current_scene.panel._name_edit.text = "Aldric"
+	current_scene.panel._on_confirm_pressed()
 	await _wait(2.5)
+
 	var world = root.get_node_or_null("World")
 	if world == null:
 		print("[TOUR] World node missing")
@@ -200,6 +224,12 @@ func _run():
 	paused = false
 	await _wait(0.2)
 
+	ui.open_panel("pause_menu")
+	await _wait(0.3)
+	await _shot("pause_menu")
+	ui.close_panel()
+	await _wait(0.2)
+
 	for sample in [["A plain message", "info"], ["Something went well", "success"], ["Out of range!", "warning"], ["Not enough gold!", "error"]]:
 		bus.ui_notification.emit(sample[0], sample[1])
 	await _wait(0.3)
@@ -252,5 +282,12 @@ func _run():
 		await _wait(1.5)
 		await _shot("after_combat")
 
+	# Death
+	if is_instance_valid(player):
+		root.get_node("CombatManager").apply_damage(player, 9999)
+		await _wait(0.6)
+		await _shot("game_over")
+
+	_clear_tour_saves()
 	print("[TOUR] done: %d screenshots in %s" % [_index, _out_dir])
 	quit(0)

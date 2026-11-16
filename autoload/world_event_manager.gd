@@ -32,6 +32,13 @@ func _ready():
 	print("WorldEvents: WorldEventManager initialized — ", random_events.size(),
 		" random events, ", crises.size(), " crises registered")
 
+func reset():
+	"""Back to a fresh game: no crisis under way, no event history.
+	Called by GameManager.reset_game_state()."""
+	for crisis_id in crises:
+		crisis_phases[crisis_id] = 0
+	event_history.clear()
+
 # === RANDOM EVENTS ===
 
 func maybe_trigger_random_event(context: Dictionary = {}) -> String:

@@ -51,6 +51,11 @@ var feature_layer: TileMapLayer = null
 # Cached world reference (avoids per-frame scene tree lookups in _process)
 var world_node = null
 
+# The seed the current layout was generated from. The same seed and biome
+# always give the same dungeon, which is how a save restores it.
+var dungeon_seed: int = 0
+var _rng: RandomNumberGenerator = RandomNumberGenerator.new()
+
 var room_templates: Array[RoomTemplate] = []
 var placed_rooms: Array[Dictionary] = []
 var dungeon_grid: Array[Array] = []
@@ -144,7 +149,12 @@ func set_camera_target(target: Node2D):
 		# dungeon after a regeneration), which is not "immediately"
 		camera.reset_smoothing()
 
-func generate_dungeon():
+func generate_dungeon(p_seed: int = 0):
+	"""Build a dungeon. Pass a seed to rebuild a known layout; 0 picks a new one.
+	All layout randomness goes through _rng so the result depends only on the
+	seed and the biome."""
+	dungeon_seed = p_seed if p_seed != 0 else (randi() | 1)
+	_rng.seed = dungeon_seed
 	_initialize_grid()
 	placed_rooms.clear()
 	start_room = {}
@@ -169,8 +179,8 @@ func generate_dungeon():
 	var start_range_y = max(1, dungeon_height - start_template[0].height - 20)
 	for attempt in range(max_placement_attempts):
 		var pos = Vector2i(
-			randi() % start_range_x + 10,
-			randi() % start_range_y + 10
+			_rng.randi() % start_range_x + 10,
+			_rng.randi() % start_range_y + 10
 		)
 		if _can_place_room(pos, start_template[0]):
 			_place_room(pos, start_template[0])
@@ -188,7 +198,7 @@ func generate_dungeon():
 		normal_templates = large_templates.filter(func(t): return t.room_type != "start")
 	if normal_templates.is_empty():
 		normal_templates = large_templates
-	var middle_template = normal_templates[randi() % normal_templates.size()]
+	var middle_template = normal_templates[_rng.randi() % normal_templates.size()]
 	_attempt_place_room(middle_template)
 
 	# Place boss room (never reuse the start template - it would overwrite start_room)
@@ -197,7 +207,7 @@ func generate_dungeon():
 		boss_template = large_templates.filter(func(t): return t.room_type != "start")
 	if boss_template.is_empty():
 		boss_template = large_templates
-	_attempt_place_room(boss_template[randi() % boss_template.size()])
+	_attempt_place_room(boss_template[_rng.randi() % boss_template.size()])
 	
 	if placed_rooms.size() >= 2:
 		boss_room = placed_rooms[placed_rooms.size() - 1]
@@ -230,8 +240,8 @@ func _attempt_place_room(template: RoomTemplate) -> bool:
 	var range_y = max(1, dungeon_height - template.height - min_room_distance * 2)
 	for attempt in range(max_placement_attempts):
 		var pos = Vector2i(
-			randi() % range_x + min_room_distance,
-			randi() % range_y + min_room_distance
+			_rng.randi() % range_x + min_room_distance,
+			_rng.randi() % range_y + min_room_distance
 		)
 		if _can_place_room(pos, template):
 			_place_room(pos, template)
@@ -389,6 +399,13 @@ func _render_to_tilemap():
 func regenerate():
 	generate_dungeon()
 
+func is_floor_tile(grid_pos: Vector2i) -> bool:
+	"""True when the tile exists and can be stood on (floor or door)"""
+	if grid_pos.x < 0 or grid_pos.x >= dungeon_width or grid_pos.y < 0 or grid_pos.y >= dungeon_height:
+		return false
+	var tile_type = dungeon_grid[grid_pos.y][grid_pos.x]
+	return tile_type == TileType.FLOOR or tile_type == TileType.DOOR
+
 func get_start_position() -> Vector2:
 	if start_room.is_empty():
 		return Vector2.ZERO
@@ -405,10 +422,10 @@ func get_boss_position() -> Vector2:
 		tile_size = tilemap.tile_set.tile_size
 	return Vector2(float(boss_room.center.x) * tile_size.x, float(boss_room.center.y) * tile_size.y)
 
-func set_biome(new_biome: String):
+func set_biome(new_biome: String, p_seed: int = 0):
 	if RoomLibrary.get_available_biomes().has(new_biome):
 		biome_type = new_biome
-		generate_dungeon()
+		generate_dungeon(p_seed)
 	else:
 		push_error("Unknown biome: %s" % new_biome)
 

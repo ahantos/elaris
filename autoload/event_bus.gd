@@ -54,6 +54,7 @@ signal game_paused()
 signal game_unpaused()
 signal game_saved(slot: int)
 signal game_loaded(slot: int)
+signal game_over()  # the player died; World shows the game-over screen
 
 # === STATUS EFFECT EVENTS ===
 # target is a Node (GridCharacter / Enemy / Companion)

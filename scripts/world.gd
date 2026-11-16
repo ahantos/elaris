@@ -38,6 +38,12 @@ var companion_nodes: Dictionary = {}
 # Re-entrancy guard: SPACE pressed again while companion turns are resolving
 var _advancing_turn: bool = false
 
+# Counter behind unique enemy node names (never reused within a dungeon)
+var _enemy_serial: int = 0
+
+# Game-over screen, created when the player dies
+var _game_over_screen: Control = null
+
 # Development shortcuts, only live while GameManager.debug_keys is on (F3):
 # R regenerate dungeon, N re-create character, Y talk to the Reeve from anywhere,
 # M toggle minimap fog
@@ -47,18 +53,30 @@ func _ready():
 	# Register with GameManager
 	GameManager.set_world(self)
 
-	# Generate dungeon
+	# How should this world start? (see GameManager "GAME FLOW")
+	var start: Dictionary = GameManager.consume_pending_start()
+	var mode: String = str(start.get("mode", ""))
+	var save_data: Dictionary = {}
+	if mode == "load" and start.get("data") is Dictionary:
+		save_data = start["data"]
+	var saved_world: Dictionary = {}
+	if save_data.get("world") is Dictionary:
+		saved_world = save_data["world"]
+
+	# Dungeon first, generated right here (not deferred) so everything after it
+	# can rely on the layout. A save carries the seed and biome to rebuild from.
 	current_dungeon = DungeonGeneratorScene.instantiate()
+	current_dungeon.auto_generate_on_ready = false
 	add_child(current_dungeon)
 	GameManager.set_dungeon(current_dungeon)
+	if saved_world.has("biome") and RoomLibrary.get_available_biomes().has(str(saved_world["biome"])):
+		current_dungeon.biome_type = str(saved_world["biome"])
+	current_dungeon.generate_dungeon(int(saved_world.get("seed", 0)))
 
 	# Container for dropped loot (GroundItem nodes)
 	ground_items_node = Node2D.new()
 	ground_items_node.name = "GroundItems"
 	add_child(ground_items_node)
-
-	# Wait for dungeon generation
-	await get_tree().create_timer(0.2).timeout
 
 	# Spawn player
 	player = CharacterScene.instantiate()
@@ -73,9 +91,6 @@ func _ready():
 
 	# Connect player turn signal
 	player.turn_ended.connect(_on_player_turn_ended)
-
-	# Spawn enemies
-	spawn_enemies(3)
 
 	# Create UI
 	create_minimap()
@@ -103,9 +118,18 @@ func _ready():
 	# === SYSTEMS INTEGRATION ===
 	_register_ui_panels()
 	_connect_world_signals()
-	_apply_new_game_defaults()
 
-	print("World: integration ready (panels, loot, companions, zones, spells)")
+	# === GAME STATE: restore a save, or begin a new game ===
+	if mode == "load":
+		_restore_from_save(save_data, int(start.get("slot", -1)))
+	else:
+		_begin_new_game(start.get("stats"))
+		# Only games started from the menu autosave; a direct boot of this
+		# scene (editor F6, tools) must not overwrite the player's autosave.
+		if mode == "new":
+			SaveManager.autosave.call_deferred()
+
+	print("World: ready (mode '", mode, "', seed ", current_dungeon.dungeon_seed, ")")
 
 func _register_ui_panels():
 	"""Instance the code-built system panels and register them with UIManager.
@@ -118,16 +142,23 @@ func _register_ui_panels():
 		["companions",         "res://ui/companion_panel.gd"],
 		["character_creation", "res://ui/character_creation.gd"],
 		["dialogue",           "res://ui/dialogue_panel.gd"],  # no hotkey - opened programmatically
+		["pause_menu",         "res://scenes/ui/pause_menu.tscn"],  # ESC - opened by UIManager
 	]
 	for def in panel_defs:
 		var panel_id: String = def[0]
+		# Panels live under the UIManager autoload and outlive this scene:
+		# after a load or a new game they are already there.
 		if UIManager.panels.has(panel_id):
 			continue
-		var panel_script = load(def[1])
-		if panel_script == null or not panel_script.can_instantiate():
-			push_error("World: could not load panel script: " + str(def[1]))
+		var resource = load(def[1])
+		var panel: Control = null
+		if resource is PackedScene:
+			panel = resource.instantiate()
+		elif resource is Script and resource.can_instantiate():
+			panel = resource.new()
+		if panel == null:
+			push_error("World: could not load panel: " + str(def[1]))
 			continue
-		var panel = panel_script.new()
 		UIManager.register_panel(panel_id, panel)
 	print("World: UI panels registered (B spellbook, C crafting, J quests, O map, P companions, N new character)")
 
@@ -138,16 +169,18 @@ func _connect_world_signals():
 	EventBus.crisis_phase_changed.connect(_on_crisis_phase_changed)
 	EventBus.companion_recruited.connect(_on_companion_recruited)
 	EventBus.companion_dismissed.connect(_on_companion_dismissed)
-	EventBus.game_loaded.connect(_on_game_loaded)
+	EventBus.game_over.connect(_on_game_over)
 	EventBus.status_effect_ticked.connect(_on_status_effect_ticked)
 
-func _apply_new_game_defaults():
-	"""Fresh-boot defaults: give the classless player a class and a starting kit.
-	Skipped when state already exists (e.g. SaveManager restored a session)."""
-	if not is_instance_valid(player) or not player.stats:
-		return
-
-	if player.stats.class_id == "":
+func _begin_new_game(created_stats = null):
+	"""Start a new game in the freshly generated dungeon. created_stats is the
+	CharacterStats from the creation screen; without it (direct boot of this
+	scene) the player is a default fighter."""
+	if created_stats is CharacterStats:
+		player.stats = created_stats
+		print("World: new game as ", created_stats.character_name, " the ",
+			created_stats.race_id, " ", created_stats.class_id)
+	elif player.stats.class_id == "":
 		player.stats.class_id = "fighter"
 		player.stats.recalculate_derived_stats()
 		player.stats.current_hp = player.stats.max_hp
@@ -155,16 +188,132 @@ func _apply_new_game_defaults():
 
 	# Equipment bookkeeping is keyed by CharacterStats - register the player
 	InventoryManager.set_party_members([player.stats])
+	_grant_starting_kit()
 
-	if InventoryManager.items.is_empty():
-		var kit_class = player.stats.class_id if player.stats.class_id != "" else "fighter"
-		for instance in ItemDatabase.get_starting_kit(kit_class):
-			InventoryManager.add_item(instance)
-		# Wear the kit: an unequipped fighter starts at AC 11 instead of 17
-		var worn = InventoryManager.auto_equip_from_inventory(player.stats)
-		print("World: starting kit granted (", kit_class, "), ", worn, " items equipped")
+	# Casters get their spell list now, so the spellbook is ready
+	SpellManager.get_known_spells(player.stats)
+
+	spawn_enemies(3)
+	EventBus.player_hp_changed.emit(player.stats.current_hp, player.stats.max_hp)
+
+func _grant_starting_kit():
+	"""Give the player their class's starting kit and put it on"""
+	var kit_class = player.stats.class_id if player.stats.class_id != "" else "fighter"
+	for instance in ItemDatabase.get_starting_kit(kit_class):
+		InventoryManager.add_item(instance)
+	# Wear the kit: an unequipped fighter starts at AC 11 instead of 17
+	var worn = InventoryManager.auto_equip_from_inventory(player.stats)
+	print("World: starting kit granted (", kit_class, "), ", worn, " items equipped")
+
+# ============================================================================
+# SAVE / RESTORE (the world's own part of a save; SaveManager owns the file)
+# ============================================================================
+
+func get_world_state() -> Dictionary:
+	"""Everything about this dungeon a save needs to rebuild it: the seed and
+	biome give the layout back; the rest is what has changed since. Primitives only."""
+	var enemy_list: Array = []
+	for enemy in enemies:
+		if not is_instance_valid(enemy) or enemy.is_dying or enemy.stats == null or not enemy.stats.is_alive():
+			continue
+		enemy_list.append({
+			"type": enemy.enemy_type,
+			"level": enemy.enemy_level,
+			"hp": enemy.stats.current_hp,
+			"max_hp": enemy.stats.max_hp,
+			"x": enemy.grid_position.x,
+			"y": enemy.grid_position.y,
+		})
+
+	var drops: Array = []
+	if ground_items_node:
+		for drop in ground_items_node.get_children():
+			if drop.is_queued_for_deletion():
+				continue
+			var item_list: Array = []
+			for instance in drop.item_instances:
+				item_list.append(InventoryManager._instance_to_primitive(instance))
+			drops.append({"x": drop.grid_pos.x, "y": drop.grid_pos.y, "gold": drop.gold, "items": item_list})
+
+	var companion_state: Dictionary = {}
+	for companion_id in companion_nodes:
+		var node = companion_nodes[companion_id]
+		if is_instance_valid(node) and node.get("stats") != null:
+			companion_state[companion_id] = {"hp": node.stats.current_hp}
+
+	return {
+		"seed": current_dungeon.dungeon_seed,
+		"biome": current_dungeon.biome_type,
+		"enemies": enemy_list,
+		"ground_items": drops,
+		"explored": minimap.get_explored_state() if minimap else [],
+		"companions": companion_state,
+	}
+
+func _restore_from_save(save_data: Dictionary, slot: int):
+	"""Rebuild the game from a save. The dungeon has already been generated
+	from the saved seed; this restores who and what is in it."""
+	var player_data: Dictionary = save_data.get("player", {}) if save_data.get("player") is Dictionary else {}
+	var stats_data: Dictionary = player_data.get("stats", {}) if player_data.get("stats") is Dictionary else {}
+	var saved_world: Dictionary = save_data.get("world", {}) if save_data.get("world") is Dictionary else {}
+
+	# Player first: the managers resolve "player" through GameManager.player.stats
+	if stats_data.is_empty():
+		# Format-1 saves carried no stats: keep the default fighter
+		player.stats.class_id = "fighter"
+		player.stats.recalculate_derived_stats()
+		player.stats.current_hp = player.stats.max_hp
+	else:
+		player.stats.from_dict(stats_data)
+	InventoryManager.set_party_members([player.stats])
+
+	SaveManager.apply_systems(save_data)
+	if stats_data.is_empty():
+		_grant_starting_kit()
+
+	if saved_world.has("seed"):
+		# Same dungeon: put everything back where it was
+		var saved_pos := Vector2i(int(player_data.get("position_x", -1)), int(player_data.get("position_y", -1)))
+		if current_dungeon.is_floor_tile(saved_pos):
+			player.grid_position = saved_pos
+			player.position = player.grid_to_world(saved_pos)
+			player.target_position = player.position
+		else:
+			push_warning("World: saved position %s is not walkable - using the entrance" % str(saved_pos))
+		for entry in saved_world.get("enemies", []):
+			_spawn_enemy(str(entry.get("type", "goblin")), int(entry.get("level", 1)),
+				int(entry.get("max_hp", 10)), Vector2i(int(entry.get("x", 0)), int(entry.get("y", 0))),
+				int(entry.get("hp", -1)))
+		for entry in saved_world.get("ground_items", []):
+			var instances: Array = []
+			for primitive in entry.get("items", []):
+				var instance: Dictionary = InventoryManager._instance_from_primitive(primitive)
+				if not instance.is_empty():
+					instances.append(instance)
+			GroundItemScript.spawn(ground_items_node, Vector2i(int(entry.get("x", 0)), int(entry.get("y", 0))),
+				player.tile_size, instances, int(entry.get("gold", 0)))
+		if minimap:
+			minimap.set_explored_state(saved_world.get("explored", []))
+	else:
+		# A save from before dungeons were saved: the old layout is gone.
+		# The player starts at the entrance of a new one.
+		spawn_enemies(3)
+		EventBus.ui_notification.emit("This save predates saved dungeons - a new one was generated.", "info")
+
+	current_dungeon.set_camera_target(player)
+
+	# Companions: nodes for the restored party, then their saved HP
+	_resync_companion_nodes()
+	var companion_state: Dictionary = saved_world.get("companions", {}) if saved_world.get("companions") is Dictionary else {}
+	for companion_id in companion_state:
+		var node = companion_nodes.get(companion_id)
+		if node != null and is_instance_valid(node) and node.get("stats") != null:
+			node.stats.current_hp = clampi(int(companion_state[companion_id].get("hp", node.stats.max_hp)), 1, node.stats.max_hp)
 
 	EventBus.player_hp_changed.emit(player.stats.current_hp, player.stats.max_hp)
+	EventBus.game_loaded.emit(slot)
+	print("World: restored from save slot ", slot, " - ", enemies.size(), " enemies, ",
+		ground_items_node.get_child_count(), " drops")
 
 func _on_character_created(new_stats):
 	"""Apply a panel-confirmed character to the player. CharacterBuilder.build
@@ -253,7 +402,11 @@ func _input(event):
 		# SAVE MENU with F5
 		elif event.keycode == KEY_F5:
 			if save_load_menu:
-				save_load_menu.show_save_menu()
+				var blocked: String = SaveManager.can_save()
+				if blocked != "":
+					EventBus.ui_notification.emit(blocked, "warning")
+				else:
+					save_load_menu.show_save_menu()
 		
 		# LOAD MENU with F6
 		elif event.keycode == KEY_F6:
@@ -414,8 +567,8 @@ func process_next_turn():
 	if not in_combat:
 		return
 
-	# Player gone (died/freed) - stop the combat loop safely
-	if not is_instance_valid(player):
+	# Player dead or gone - stop the combat loop safely
+	if not _player_alive():
 		print("Player is gone - stopping combat")
 		end_combat()
 		return
@@ -456,7 +609,7 @@ func process_next_turn():
 		# Combat may have ended or the player may have died during the waits
 		if not in_combat:
 			return
-		if not is_instance_valid(player):
+		if not _player_alive():
 			print("Player is gone - stopping combat")
 			end_combat()
 			return
@@ -498,7 +651,7 @@ func _on_player_turn_ended():
 	# Combat may have ended / player may have died during companion turns
 	if not in_combat:
 		return
-	if not is_instance_valid(player):
+	if not _player_alive():
 		print("Player is gone - stopping combat")
 		end_combat()
 		return
@@ -569,7 +722,7 @@ func end_combat():
 
 func check_enemy_proximity():
 	"""Auto-enable turn-based mode when near enemies"""
-	if not is_instance_valid(player) or enemies.is_empty() or in_combat:
+	if not _player_alive() or enemies.is_empty() or in_combat:
 		return
 
 	var player_pos = player.get_grid_position()
@@ -603,8 +756,13 @@ func check_enemy_proximity():
 			return
 
 func spawn_enemies(count: int):
-	"""Spawn enemies in the dungeon, each with a random identity (type drives
-	loot tables + quest kill credit; level scales XP, gold and loot tier)"""
+	"""Populate a fresh dungeon. Each enemy gets a random identity (type drives
+	loot tables + quest kill credit; level scales XP, gold and loot tier).
+	The rolls come from a generator seeded by the dungeon seed, so the same
+	seed gives the same starting enemies."""
+	var rng := RandomNumberGenerator.new()
+	rng.seed = hash([current_dungeon.dungeon_seed, "enemies"])
+
 	var type_ids = ENEMY_TYPE_DEFS.keys()
 	var zone_tier = 1
 	var zone = ZoneManager.get_current_zone()
@@ -612,50 +770,57 @@ func spawn_enemies(count: int):
 		zone_tier = max(1, int(zone.get("danger_tier", 1)))
 
 	for i in range(count):
-		var enemy = EnemyScene.instantiate()
-		enemy.dungeon_generator = current_dungeon
-		enemy.player = player
-
-		# Identity: set BEFORE add_child so _ready/initialize_stats picks it up
-		var enemy_type: String = type_ids[randi() % type_ids.size()]
-		var type_def: Dictionary = ENEMY_TYPE_DEFS[enemy_type]
-		enemy.enemy_type = enemy_type
-		enemy.enemy_level = zone_tier
-		enemy.enemy_color = type_def["color"]
-		var hp_roll = int(type_def["base_hp"]) + randi_range(-2, 2) + (zone_tier - 1) * 4
-		enemy.max_hp = max(1, hp_roll)
-		enemy.current_hp = enemy.max_hp
-		enemy.name = enemy_type.capitalize() + "_" + str(i + 1)
-
-		add_child(enemy)
-
-		var spawn_pos = find_enemy_spawn_position()
-		if spawn_pos != Vector2i(-1, -1):
-			enemy.spawn_at(spawn_pos)
-			enemies.append(enemy)
-			print("Enemy ", i + 1, " (", enemy_type, " lv", enemy.enemy_level, ") spawned at ", spawn_pos)
-		else:
-			# No valid position found - don't leave an orphaned enemy at (0,0)
+		var enemy_type: String = type_ids[rng.randi() % type_ids.size()]
+		var hp_roll = int(ENEMY_TYPE_DEFS[enemy_type]["base_hp"]) + rng.randi_range(-2, 2) + (zone_tier - 1) * 4
+		var spawn_pos = find_enemy_spawn_position(rng)
+		if spawn_pos == Vector2i(-1, -1):
 			print("Failed to find spawn position for enemy ", i + 1)
-			enemy.queue_free()
+			continue
+		_spawn_enemy(enemy_type, zone_tier, max(1, hp_roll), spawn_pos)
 
-func find_enemy_spawn_position() -> Vector2i:
-	"""Find valid spawn position for enemy"""
+func _spawn_enemy(enemy_type: String, level: int, max_hp: int, grid_pos: Vector2i, current_hp: int = -1) -> Enemy:
+	"""Put one enemy into the dungeon. Used for fresh spawns and when a save
+	restores the enemies that were alive. current_hp -1 means full health."""
+	var enemy = EnemyScene.instantiate()
+	enemy.dungeon_generator = current_dungeon
+	enemy.player = player
+
+	# Identity: set BEFORE add_child so _ready/initialize_stats picks it up
+	var type_def: Dictionary = ENEMY_TYPE_DEFS.get(enemy_type, {})
+	enemy.enemy_type = enemy_type
+	enemy.enemy_level = level
+	enemy.enemy_color = type_def.get("color", Color(1, 0, 0))
+	enemy.max_hp = max(1, max_hp)
+	enemy.current_hp = enemy.max_hp if current_hp < 0 else clampi(current_hp, 1, enemy.max_hp)
+	_enemy_serial += 1
+	enemy.name = enemy_type.capitalize() + "_" + str(_enemy_serial)
+
+	add_child(enemy)
+	enemy.spawn_at(grid_pos)
+	enemies.append(enemy)
+	print("Enemy ", enemy.name, " (", enemy_type, " lv", level, ", ", enemy.current_hp, "/", enemy.max_hp, " hp) at ", grid_pos)
+	return enemy
+
+func find_enemy_spawn_position(rng: RandomNumberGenerator = null) -> Vector2i:
+	"""Find a floor tile well away from the player for an enemy to start on"""
 	if not player:
 		return Vector2i(-1, -1)
-		
+	if rng == null:
+		rng = RandomNumberGenerator.new()
+		rng.randomize()
+
 	var player_pos = player.get_grid_position()
 	var min_distance = 15
-	
+
 	for attempt in range(100):
-		var x = randi() % current_dungeon.dungeon_width
-		var y = randi() % current_dungeon.dungeon_height
+		var x = rng.randi() % current_dungeon.dungeon_width
+		var y = rng.randi() % current_dungeon.dungeon_height
 		var pos = Vector2i(x, y)
-		
+
 		if current_dungeon.dungeon_grid[y][x] == current_dungeon.TileType.FLOOR:
-			if pos.distance_to(player_pos) >= min_distance:
+			if pos.distance_to(player_pos) >= min_distance and not is_position_occupied_by_enemy(pos):
 				return pos
-	
+
 	return Vector2i(-1, -1)
 
 func create_minimap():
@@ -786,7 +951,7 @@ func _grant_death_rewards(enemy: Enemy):
 	if ground_items_node == null or not is_instance_valid(ground_items_node):
 		return
 
-	var tile_size = player.tile_size if is_instance_valid(player) else 16
+	var tile_size = player.tile_size if is_instance_valid(player) else ArtLibrary.TILE_SIZE
 	GroundItemScript.spawn(ground_items_node, enemy.grid_position, tile_size, drops, gold_amount)
 	EventBus.loot_dropped.emit(enemy, drops)
 
@@ -908,7 +1073,9 @@ func _on_zone_changed(_old_zone_id: String, new_zone_id: String):
 	if not zone.is_empty():
 		biome = str(zone.get("biome", "dungeon"))
 	print("World: zone changed to ", new_zone_id, " (biome: ", biome, ")")
-	regenerate_dungeon(biome)
+	await regenerate_dungeon(biome)
+	# Arriving somewhere new is a natural point to keep
+	SaveManager.autosave()
 
 func _on_crisis_phase_changed(crisis_id: String, phase: int):
 	"""Crisis escalation opens up the world (phase 2+ unlocks zone_2)"""
@@ -916,27 +1083,29 @@ func _on_crisis_phase_changed(crisis_id: String, phase: int):
 	if phase >= 2:
 		ZoneManager.unlock_zone("zone_2")
 
-func _on_game_loaded(_slot: int):
-	"""Resync world visuals after SaveManager restored all system state
-	(emitted exactly once at the very end of a successful load)"""
-	# Never stay mid-combat after a load - the initiative chain is gone
+func _player_alive() -> bool:
+	"""The player exists and can still act. The node is no longer freed on
+	death, so validity alone does not mean alive."""
+	return is_instance_valid(player) and not player.is_dying and player.stats != null and player.stats.is_alive()
+
+func _on_game_over():
+	"""The player died: stop the fight and offer a way back"""
 	if in_combat:
 		end_combat()
-
-	if is_instance_valid(player):
-		player.stop_moving()
-		player.cancel_preview()
-		if current_dungeon:
-			current_dungeon.set_camera_target(player)
-
-	# Minimap re-setup re-reads the dungeon + player position
-	if minimap and is_instance_valid(player) and current_dungeon:
-		minimap.setup(current_dungeon, player)
-
-	# Companions: respawn the restored party next to the player
-	_resync_companion_nodes()
-
-	print("World: post-load resync complete")
+	if _game_over_screen != null and is_instance_valid(_game_over_screen):
+		return
+	var layer := CanvasLayer.new()
+	layer.name = "GameOverLayer"
+	layer.layer = 70
+	layer.process_mode = Node.PROCESS_MODE_ALWAYS
+	add_child(layer)
+	_game_over_screen = load("res://scenes/ui/game_over.tscn").instantiate()
+	layer.add_child(_game_over_screen)
+	# The HUD stops updating once the tree is paused: show the final HP first
+	if bottom_ui:
+		bottom_ui.update_display()
+	get_tree().paused = true
+	print("World: game over screen shown")
 
 func _on_status_effect_ticked(target, effect_id: String, amount: int):
 	"""Floating combat text when a status effect ticks damage or healing"""

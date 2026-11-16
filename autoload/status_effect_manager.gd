@@ -20,6 +20,12 @@ func _ready():
 	print("StatusEffects: StatusEffectManager initialized (%d effect definitions)" % effect_definitions.size())
 
 
+func reset():
+	"""Back to a fresh game: no active effects on anyone.
+	Called by GameManager.reset_game_state()."""
+	active_effects.clear()
+
+
 # === EFFECT APPLICATION ===
 
 func apply_effect(target: Node, effect_id: String, duration_turns: int = -1, source: Node = null) -> bool:

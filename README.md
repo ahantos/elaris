@@ -5,7 +5,7 @@ Grid-based D&D 5e-style dungeon crawler RPG built in Godot 4.
 ## 📖 Documentation
 - **[Design Overview](docs/DESIGN_OVERVIEW.md)** ⭐ Start here
 - [Full Design Document](docs/DESIGN_FULL.md) (80 pages)
-- [Current Work Status](docs/CURRENT_WORK.md) (updated each session)
+- [Current Work Status](docs/PROGRESS.md) (updated each session)
 - [Roadmap](docs/ROADMAP.md)
 - [Changelog](docs/CHANGELOG.md)
 - [Zone Designs](docs/ZONES.md)

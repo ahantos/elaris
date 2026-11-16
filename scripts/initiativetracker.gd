@@ -50,7 +50,6 @@ func setup_initiative(player: GridCharacter, enemies: Array[Enemy]):
 			continue
 			
 		var enemy = enemies[i]
-		randomize()
 		var enemy_initiative = CombatManager.roll_initiative(enemy.stats)
 		var enemy_sprite = _get_sprite_texture(enemy)
 		combatants.append({
