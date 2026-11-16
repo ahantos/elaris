@@ -97,7 +97,9 @@ func _art_tour(world):
 	player.cancel_preview()
 	for drop in drops:
 		drop.free()
-	await _wait(2.0)  # the floating numbers have gone before the next shot
+	# The floating numbers, and any toast a regeneration raised (random world
+	# events), have gone before the next shot
+	await _wait(4.5)
 
 func _add_art_sheet(world, art, manifest) -> Node2D:
 	"""Stand every creature and loot sprite on the floor tiles around the player.
