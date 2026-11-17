@@ -557,7 +557,25 @@ should matter what it is made of.
     a mark instead of a notch.
   - Acid and rust ignore hardness; they go by material traits.
   - Creatures get a hardness for natural weapons and hide in the bestiary.
-- Still open: damage states (names only, or states with their own rules).
+- Damage states. Settled: a lost notch carries a name for its cause (chipped,
+  dulled, dented, torn) with no extra rule, and **cracked** is in: a blow that
+  takes two or more notches at once cracks the piece; the next crit against it, or
+  natural 1 with it, breaks it outright; only a forge mends it. He is not attached
+  to any of his twelve states but wants more states than cracked and corroded
+  ("i'd want MORE"). Proposed, not yet answered, in three families:
+  - Damage: cracked; dull (weapons) and loose (armour, shields) as the warning
+    stage of wear, at half the marks to a notch, cleared by routine care in the
+    field; corroded (acid, rust: marks count double); scorched (fire: hardness -2
+    until reworked at a forge); brittle (cold: counts as cracked until thawed by a
+    fire); soaked (leather, cloth, bowstrings); drained (magic bonus suppressed).
+  - Care, prepared at camp and worn off in use: honed, oiled, fitted.
+  - History, earned and erased by a reforge: blooded, tempered, named.
+  Each state must do something a notch cannot, have a cause the player can see
+  coming, and have one cure. States are built as their causes arrive (elemental
+  damage in Phase 5, water in Phase 3, camp with the resting rules).
+- Working target for one dungeon run, proposed and not yet confirmed by him: cheap
+  gear breaks unless repaired or swapped, steel comes home damaged, the best gear
+  comes home merely worn.
 - Resting rules are needed, as a separate discussion.
 
 #### Provisional sketch (to be replaced by the homebrew system)
