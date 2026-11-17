@@ -29,8 +29,9 @@ and "the boot has no script errors" is no longer what done means.
 6. **Save discipline.** Every stateful manager implements `to_dict() -> Dictionary` and
    `from_dict(data)`. Payloads hold only primitives (String, int, float, bool, Array,
    Dictionary), never Resources, Nodes or object references. Item instances serialize
-   as `{item_id, quality_modifier, magic_modifier, current_durability, stack_count}`
-   and are rebuilt through `ItemDatabase`.
+   as `{item_id, quality_modifier, magic_modifier, stack_count}`, plus `charges` for
+   a wand and the condition of a piece that wears (section 2.3c), and are rebuilt
+   through `ItemDatabase`.
 7. **Content lives in code registries** (plain Dictionaries registered in `_ready()` or
    in helper files under `data/<system>/`), except classes and races, which are `.tres`.
    This will change when the content pipeline is built (Phase 7).
@@ -234,6 +235,12 @@ set_index)` gives the slot. There is no `ranged` slot.
 - An item instance carries its own `quality_modifier` (craftsmanship) and
   `magic_modifier`. Rules read them from the instance, never from the `ItemData`
   template: `ItemDatabase.get_instance_bonus(instance)` is the higher of the two.
+- A wand's instance carries `charges` and `max_charges` (`ItemData.max_charges`). A
+  weapon, a shield or a piece of armour carries its condition (section 2.3c).
+  `ItemData` holds nothing about wear.
+- Field repair has two generated items: `repair_kit`, and `scrap_<material id>` for
+  every material (`ItemDatabase.is_scrap`, `scrap_item_id`). Each needs its row in
+  the art manifest like any item.
 
 ### 2.3a Materials
 A material (`MaterialData`, registered in `ItemDatabase.load_materials()`) sets how an
@@ -244,7 +251,7 @@ weight or any other number of the item.
 |---|---|
 | `category` / `get_kind()` | `metal`, `wood`, `leather`, `cloth` |
 | `durability_score` | the score in Ákos's material tables |
-| `notches` | `durability_score` / 8, rounded half up, at least 2 (`MaterialData.notches_for`) |
+| `notches` | `durability_score` / 8, rounded half up, at least 2 (`MaterialData.notches_for`; both numbers are dials) |
 | `hardness` | one scale for all four kinds |
 | `price_multiplier` | an item's `base_value` is its base type's price times this |
 | `trait_id` | `rusts_easily`, `silvered`, `warm`, ... or `""`. Data only: no trait has an effect yet. (`trait` is a reserved word in GDScript.) |
@@ -254,8 +261,10 @@ Stage one is 24 materials, six of each kind. Mythril and adamantite are defined 
 stage 0, as are the eight materials of the old list that have no equivalent yet.
 Loot categories pick only obtainable materials, a dearer one less often (weight 1 /
 price multiplier); the content validator fails on a loot entry, recipe, starting kit
-or reward that names an item of a material that cannot be obtained. Nothing wears
-yet: notches and hardness are shown on the tooltip and used from step 5.
+or reward that names an item of a material that cannot be obtained. Notches and
+hardness are what the wear rules read (section 2.3c). The cloaks and belts are made
+of wool and cowhide (`ItemDatabase.CLOAK_MATERIAL`, `BELT_MATERIAL`) because the back
+and waist slots wear.
 
 ### 2.3b Armour class
 5e rules, worked out in `CharacterStats.apply_equipment_bonuses()` from what is worn
@@ -291,6 +300,87 @@ Dexterity.
   sheet shows them. Status effects and cover are added at the moment of an attack.
 - `armor_class` is a stored field, recalculated by `recalculate_derived_stats()`.
   An enemy has no equipment: 10 + its Dexterity modifier, until the bestiary.
+- Wear counts (section 2.3c): medium and heavy body armour lose 1 for every second
+  lost notch (`get_armor_wear_penalty()`), keeping at least +1 over no armour; a
+  broken body armour or shield is still worn, with its weight and its Strength
+  requirement, and gives nothing. The breakdown names each of these.
+
+### 2.3c Wear
+The design is section 8 of the plan ("Durability"). The rules are in
+`DurabilityManager` (`autoload/durability_manager.gd`, whose header is the summary)
+and **every number is a dial** in `DurabilityDials`
+(`data/durability/durability_dials.gd`, static variables). Write no durability
+number anywhere else: the combat simulator tunes the dials.
+
+**What wears:** a weapon, a shield, and whatever is worn in `head`, `chest`,
+`shoulder`, `back`, `wrist`, `hands`, `waist`, `legs`, `feet`, if it has a material
+(`DurabilityManager.wears(instance)`). Neck, rings and trinkets do not.
+`get_piece_kind()` says which rules apply: `weapon`, `shield`, `body`, `head`,
+`secondary`.
+
+**The instance of a piece that wears** carries, from `ItemDatabase.create_item_instance`
+(`DurabilityManager.init_instance`):
+
+| Field | Meaning |
+|---|---|
+| `notches` | what is left; 0 is broken (`is_broken`). Nothing is destroyed by wear |
+| `notches_max` | what it can hold now; ageing lowers it, never below 1 |
+| `notches_max_original` | the material's count, +1 masterforged, +1 for each plus of magic |
+| `marks` | steady wear towards the next lost notch (limit: hardness times a factor) |
+| `age` | +1 for each notch repaired |
+| `debuffs` | ids: `cracked`, `breached`, `dented`, `torn`, `chipped` |
+| `buffs` | ids: `battle_honed`, `blood_forged:<enemy type>`, `mage_touched`, `dragon_hardened` |
+| `wear_names` | what its plain lost notches are called (`dulled`, `dented`, `torn`); flavour only |
+| `kills`, `kills_by_type`, `caster_kills`, `ever_broken` | what the buffs count; present once there is something to count |
+
+All of them are primitives and are saved with the instance
+(`DurabilityManager.write_primitive` / `read_primitive`). Read them through the
+manager (`get_notches`, `get_marks_limit`, `has_debuff`, ...), which also answers
+for an instance built without them.
+
+**Rules that hold everywhere:**
+- A debuff arrives only with a lost notch and goes with any repair. A buff stays.
+  **No debuff or buff reads or changes marks or hardness.** No state has its own
+  cure, timer or supply.
+- A broken piece gives no bonus of any kind (`gives_bonus`): no armour class, no
+  stat bonus, no resistance; a broken weapon cannot attack
+  (`build_attack_profile().usable`).
+- Marks come only from `end_fight(rounds)`, for the pieces noted as used while the
+  fight ran, and from a blow on a piece harder by 2 or more. Nothing resists a
+  notch lost to marks.
+- Blows are resolved on `EventBus.attack_resolved`: a critical hit on the target's
+  shield, body armour or another worn piece; a natural 1 on the attacker's weapon.
+  Both go through `strike()`, which compares hardness and rolls a magic piece's
+  resist. All chance is `DurabilityManager._roll()`; checks fix it with
+  `force_rolls()`.
+- What wear costs is read where the number is made: `build_attack_profile`
+  (to hit, chipped, Battle-Honed, broken), `get_attack_modifiers` and
+  `make_spell_attack` (`get_armor_class_modifier`: a creature's worn-down armour,
+  Dragon-Hardened), `roll_attack` (`get_critical_threshold`: breached),
+  `damage_incoming` (torn, Blood-Forged, Mage-Touched),
+  `CharacterStats.get_modified_speed_feet` (dented).
+- `repair(instance, notches, clear_marks)` is the one function that mends. A kit
+  restores one notch and leaves the marks (`repair_with_kit`: one `repair_kit` and
+  one unit of scrap of the piece's kind, at least as hard, the softest that will
+  do). `repair(instance, ALL_NOTCHES, true)` is the full repair the smith will use.
+  Repair, repair all and salvage are requests (section 4).
+- After changing a piece in use by hand, call
+  `InventoryManager.recalculate_character_stats(stats)`; the manager does it for
+  everything it changes itself.
+- `EventBus.item_wear_event(event)` carries every announcement (`kind`: `notch`,
+  `break`, `mark`, `resist`, `buff`, `repair`, `age`, `salvage`, `fight`; `instance`,
+  `owner`, `text`, `level`); the combat log prints it. `item_durability_changed`
+  and `item_broken` fire with the notch counts.
+- `DurabilityManager.wear_enabled = false` stops all wear; the smoke test runs with
+  it off except in the checks about wear.
+
+**Combatants.** The rules ask a combatant, never a team: `get_wear_pieces()` (what
+it has in use: what is worn and the weapon set in hand), `get_hide_hardness()`,
+`get_natural_weapon_hardness()`, `get_gear_armor_class_loss()`. An enemy answers
+from the `wear` entry of its row in `World.ENEMY_TYPE_DEFS` (`weapon`, `shield`,
+`armor`, `hide_hardness`): its shield and armour are item instances built at spawn
+(`Enemy.gear`), saved with the enemy, and its armour class falls as they wear. The
+bestiary (step 6) replaces that entry.
 
 ### 2.4 Damage
 Damage types are strings: `physical, slashing, piercing, bludgeoning, fire, cold,
@@ -333,7 +423,9 @@ made and its damage applied, hit or miss, by `make_attack` (weapons) and
 instance in the attacker's hand, or {}), natural_weapon (no item instance behind a
 weapon attack: an unarmed strike, a creature's own attack), weapon_name, damage_type,
 is_ranged, two_handed, two_handed_grip, damage, damage_response, spell_id, result`.
-Durability (step 5) listens here.
+`DurabilityManager` listens here (section 2.3c). The damage of an attack that hit
+carries `attack_roll: true` in its `context`; `breath_weapon: true` is read there
+too, and nothing sets it yet.
 
 **Who resists what.** `Combatant.get_resistances()`, `get_vulnerabilities()` and
 `get_immunities()` gather damage types from: the body's own lists
@@ -437,6 +529,9 @@ crisis `{crisis_id, display_name, phases: [{phase: int, name, description}]}`.
     | `end_turn` | | | |
     | `equip` | `{item: instance, slot}`; with `from_slot`, a move between the weapon sets | refused in a fight | |
     | `unequip` | `{slot}`; `item` names which ring or trinket | refused in a fight | |
+    | `repair` | `{item: instance}`, equipped by the combatant or in the pack | a repair kit and a unit of scrap; refused in a fight | `restored`, `aged`, `scrap_name` |
+    | `repair_all` | | the same for each notch, the worst piece first, while kits and scrap last; refused in a fight | `restored`, `pieces` |
+    | `salvage` | `{item: instance}` from the pack | the piece; refused in a fight | `scrap_id`, `units` |
 
     In a fight a request is approved only on the combatant's own turn. Outside a
     fight nothing is spent and there is no turn to wait for: items, moves, spells on
@@ -581,15 +676,20 @@ crisis `{crisis_id, display_name, phases: [{phase: int, name, description}]}`.
   `Companion`, on the party team); the world spawns them on `companion_recruited` and,
   if a fight is running, adds them to it. `rejoin_party()` returns a dismissed
   companion to the party.
-- **SaveManager** writes `{version: 4, game_version, timestamp, player: {stats,
+- **SaveManager** writes `{version: 5, game_version, timestamp, player: {stats,
   position_x, position_y}, systems: {...}, world: {seed, biome, enemies, ground_items,
   explored, companions}}`. `systems.inventory` is `{items, gold, equipped_items:
   {character_uid: {slot: instance-dict, or Array for rings and trinkets}},
   weapon_sets: {character_uid: the set in hand}}`; the slots are those of section
   2.2. `systems.features` is `{used: {character_uid: [feature ids]}}`. Migrations:
   format 3 had one pair of hands and a `ranged` slot, whose item `_migrate_v3_to_v4`
-  moves to `main_hand_2` (set one stays in hand). Item ids written with a renamed
-  material need no migration (section 2.3). See section 1a.
+  moves to `main_hand_2` (set one stays in hand). Format 4 kept durability as points
+  (`current_durability`): `_migrate_v4_to_v5` turns them into notches in proportion
+  for every saved instance - pack, equipped, on the ground - with a whole piece
+  staying whole and a piece with a point left never broken, and into `charges` for
+  a wand. A saved enemy carries `gear`, the condition of its shield and armour;
+  without it they are whole. Item ids written with a renamed material need no
+  migration (section 2.3). See section 1a.
 
 ## 5. UI
 
@@ -642,8 +742,20 @@ crisis `{crisis_id, display_name, phases: [{phase: int, name, description}]}`.
   drop on a slot sends `equip`, a drop on the pack `unequip`, a drag between the
   same hand of the two sets `equip` with `from_slot`, the SWAP button
   `swap_weapons`, a right-click `use_item` - all through the combatant whose sheet
-  it is. A refusal is shown as a notification. An item's tooltip names its material,
-  notches, hardness and trait.
+  it is. A refusal is shown as a notification.
+- **Wear on screen.** All of it is display: the words and numbers come from
+  `DurabilityManager`. `scenes/ui/durability_bar.tscn` is the segmented bar (a
+  segment a notch, a lost one an empty frame, the notch being worn part filled by
+  its marks, a notch age has taken a dim stub); every slot of the sheet has one.
+  `scenes/ui/item_tooltip.tscn` is the sheet's tooltip, filled from
+  `CharacterScreen._item_tooltip_parts()`: material and hardness, the bar, the
+  condition in words, each debuff and buff with what it does. `scenes/ui/repair_bench.tscn`
+  sits under the pack: kits and scrap, a place to drop a piece for `repair`, one for
+  `salvage`, and a button for `repair_all`; a right-click on a worn slot is `repair`
+  too. `scenes/ui/gear_warning.tscn` is the HUD's line, above the bottom bar, for
+  each piece in use that is broken or on its last notch. The attack readout shows
+  `preview_attack().wear_notes`; the armour class on the sheet shows what lost
+  notches and debuffs cost (`DurabilityManager.get_wearer_notes`).
 - After any UI change, run the screenshot tour and look at the pictures.
 
 ## 6. Art

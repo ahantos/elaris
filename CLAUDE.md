@@ -37,9 +37,13 @@ a system as working because its manager runs; check that a player can reach it.
 - Scripts started with `--script` are compiled before the autoloads exist: reach them
   with `root.get_node("Name")`, never by global name.
 - Per-script `--check-only` false-positives on autoload names. Do not use it.
+- While working on one area, the smoke test can run a part of itself:
+  `<godot> --headless --path . --script res://tools/smoke_test.gd -- --only=durability,blows`
+  (the names are in `_run_only`). It reports PARTIAL, never PASS: only the full
+  run counts before a commit.
 
 ## Architecture
-- 23 autoload singletons, listed in `project.godot` (databases, then managers, then
+- 24 autoload singletons, listed in `project.godot` (databases, then managers, then
   UIManager). `EventBus` carries all cross-system signals.
 - Three scenes: `scenes/main_menu.tscn` (main scene), `scenes/character_creation_screen.tscn`,
   `scenes/world.tscn`. `GameManager` owns the transitions and `reset_game_state()`;
@@ -65,7 +69,9 @@ a system as working because its manager runs; check that a player can reach it.
   one side is left. Attack, Cast, Use Item, Dash, Disengage, Dodge, Swap, a move
   and End Turn are all `request_action(combatant, action_id, params)`: it checks
   the turn and the cost, applies the action and returns the result. So are changes
-  of gear (`equip`, `unequip`), which it refuses in a fight. Player input, enemy AI,
+  of gear (`equip`, `unequip`) and its mending (`repair`, `repair_all`, `salvage`),
+  which it refuses in a fight. It tells the wear rules when a fight starts and how
+  many rounds it lasted. Player input, enemy AI,
   companion AI and the character sheet all act through it. Attack uses the weapon
   set in hand and nothing else: a melee weapon in reach, a ranged weapon in range
   and in sight; the other set takes a Swap. `get_attack_targets()` and
@@ -83,6 +89,13 @@ a system as working because its manager runs; check that a player can reach it.
 - `autoload/feature_manager.gd` - racial traits and class features that act through
   those hooks, and what each character has used since its last long rest. The
   first is the half-orc's Relentless Endurance.
+- `autoload/durability_manager.gd` - how gear wears, what wear costs and how it is
+  mended: notches, wear marks by the length of a fight, blows (a critical hit, a
+  natural 1) with hardness compared, debuffs and buffs, repair with a kit and
+  scrap, salvage, ageing, loot that arrives worn. It listens to the same hooks.
+  Its header is the summary; every number is a dial in
+  `data/durability/durability_dials.gd`. Each weapon, shield and piece of armour
+  carries its own condition on its item instance. See contracts section 2.3c.
 - `scripts/projectile.gd` - the arrow a ranged attack shows on its way. Display only.
 - `scripts/initiativetracker.gd`, `scripts/turn_ui.gd` - display only; they show what
   the controller says and keep no turn state of their own.
@@ -90,13 +103,20 @@ a system as working because its manager runs; check that a player can reach it.
   (`scenes/ui/action_bar.tscn`, `ui/action_bar.gd`, `ui/action_button.gd`). It shows
   what `check_action()` answers and sends presses to `combatant.choose_action()`.
 - `scenes/ui/attack_preview.tscn`, `ui/attack_preview.gd` - the readout beside the
-  enemy an attack is aimed at: weapon, chance to hit, damage, reasons. It shows the
-  controller's `preview_attack()` answer and works nothing out itself.
+  enemy an attack is aimed at: weapon, chance to hit, damage, reasons, what wear
+  does to the attack. It shows the controller's `preview_attack()` answer and works
+  nothing out itself.
+- Wear on screen, all display only: `scenes/ui/durability_bar.tscn` (the segmented
+  bar: a segment a notch, the fill of the current one its marks),
+  `scenes/ui/item_tooltip.tscn` (the sheet's tooltip), `scenes/ui/repair_bench.tscn`
+  (field repair, under the pack on the sheet), `scenes/ui/gear_warning.tscn` (the
+  HUD's line for a piece in use that is broken or on its last notch).
 - `ui/*.gd` - panels built in code and registered with `UIManager`, which owns
   exclusivity and pausing. `ui/notification_toasts.gd` draws `EventBus.ui_notification`.
 - `scripts/character_screen.gd`, `scripts/save_load_menu.gd` - older screens with their
-  own pause handling. The character sheet shows both weapon sets and how the armour
-  class is made up; every change of gear on it is a request to the controller.
+  own pause handling. The character sheet shows both weapon sets, how the armour
+  class is made up, and the condition of every piece; every change of gear on it,
+  and every repair and salvage, is a request to the controller.
 - `ui/main_menu.gd`, `ui/pause_menu.gd`, `ui/game_over.gd`, `ui/settings_panel.gd` -
   newer screens: scenes laid out with containers, styled by `ui/theme/elaris_theme.tres`.
   Build new UI this way.
@@ -123,6 +143,14 @@ a system as working because its manager runs; check that a player can reach it.
   included (contracts 2.3a and 2.3b).
 - All damage goes through `CombatManager.deal_damage()`. Nothing else takes hit
   points away, so resistances and the hooks always apply.
+- Wear (contracts 2.3c). A piece's condition is on its item instance; read it
+  through `DurabilityManager`. Every durability number is a dial in
+  `DurabilityDials`: write none anywhere else. A debuff comes only with a lost
+  notch and goes with any repair; no debuff or buff reads or changes wear marks or
+  hardness; no state has its own cure, timer or supply. A broken piece gives
+  nothing and is never destroyed. Repair and salvage are requests to the
+  controller, refused in a fight. After changing a piece in use by hand, call
+  `InventoryManager.recalculate_character_stats()`.
 - Content names items by the id the database knows them by. An id with a renamed
   material (`iron_longsword`) still loads from a save, but the content validator
   fails on it, and on any item made of a material that cannot be obtained yet.
@@ -158,7 +186,7 @@ a system as working because its manager runs; check that a player can reach it.
 | 7 | Swap weapon sets: the action in a fight, free outside one |
 | 8 or Space | End turn |
 | T | Toggle turn mode outside combat |
-| I | Character sheet (drag to equip or to move a weapon between the two sets, SWAP to change the set in hand, right-click to use). Gear cannot be changed in a fight, only swapped |
+| I | Character sheet (drag to equip or to move a weapon between the two sets, SWAP to change the set in hand, right-click to use). Gear cannot be changed in a fight, only swapped. Field repair is under the pack: right-click a worn slot, or drag a piece onto REPAIR, to mend one notch with a kit and scrap; drag a spare piece onto SALVAGE for scrap; REPAIR ALL WORN does everything equipped. Not in a fight |
 | B / C / J / O / P | Spellbook / crafting / quest log / world map / companions |
 | F5 / F6 | Save / load |
 | F7 / F8 | Short / long rest |
