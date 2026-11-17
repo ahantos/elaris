@@ -832,6 +832,19 @@ Under discussion since 2026-11-17. Nothing is decided.
   working", and "we'll need to find a reference for the art style". The test files
   were temporary. Its weak points were the squat proportions, flat shading and an
   unclear helmet, all of which a style reference would settle.
+- Style direction, from Ákos on 2026-11-17: "very nice but still blocky in a 90-s
+  kinda way", able to "properly show off the items", and it should scream "conan
+  and sword and sorcery". His references are Stoneshard and Diablo II, "maybe a mix
+  between the two": Stoneshard for how the figure and its gear are drawn (dark
+  outline, muted earthy palette, strong light on metal), Diablo II for the darker
+  mood and for big, detailed item pictures in inventory slots of different sizes.
+  He finds Stoneshard's heads too big, so the figure is taller with a smaller head.
+  Three test figures were drawn that day; no item pictures yet.
+- Animation principle he proposed, and the one to use: the body is a few sections
+  (head, torso, each arm, legs), each piece of gear belongs to one section, and
+  animation moves the sections so the gear rides along. His other project
+  (DesnutsGodot) does only the weapon half of this, with grip points on an
+  animated body sprite.
 - AI art tools, researched 2026-11-17:
   - Google Stitch and Claude Design are interface design tools. Neither makes
     sprites.
