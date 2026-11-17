@@ -658,8 +658,20 @@ Shoulder, back, wrist, hands, waist, legs and feet. Agreed 2026-11-17.
   system it does not change the damage die or the armour class; the game's current
   materials add +1 to +3 to both. He confirmed those bonuses go: materials "should
   absolutely stop adding any stats. materials are for the durability and hardness
-  rules not gameplay changes." Whether that also rules out material traits (silver
-  against undead, mythril at half weight) has been asked and not yet answered.
+  rules not gameplay changes."
+- Traits are in (agreed 2026-11-17). A trait never adds damage or armour class; it
+  changes how the material behaves under a system that already exists. A plain
+  material having no trait is fine. His tables sort into families:
+  - Gets through resistances: silver, Damascus steel, adamantite, meteorite iron.
+  - Corrosion: bronze, titanium and mythril resist it; wrought iron and zinc rust.
+  - Cracking: cast iron and bismuth are brittle; hickory, ash and elm resist it.
+  - Climate: warm, waterproof or water-soaking leathers and cloths.
+  - Fire and cold: ashroot, frostcloth, drakehide.
+  - Self-mending: trollhide, bloodwood.
+  In the stage-one list about four matter in a fight (silver, Damascus steel, ash,
+  hickory), about six matter once corrosion and climate exist, and the rest are
+  plain. He expects to "rebalance / rethink what each of them do"; treat the
+  effects in his tables as a starting point, not as settled.
 
 #### How it is shown
 
@@ -680,8 +692,8 @@ Shoulder, back, wrist, hands, waist, legs and feet. Agreed 2026-11-17.
 
 None of these blocks the Phase 2 hooks.
 
-- Material traits: kept, or out along with the stat bonuses. He deferred it ("we
-  can talk about traits later").
+- What each material trait does. Traits are in (see Materials); the effects are to
+  be rethought and rebalanced as each family is built.
 - Resting rules. A separate discussion; it includes whether anything clears marks.
 - Climate for places, which the secondary slots protect against (Phase 3), and
   what worn gear does socially (Phase 4). Neither is designed.
@@ -703,6 +715,34 @@ Ideas he turned down, so they do not come back:
 - States that key off marks, change marks or change hardness.
 - States with their own cures (oil, a fire, a forge only) and states prepared at camp
   (honed, oiled, fitted). They gave the player another thing to do.
+
+### Resting
+
+Status: under discussion since 2026-11-17, not designed, and not part of Phase 2.
+The source is the resting system in Ákos's homebrew document. Rests are free and
+unlimited in the game today.
+
+Agreed so far:
+
+- A rest costs supplies. No food, no healing.
+- A rest in the field is partial; only a town or inn gives a full recovery.
+- Camp quality is a short ladder: a rough camp, a proper camp, an inn.
+- Food and drink stay two separate needs. Merging them into one supply was proposed
+  and he turned it down: drinking would stop being necessary and the drinks in his
+  setting, with their effects, would lose their place. To keep the bookkeeping
+  small, a rest takes one of each automatically, and the player may pick a
+  particular food or drink for its effect.
+
+Open:
+
+- What causes exhaustion. His rules stack several causes (no food, no water, bad
+  sleep, weather); the concern is a spiral. He wants to talk it through.
+- Time. His rules run on hours and days and the game has no clock. Either rests are
+  limited by supplies and safety, or the game gets a day and night clock, which
+  would also serve weather and travel. Asked, not answered.
+- Whether anything clears wear marks. Nothing does today.
+- Travel fatigue waits for the world map (Phase 4).
+- The drinks, food and other consumables sections of his document are unread.
 
 ### Level expansion
 
