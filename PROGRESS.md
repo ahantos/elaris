@@ -18,8 +18,8 @@ called `CURRENT_WORK.md` until Phase 1. The plan it tracks is in section 7 of
   `main`; `main` is still the June commit. The durability design commits on
   `phase-1-game-shell` after that push, and all of `phase-2-combat-core`, are
   local only.
-- `tools\run_checks.bat` passes at the step 3 merge on `phase-2-combat-core`: 326
-  smoke checks, no engine errors, 31 screenshots.
+- `tools\run_checks.bat` passes at the step 4 merge on `phase-2-combat-core`: 417
+  smoke checks, no engine errors, 33 screenshots.
 - Standing agreement since 2026-11-16: commit as work proceeds, on the phase branch.
   Push and merge only when Ákos asks.
 - Two folders sit next to the repo since 2026-11-17. `..\elaris-worktrees\` holds
@@ -63,7 +63,7 @@ exit test are in section 7 of the plan; the durability rules are in section 8.
 | 1 | One combatant base with teams for the player, enemies and companions; one authority for whose turn it is; the combat loop out of `world.gd` | Done 2026-11-17. Built on `phase-2-step-1`, reviewed, merged. Not yet played by Ákos |
 | 2 | Turn resources (movement, action, bonus action, reaction) and the action bar: Attack with the equipped weapon, Dash, Disengage, Dodge, End Turn | Done 2026-11-17. Built on `phase-2-step-2`, reviewed, merged. Not yet played by Ákos |
 | 3 | Ranged attacks: range, line of sight, targeting, hit chance shown before committing | Done 2026-11-17. Built on `phase-2-step-3`, reviewed, merged. Not yet played by Ákos |
-| 4 | One damage pipeline with types, resistance, vulnerability and hooks; 5e armour class; armour and material data reworked so materials add no stats; two weapon sets swapped with an action; the smaller fixes from step 3 (longbow range, cover) | Being built on branch `phase-2-step-4` by a background agent (started 2026-11-17), in the working copy at `C:\Users\Akos\Documents\GitHub\elaris-worktrees\step4`. Not yet reviewed or merged. It was interrupted once with only the material data rewritten and uncommitted. If the session that started it has ended: look at `git status` and `git log phase-2-combat-core..phase-2-step-4` in that working copy, run the checks there, finish or review, then merge |
+| 4 | One damage pipeline with types, resistance, vulnerability and hooks; 5e armour class; armour and material data reworked so materials add no stats; two weapon sets swapped with an action; the smaller fixes from step 3 (longbow range, cover) | Done 2026-11-17. Built on `phase-2-step-4`, reviewed, merged. Save format is now 4. Not yet played by Ákos |
 | 5 | Durability as designed: notches, marks, blows, hardness, debuffs, buffs, field kits and scrap, ageing, the segmented bar. Also, agreed 2026-11-17: the figure on the map shows what the character is wearing, assembled from layers (the placeholder set has layers for body, legs, boots, gloves, cloak, head and both hands; none for shoulder, wrist or waist), so a broken or missing piece is visible | |
 | 6 | Bestiary as data (goblin, skeleton, bandit, wolf, one boss); behaviours (rusher, archer, caster, pack); perception by line of sight; encounters by budget | |
 | 7 | Companions as party combatants that enemies target, driven by the same behaviours. Settle here, by Ákos playing both, whether companions default to player control or to acting on their own (he wondered on 2026-11-17 whether anyone wants to control four characters, then left the decision as it stands; my lean is AI by default because fights are frequent and small) | |
@@ -172,18 +172,22 @@ pulling the combat loop out of `world.gd`. Scope and exit test are in the plan.
 
 ## Known and deliberately left for later
 
-- A bow or crossbow cannot be fired with a shield in the off hand. Ákos confirmed
-  the rule and decided on two weapon sets swapped with an action (step 4).
-- The longbow's range is 24/96 tiles; the SRD's 150/600 feet is 30/120 (step 4,
-  with the item data).
-- Cover is generous: most shots down a corridor count as half cover, and the player
-  now sees it in the hit chance (`scripts/combat_grid.gd`, step 8).
-- No ammunition, no thrown weapons, and an adjacent enemy cannot be shot by choice
-  while a melee weapon is in hand.
-- The smoke log sometimes ends with a warning about two leaked timers. It depends on
-  the dice and predates step 3; probably the World being freed while a turn is
-  still waiting. It fails nothing.
-- Equipping gear in a fight is free and works off-turn (step 4 or 5).
+- No ammunition and no thrown weapons.
+- Item instances still carry the old durability points, and `repair_item` has no
+  caller (step 5 replaces both with notches).
+- The rogue's armour class fell from 15 to 13 when armour class became 5e's, so a
+  starting enemy hits a rogue 55% of the time instead of 45%. Nothing was retuned
+  (step 10).
+- A pillar in the open blocks a shot that the corner rule would call half cover,
+  because the old straight-line sight check is still applied as well
+  (`scripts/combat_controller.gd`).
+- Dwarves take the 10-foot penalty for heavy armour they lack the Strength for;
+  the race text says they should not.
+- Scrolls and wands can be used in armour the wearer is not trained in, although
+  spells cannot.
+- Equipment, the weapon set in hand and feature use are saved only for the player,
+  not for companions (step 7).
+- A ring or trinket's name shows its material twice in the sheet's list.
 - Aimed scrolls and wands cannot be used at all: there is no targeting flow for
   them. Two consumables (cure poison, food buffs) do nothing but are consumed.
 - A weapon's own magic or quality bonus is not applied to its attacks; only the

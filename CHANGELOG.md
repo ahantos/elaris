@@ -4,6 +4,55 @@ All notable changes and session notes documented here.
 
 ---
 
+## [Session - November 17, 2026] - Phase 2, step 4: Damage, Armour Class, Materials, Weapon Sets
+
+### Added
+- One damage pipeline, `CombatManager.deal_damage`. Weapons, spells and status
+  effects all go through it. It applies immunity, resistance (half) and
+  vulnerability (double), and raises four hooks other systems can listen to: an
+  attack was resolved, damage is incoming, damage was applied, a combatant would
+  drop to 0 hit points.
+- Skeletons take double damage from bludgeoning. Dwarves take half from poison. A
+  half-orc stays on 1 hit point instead of dropping, once per long rest. Damage
+  numbers, the combat log and the attack readout say when damage was resisted,
+  doubled or negated.
+- Two weapon sets for every character, each with a main hand and an off hand.
+  Swapping costs the action in a fight and is free outside one. The character
+  sheet shows both sets; the action bar has a Swap button on key 7, and End Turn
+  moved to key 8.
+- The character sheet lists what the armour class is made of.
+
+### Changed
+- Armour class follows 5e: body armour, Dexterity as the armour allows, shield, and
+  magic or craftsmanship bonuses. Helmets, gloves, greaves, boots and the other
+  slots give none. Heavy armour without the Strength for it costs 10 feet of speed.
+  Armour or a shield without the class proficiency gives disadvantage on attacks
+  and blocks spellcasting.
+- Materials no longer add damage or armour class. A material sets a durability
+  score, a hardness, a notch count, a price and a trait. The first 24 materials
+  from Ákos's tables replace the old ladder of 20; mythril and adamantite exist
+  but never drop. Old ids still load through an alias table.
+- Attack uses only the weapon set in hand. Out of reach with a sword, the button
+  says which set to swap to. In a fight, gear cannot be changed from the sheet.
+- The separate ranged slot is gone. Save format 4 moves its item into the second
+  weapon set.
+- Cover follows 5e's corner rule: half cover +2, three-quarters +5. An open shot
+  down a corridor has none.
+- A weapon's own craftsmanship or magic bonus now applies to its attacks, and
+  armour's to armour class.
+- The longbow's range is 30/120 tiles.
+
+### Fixed
+- Ring and Cloak of Protection now grant their armour class.
+- The Elixir of Fire Resistance gives real fire resistance.
+- Two timers leaked when the world was freed while a turn was waiting. The checks
+  now fail on a leak.
+
+### Checks
+- 417 smoke checks, up from 326, and 33 screenshots.
+
+---
+
 ## [Session - November 17, 2026] - Phase 2, step 3: Ranged Attacks and Targeting
 
 ### Added
