@@ -500,12 +500,23 @@ the table and wants it streamlined, keeping the feeling: gear should matter, and
 should matter what it is made of.
 
 - Pace is shape B's: gear wears visibly inside a fight.
-- The per-material break threshold goes. The same penalty range applies to every
-  piece instead: the last 25% of its durability.
-- +2 and +3 gear wears too. It has much more durability, or wears more slowly;
-  which of the two is still open.
+- Durability is counted in notches, as in the sketch below, but the count comes
+  from his material tables, material by material.
+- Effect of wear is the sketch's: each lost notch costs at once. The per-material
+  break threshold goes. (He first replaced it with a penalty range over the last
+  25% of durability for every piece, then preferred the sketch's version the same
+  day.)
+- Magic and craftsmanship work as in the sketch (a chance to resist a loss). +2 and
+  +3 gear wears too and may also get more notches. Whether he means both together
+  is to be confirmed.
+- Repair is the sketch's: a kit in the field, the smith for everything, loot
+  arrives worn.
+- Materials are his lists. The count rises heavily from today's 20.
 - The twelve named damage states and their separate repair methods get simplified.
-- The material count rises heavily from today's 20.
+  How far is open.
+- Open: what makes gear lose durability, including his combat-length rule.
+- Open: ageing. He sees the appeal of weapons being retired but expects players to
+  find it frustrating.
 - Resting rules are needed, as a separate discussion.
 
 #### Provisional sketch (to be replaced by the homebrew system)
