@@ -1,8 +1,7 @@
 # combat_manager.gd
 # AutoLoad singleton - every die rolled in a fight: attack rolls, damage, saving
 # throws, initiative, opportunity attacks. It works out what a combatant attacks
-# with (the melee weapon in hand or the ranged weapon it carries, by 5e rules),
-# reads status effects and position (range, cover and flanking via CombatGrid),
+# with (the weapon set it has in hand, by 5e rules), reads status effects and position (range, cover and flanking via CombatGrid),
 # says what the chance to hit is before anything is rolled, and applies the
 # damage. It does not know whose turn it is: the CombatController decides what
 # may be done and asks here for the outcome.
@@ -140,39 +139,19 @@ func _ready():
 
 # === WHAT A COMBATANT ATTACKS WITH ===
 
-func get_attack_profile(attacker: Combatant, target: Combatant = null) -> Dictionary:
-	"""How the combatant attacks. With a target, the weapon follows it:
-	- a target in reach (adjacent): the melee weapon in the main hand, or an
-	  unarmed strike;
-	- a target beyond reach: the ranged weapon the attacker carries, if it has
-	  one;
-	- an adjacent target and nothing but a ranged weapon: that weapon (the shot
-	  has disadvantage, see get_attack_modifiers), or an unarmed strike when it
-	  cannot be fired.
-	Without a target: the weapon in hand (Combatant.get_wielded_weapon).
-	Whether the target can be attacked at all - reach, range, line of sight - is
-	the CombatController's to say. See build_attack_profile for the keys."""
-	if target == null or not is_instance_valid(target):
-		return build_attack_profile(attacker, attacker.get_wielded_weapon())
-	var melee: ItemData = attacker.get_melee_weapon()
-	var ranged: ItemData = attacker.get_ranged_weapon()
-	if CombatGrid.get_distance_tiles(attacker.get_grid_position(), target.get_grid_position()) > MELEE_REACH:
-		return build_attack_profile(attacker, ranged if ranged != null else melee)
-	if melee != null or ranged == null:
-		return build_attack_profile(attacker, melee)
-	var shot: Dictionary = build_attack_profile(attacker, ranged)
-	return shot if shot.usable else get_unarmed_profile(attacker)
+func get_attack_profile(attacker: Combatant) -> Dictionary:
+	"""How the combatant attacks right now: with the weapon set it has in hand,
+	and nothing else. A melee weapon strikes within reach; a ranged weapon
+	shoots, an adjacent target included (at disadvantage, see
+	get_attack_modifiers); an empty main hand is an unarmed strike. Whether a
+	target can be attacked at all - reach, range, line of sight - is the
+	CombatController's to say. See build_attack_profile for the keys."""
+	return build_attack_profile(attacker, attacker.get_weapon())
 
-func get_melee_profile(attacker: Combatant) -> Dictionary:
-	"""The combatant's attack on a target in reach: its melee weapon, or an
-	unarmed strike"""
-	return build_attack_profile(attacker, attacker.get_melee_weapon())
-
-func get_ranged_profile(attacker: Combatant) -> Dictionary:
-	"""The combatant's attack on a target beyond reach, or {} when it carries
-	no ranged weapon"""
-	var weapon: ItemData = attacker.get_ranged_weapon()
-	return build_attack_profile(attacker, weapon) if weapon != null else {}
+func get_set_profile(attacker: Combatant, set_index: int) -> Dictionary:
+	"""How the combatant would attack with one of its weapon sets in hand: what
+	a swap would give it"""
+	return build_attack_profile(attacker, attacker.get_weapon(set_index), set_index)
 
 func get_unarmed_profile(attacker: Combatant) -> Dictionary:
 	"""The combatant's unarmed strike, whatever it is holding"""
@@ -201,15 +180,17 @@ func get_damage_text(profile: Dictionary) -> String:
 		amount += str(modifier)
 	return "%s %s" % [amount, str(profile.get("damage_type", "physical"))]
 
-func build_attack_profile(attacker: Combatant, weapon: ItemData) -> Dictionary:
+func build_attack_profile(attacker: Combatant, weapon: ItemData, set_index: int = 0) -> Dictionary:
 	"""One attack by 5e rules, as numbers. weapon null is an unarmed strike.
+	set_index is the weapon set the weapon is held in (0: the set in hand); its
+	off hand decides the grip.
 	- Ability: Strength; a finesse weapon uses Dexterity when that is higher;
 	  a ranged weapon uses Dexterity, for the attack roll and the damage.
 	- Proficiency bonus only when the attacker is proficient with the weapon.
 	- A versatile weapon uses its larger dice when the off hand is empty.
-	- A two-handed weapon, melee or ranged, with something in the off hand
-	  cannot attack: usable is false and reason says why. What is in the main
-	  hand never stops a shot: drawing and stowing a weapon is free.
+	- A two-handed weapon, melee or ranged, with something in the off hand of
+	  its set cannot attack: usable is false and reason says why. Equipping
+	  prevents that pairing; a state forced some other way still cannot attack.
 	- The piece in the attacker's hand adds its own bonus, read from the item
 	  instance: the higher of its craftsmanship and magic bonus to the attack
 	  roll, its magic bonus to the damage.
@@ -256,7 +237,7 @@ func build_attack_profile(attacker: Combatant, weapon: ItemData) -> Dictionary:
 		profile["damage_dice"] = weapon.damage_dice
 		profile["flat_damage"] = 0
 
-	var off_hand_free: bool = attacker.is_off_hand_free()
+	var off_hand_free: bool = attacker.is_off_hand_free(set_index)
 	if _weapon_has_property(weapon, "versatile") and weapon.versatile_dice != "" and off_hand_free:
 		profile["damage_dice"] = weapon.versatile_dice
 		profile["two_handed_grip"] = true
@@ -282,8 +263,8 @@ func build_attack_profile(attacker: Combatant, weapon: ItemData) -> Dictionary:
 # === ATTACK SYSTEM ===
 
 func make_attack(attacker: Combatant, target: Combatant, profile: Dictionary = {}) -> Dictionary:
-	"""One weapon attack, melee or ranged, start to finish: the weapon that
-	suits the target (or the profile given), the d20, the damage, and the damage
+	"""One weapon attack, melee or ranged, start to finish: the weapon in hand
+	(or the profile given), the d20, the damage, and the damage
 	put through the pipeline (deal_damage) with the weapon's damage type. Every
 	weapon attack in the game comes through here - the Attack action and
 	opportunity attacks, by the player, companions and enemies alike. Announces
@@ -294,7 +275,7 @@ func make_attack(attacker: Combatant, target: Combatant, profile: Dictionary = {
 	"vulnerable", "immune" or "") and prevented_by what kept the target on its
 	feet, if anything did."""
 	if profile.is_empty():
-		profile = get_attack_profile(attacker, target)
+		profile = get_attack_profile(attacker)
 	if not profile.get("usable", false):
 		print("CombatManager: %s cannot attack (%s)" % [attacker.name, str(profile.get("reason", ""))])
 		return {}
@@ -496,7 +477,7 @@ func get_attack_modifiers(attacker: Combatant, target: Combatant, profile: Dicti
 func get_hit_chance(attacker: Combatant, target: Combatant, profile: Dictionary = {}) -> Dictionary:
 	"""The chance that an attack by attacker on target hits, worked out and not
 	rolled: what the player is shown before committing. profile is what the
-	attacker attacks with (default: get_attack_profile for this target).
+	attacker attacks with (default: get_attack_profile, the set in hand).
 	A natural 20 always hits and a natural 1 always misses; with advantage the
 	better of two d20 counts, with disadvantage the worse, and the two cancel.
 	Returns {chance (0.0 to 1.0), percent (rounded), needed (the lowest d20
@@ -515,7 +496,7 @@ func get_hit_chance(attacker: Combatant, target: Combatant, profile: Dictionary 
 			or attacker.stats == null or target.stats == null:
 		return preview
 	if profile.is_empty():
-		profile = get_attack_profile(attacker, target)
+		profile = get_attack_profile(attacker)
 	preview.merge(get_attack_modifiers(attacker, target, profile), true)
 
 	if StatusEffectManager.is_incapacitated(attacker):
@@ -537,8 +518,8 @@ func get_hit_chance(attacker: Combatant, target: Combatant, profile: Dictionary 
 func roll_attack(attacker: Combatant, target: Combatant, profile: Dictionary = {},
 				 advantage: bool = false, disadvantage: bool = false) -> Dictionary:
 	"""Roll one attack by attacker against target, without applying anything.
-	profile is what the attacker attacks with (default: get_attack_profile for
-	this target). The d20 is rolled with what get_attack_modifiers says:
+	profile is what the attacker attacks with (default: get_attack_profile, the
+	set in hand). The d20 is rolled with what get_attack_modifiers says:
 	advantage or disadvantage, the attack bonus, the target's AC with cover.
 	Besides:
 	- an incapacitated attacker (stunned, paralyzed, frozen) cannot attack at
@@ -553,7 +534,7 @@ func roll_attack(attacker: Combatant, target: Combatant, profile: Dictionary = {
 		push_error("CombatManager.roll_attack: missing attacker or target")
 		return {}
 	if profile.is_empty():
-		profile = get_attack_profile(attacker, target)
+		profile = get_attack_profile(attacker)
 
 	var result: Dictionary = {
 		"hit": false, "roll": 0, "total": 0,
@@ -902,9 +883,8 @@ func trigger_opportunity_attack(reactor: Node, mover: Node) -> Dictionary:
 	own turn) and can take reactions (status effects), and the mover stands next to
 	it (Chebyshev distance exactly 1).
 	On success: spends the reaction and makes one melee attack through make_attack
-	with the melee weapon in the reactor's hand, never the ranged weapon it carries;
-	a weapon that cannot be swung (two-handed, with a full off hand) gives way to an
-	unarmed strike. Emits
+	with the melee weapon in the reactor's hand. A reactor holding a ranged weapon,
+	or one that cannot be swung, makes an unarmed strike instead. Emits
 	EventBus.reaction_triggered(reactor, "opportunity_attack", mover).
 	A missed opportunity attack still spends the reaction.
 	Returns {triggered: bool, reason: String, result: Dictionary (attack result if rolled)}.
@@ -922,8 +902,8 @@ func trigger_opportunity_attack(reactor: Node, mover: Node) -> Dictionary:
 	if CombatGrid.get_distance_tiles(reactor.get_grid_position(), mover.get_grid_position()) != 1:
 		return {"triggered": false, "reason": "not_adjacent", "result": {}}
 
-	var profile: Dictionary = get_melee_profile(reactor)
-	if not profile.usable:
+	var profile: Dictionary = get_attack_profile(reactor)
+	if not profile.usable or profile.is_ranged:
 		profile = get_unarmed_profile(reactor)
 
 	print("CombatManager: %s makes an opportunity attack against %s!" % [reactor.name, mover.name])

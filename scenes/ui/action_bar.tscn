@@ -20,10 +20,10 @@ layout_mode = 1
 anchors_preset = 5
 anchor_left = 0.5
 anchor_right = 0.5
-offset_left = -574.0
+offset_left = -620.0
 offset_top = 24.0
-offset_right = 574.0
-offset_bottom = 210.0
+offset_right = 620.0
+offset_bottom = 226.0
 grow_horizontal = 2
 mouse_filter = 2
 theme_override_constants/separation = 8
@@ -96,6 +96,9 @@ layout_mode = 2
 layout_mode = 2
 
 [node name="Dodge" parent="Column/Buttons" instance=ExtResource("3_button")]
+layout_mode = 2
+
+[node name="Swap" parent="Column/Buttons" instance=ExtResource("3_button")]
 layout_mode = 2
 
 [node name="EndTurn" parent="Column/Buttons" instance=ExtResource("3_button")]

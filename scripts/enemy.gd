@@ -24,11 +24,15 @@ var player: GridCharacter = null
 var path: Array[Vector2i] = []
 var path_index: int = 0
 
-# The weapon every enemy attacks with until the bestiary gives each type its own
+# An enemy's weapon sets are its own, not equipment. Set one is `weapon`; left
+# null it is a stand-in, the same for every enemy until the bestiary gives each
+# type its attacks. A second set is optional (`second_weapon`); with one, the
+# enemy can swap like anyone else. The AI below only ever attacks an adjacent
+# target, whatever it holds.
+var weapon: ItemData = null
+var second_weapon: ItemData = null
+var weapon_set: int = 1
 var _stand_in_weapon: ItemData = null
-# The ranged weapon this enemy carries. None has one until the bestiary: the AI
-# below only ever attacks an adjacent target.
-var ranged_weapon: ItemData = null
 
 func _init():
 	team = Team.HOSTILE
@@ -118,9 +122,20 @@ func _finish_turn_effects():
 		return
 	StatusEffectManager.process_turn_end(self)
 
-func get_melee_weapon() -> ItemData:
-	"""A stand-in until the bestiary gives each enemy type its own attacks: a
-	plain 1d6 weapon"""
+func get_weapon_set() -> int:
+	return weapon_set
+
+func get_weapon_set_count() -> int:
+	return 2 if second_weapon != null else 1
+
+func get_weapon(set_index: int = 0) -> ItemData:
+	"""Set one: the enemy's weapon, or the stand-in until the bestiary gives
+	each type its own attacks, a plain 1d6 weapon. Set two: its second weapon,
+	if it has one."""
+	if (set_index if set_index > 0 else weapon_set) == 2:
+		return second_weapon
+	if weapon != null:
+		return weapon
 	if _stand_in_weapon == null:
 		_stand_in_weapon = ItemData.new()
 		_stand_in_weapon.item_name = "Enemy Weapon"
@@ -129,8 +144,16 @@ func get_melee_weapon() -> ItemData:
 		_stand_in_weapon.damage_dice = "1d6"
 	return _stand_in_weapon
 
-func get_ranged_weapon() -> ItemData:
-	return ranged_weapon
+func get_hand_instance(_hand: String, _set_index: int = 0) -> Dictionary:
+	"""An enemy's weapons are not items: no instance stands behind them"""
+	return {}
+
+func is_weapon_set_empty(set_index: int) -> bool:
+	return get_weapon(set_index) == null
+
+func swap_weapon_set() -> int:
+	weapon_set = get_other_weapon_set()
+	return weapon_set
 
 func get_flank_partners() -> Array:
 	"""Enemies do not flank yet: their attacks stay as they were until the

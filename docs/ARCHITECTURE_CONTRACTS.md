@@ -143,23 +143,46 @@ and "the boot has no script errors" is no longer what done means.
   Walking spends a tile of movement per tile reached while `is_taking_turns()` (a
   fight; for the player also the turn mode outside one). The action economy exists
   only in a fight.
-- **Weapons.** `get_melee_weapon()` is the melee weapon in the main hand (null: an
-  unarmed strike) and `get_ranged_weapon()` the weapon in the `ranged` slot (null:
-  none). `get_wielded_weapon()` is what is in hand when no target has been named:
-  the melee weapon; without one, the ranged weapon; with neither, null. Which of
-  them an attack uses depends on the target (section 4). Enemies answer with a
-  stand-in 1d6 melee weapon and carry no ranged weapon (`Enemy.ranged_weapon` is
-  null) until the bestiary. `is_off_hand_free()` and `get_flank_partners()` complete
-  what an attack needs to know (enemies have no flank partners yet).
+- **Weapon sets.** A combatant has two weapon sets, each a main hand and an off
+  hand, and holds one of them. `get_weapon_set()` is the set in hand (1 or 2),
+  `get_weapon(set_index)` the weapon in a set's main hand (0: the set in hand; null:
+  an unarmed strike), `get_hand_instance(hand, set_index)` the item instance in a
+  hand, `get_weapon_instance(weapon)` the piece behind a weapon, `is_off_hand_free()`
+  whether a versatile weapon can be swung in both hands. An attack uses the set in
+  hand and nothing else (section 4). Party members keep their sets as equipment
+  (section 2.2). An enemy answers for its own: set one is `Enemy.weapon`, a stand-in
+  1d6 weapon until the bestiary, and `Enemy.second_weapon` is an optional second
+  set. `swap_weapon_set()` changes the set in hand; only the CombatController calls
+  it. `get_flank_partners()` completes what an attack needs to know (enemies have
+  no flank partners yet).
 - The world lists the combatants in the scene: `World.get_combatants()`,
   `get_combatant_at(tile)`, `is_tile_occupied(tile, exclude)`.
 
-### 2.2 Equipment slot strings (exact)
-`head, neck, shoulder, back, chest, wrist, hands, waist, legs, feet, main_hand, off_hand, ranged`
-plus multi-slots `rings`, `trinkets` (InventoryManager stores Arrays for those two).
-`ItemData.equip_slot` uses exactly these strings (`rings` and `trinkets` are plural).
-`InventoryManager.equip_item()` refuses a two-handed weapon in the main hand while the
-off hand holds something, and anything in the off hand beside a two-handed weapon.
+### 2.2 Equipment slots (exact strings)
+Worn: `head, neck, shoulder, back, chest, wrist, hands, waist, legs, feet`, plus the
+multi-slots `rings` and `trinkets` (InventoryManager stores Arrays for those two).
+Held: two weapon sets, each a main hand and an off hand: `main_hand, off_hand` (set
+one) and `main_hand_2, off_hand_2` (set two); `InventoryManager.weapon_slot(hand,
+set_index)` gives the slot. There is no `ranged` slot.
+
+- `ItemData.equip_slot` names the slot an item is made for; for a weapon or a shield
+  that is its hand (`main_hand` or `off_hand`), and it fits that hand of either set
+  (`hand_of_slot`, `set_of_slot`).
+- One set is in hand: `InventoryManager.get_weapon_set(stats)` (1 or 2). Only it
+  counts: `get_active_equipped_items()` is everything worn plus the set in hand, and
+  that is what armour class, ability bonuses and resistances are worked out from. A
+  shield in the other set gives nothing.
+- A two-handed weapon fills both hands of its set: `get_equip_refusal()` refuses one
+  beside a full off hand and anything in the off hand beside one. So a bow or
+  crossbow never shares a set with a shield.
+- Starting kits are put on by `auto_equip_from_inventory()`: a weapon or shield goes
+  in set one when its hand is free there, otherwise in set two (fighter: longsword
+  and shield, then the light crossbow).
+- **Changing gear is a request** (section 4): `swap_weapons`, `equip`, `unequip`.
+  The character sheet only asks. In a fight the swap costs the action and the other
+  two are refused; outside a fight all three are free. `InventoryManager.equip_item`,
+  `unequip_item`, `move_equipped_item` and `set_weapon_set` are what the controller
+  calls to apply them; nothing else should.
 
 ### 2.3 Item id scheme
 - Material variants: `"{material_id}_{base_id}"`, for example `steel_longsword`,
@@ -178,7 +201,7 @@ off hand holds something, and anything in the off hand beside a two-handed weapo
   A ranged weapon has `range_normal` and `range_max`, **in tiles** (one tile is 5
   feet): a shortbow's 16 and 64 are the 5e 80 and 320 feet. Read them through
   `CombatManager.get_weapon_range(weapon)`, the one place that knows the unit. All
-  four ranged bases are two-handed and go in the `ranged` slot.
+  four ranged bases are two-handed: one fills both hands of its weapon set.
   `CharacterStats.is_proficient_with_weapon(weapon)` reads proficiency from the class
   data and the character's own list, by category or by base id.
 - Armour bases (slot), `ItemDatabase.ARMOR_BASES`: metal: helmet (head), chestplate,
@@ -398,6 +421,7 @@ crisis `{crisis_id, display_name, phases: [{phase: int, name, description}]}`.
     | `action_id` | `params` | Costs | Adds to the result |
     |---|---|---|---|
     | `attack` | `{target: Combatant}` | action | the `CombatManager.make_attack` result (`hit`, `damage`, `damage_type`, `is_crit`, `weapon_name`, `is_ranged`, `advantage`, `disadvantage`, `reasons`, `cover_bonus`, `distance`, ...), `target` |
+    | `swap_weapons` | | action in a fight; nothing outside one | `weapon_set` (the set now in hand), `weapon_name` |
     | `dash` | | action | `movement_added` |
     | `disengage` | | action | |
     | `dodge` | | action | |
@@ -405,23 +429,26 @@ crisis `{crisis_id, display_name, phases: [{phase: int, name, description}]}`.
     | `use_item` | `{item: instance}` | action | `cast` for a scroll or wand |
     | `move` | `{path: Array[Vector2i]}` from the combatant's tile | a tile of movement per tile | `steps` |
     | `end_turn` | | | |
+    | `equip` | `{item: instance, slot}`; with `from_slot`, a move between the weapon sets | refused in a fight | |
+    | `unequip` | `{slot}`; `item` names which ring or trinket | refused in a fight | |
 
     In a fight a request is approved only on the combatant's own turn. Outside a
-    fight nothing is spent and there is no turn to wait for: items, moves and spells
-    on oneself are free, and `attack`, `dash`, `disengage` and `dodge` are refused
-    ("Not in combat"). A `reaction` spell cannot be cast yet.
-  - **An attack is one weapon attack on a hostile, and the weapon follows the
-    target.** An adjacent target: the melee weapon in the main hand, or an unarmed
-    strike. A target beyond reach: the ranged weapon the combatant carries, when the
-    target is within the weapon's maximum range and in line of sight
-    (`CombatGrid.has_line_of_sight`). With nothing but a ranged weapon an adjacent
-    target is shot, or struck unarmed when the weapon cannot be fired. Refused, with
-    the reason: a target beyond reach and no ranged weapon; beyond the maximum
-    range; out of sight; a two-handed weapon, melee or ranged, beside a full off
-    hand. What is in the main hand never stops a shot: drawing and stowing a weapon
-    is the free object interaction, and there is no weapon-swap action. Any
-    combatant attacks this way; the weapons come from `get_melee_weapon()` and
-    `get_ranged_weapon()`.
+    fight nothing is spent and there is no turn to wait for: items, moves, spells on
+    oneself, swapping weapon sets and changing gear are free, and `attack`, `dash`,
+    `disengage` and `dodge` are refused ("Not in combat"). In a fight the only way
+    to change what is in hand is `swap_weapons`: `equip` and `unequip` are refused
+    whoever's turn it is. A `reaction` spell cannot be cast yet.
+  - **An attack is one weapon attack on a hostile, made with the weapon set in
+    hand and nothing else.** A melee weapon, or an unarmed strike, reaches an
+    adjacent target. A ranged weapon shoots a target within its maximum range and in
+    line of sight (`CombatGrid.has_line_of_sight`), an adjacent one included, at
+    disadvantage. Refused, with the reason: a target beyond reach; beyond the
+    maximum range; out of sight; a two-handed weapon beside a full off hand. When
+    the other weapon set could make the attack the refusal says so ("Out of reach -
+    swap to the Oak Light Crossbow"; for the action bar's question with no target,
+    "No enemy in reach - swap to the Oak Light Crossbow"). Attack never reaches for
+    the other set by itself. Any combatant attacks this way; the weapon comes from
+    `get_weapon()`.
   - An attack is resolved at once: the roll and the damage happen inside the
     request. A melee attack shows its floating number at once. A ranged one sends
     a `Projectile` (`scripts/projectile.gd`: drawn in code, display only, moved in
@@ -429,7 +456,7 @@ crisis `{crisis_id, display_name, phases: [{phase: int, name, description}]}`.
     the target, and the number appears when it lands. A hostile that is attacked
     from outside the fight joins it (`add_combatant`).
   - `get_attack_targets(combatant)` lists the living hostiles the combatant could
-    attack from where it stands, by weapon, reach, range and line of sight; it says
+    attack from where it stands with the set in hand, by reach, range and line of sight; it says
     nothing about the turn. `preview_attack(combatant, target)` is what attacking
     one target would be: `{ok, reason}` as `check_action` answers it, plus `target`,
     `profile`, `weapon_name`, `damage_text`, `distance` and `hit_chance` (the
@@ -438,7 +465,7 @@ crisis `{crisis_id, display_name, phases: [{phase: int, name, description}]}`.
   - **Anything that acts in a fight asks first.** `Combatant.can_act()` is true outside
     a fight and, inside one, only for the turn-holder. Never keep a second idea of
     whose turn it is (a flag, an index in a UI widget).
-  - `ACTION_BAR` lists the seven actions of the action bar in button and key order.
+  - `ACTION_BAR` lists the eight actions of the action bar in button and key order.
   - A fight starts by itself when a living hostile is within `detection_range` of the
     player; hostiles within `activation_range` join, with the whole party.
     `start_combat(participants)` starts one explicitly. `add_combatant()` brings a
@@ -468,25 +495,25 @@ crisis `{crisis_id, display_name, phases: [{phase: int, name, description}]}`.
   modifiers and incapacitation, and `scripts/combat_grid.gd` for
   `has_line_of_sight`, `get_cover_ac_bonus`, `is_flanking` and `get_distance_tiles`
   (Chebyshev). It rolls and applies; it does not know whose turn it is.
-  - `get_attack_profile(combatant, target)` is how the combatant attacks that
-    target, by 5e rules, as numbers: `{weapon, weapon_instance, weapon_name,
-    damage_dice, flat_damage, damage_bonus, damage_type, ability, ability_modifier,
-    proficient, attack_bonus, two_handed_grip, is_ranged, range_normal, range_max,
-    usable, reason}`. The piece in hand adds its own bonus, read from the item
-    instance (`Combatant.get_weapon_instance`): the higher of its craftsmanship and
-    magic bonus to the attack roll, its magic bonus to the damage. The
-    weapon follows the target (melee in reach, ranged beyond it; see the `attack`
-    request above); without a target it is the weapon in hand.
-    `get_melee_profile(combatant)` and `get_ranged_profile(combatant)` (`{}` with no
-    ranged weapon) give the two on their own, `get_unarmed_profile` the unarmed
-    strike. Strength, or Dexterity for a finesse weapon when it is the higher, and
-    always Dexterity for a ranged weapon, for the roll and the damage alike; the
-    proficiency bonus only with proficiency; the larger dice of a versatile weapon
-    when the off hand is empty; an unarmed strike (1 + Strength modifier,
-    bludgeoning, proficient) with no weapon. `range_normal` and `range_max` are
-    tiles (`get_weapon_range`). `usable` is false, with the reason, for a two-handed
-    weapon, melee or ranged, beside a full off hand. `get_damage_text(profile)` is
-    the damage as the player reads it ("1d8+2 slashing").
+  - `get_attack_profile(combatant)` is how the combatant attacks right now, with
+    the weapon set in hand, by 5e rules, as numbers: `{weapon, weapon_instance,
+    weapon_name, damage_dice, flat_damage, damage_bonus, damage_type, ability,
+    ability_modifier, proficient, attack_bonus, two_handed_grip, is_ranged,
+    range_normal, range_max, usable, reason}`. `get_set_profile(combatant,
+    set_index)` is the same for one of its sets (what a swap would give),
+    `get_unarmed_profile` the unarmed strike, `build_attack_profile(combatant,
+    weapon, set_index)` any weapon. Strength, or Dexterity for a finesse weapon
+    when it is the higher, and always Dexterity for a ranged weapon, for the roll
+    and the damage alike; the proficiency bonus only with proficiency; the larger
+    dice of a versatile weapon when the off hand of its set is empty; an unarmed
+    strike (1 + Strength modifier, bludgeoning, proficient) with no weapon. The
+    piece in hand adds its own bonus, read from the item instance
+    (`Combatant.get_weapon_instance`): the higher of its craftsmanship and magic
+    bonus to the attack roll, its magic bonus to the damage. `range_normal` and
+    `range_max` are tiles (`get_weapon_range`). `usable` is false, with the reason,
+    for a two-handed weapon beside a full off hand (equipping prevents the pairing;
+    a state forced some other way still cannot attack). `get_damage_text(profile)`
+    is the damage as the player reads it ("1d8+2 slashing").
   - `get_attack_modifiers(attacker, target, profile)` is everything that bears on
     the roll before the die is cast, and why: `{advantage, disadvantage,
     advantage_reasons, disadvantage_reasons, reasons, attack_bonus, target_ac,
@@ -514,7 +541,8 @@ crisis `{crisis_id, display_name, phases: [{phase: int, name, description}]}`.
     and opportunity attacks of the player, companions and enemies all come through
     it. `roll_attack(attacker, target, profile)` rolls without applying. Neither
     judges reach, range or sight: that is the controller's check. An opportunity
-    attack is always made with the melee weapon or an unarmed strike.
+    attack is made with the melee weapon in hand; a reactor holding a ranged weapon
+    makes an unarmed strike.
   - A dodging target gives the attacker disadvantage and makes Dexterity saves with
     advantage.
   - Reactions: an opportunity attack spends the reactor's `reaction_used`, which
@@ -538,10 +566,15 @@ crisis `{crisis_id, display_name, phases: [{phase: int, name, description}]}`.
   `Companion`, on the party team); the world spawns them on `companion_recruited` and,
   if a fight is running, adds them to it. `rejoin_party()` returns a dismissed
   companion to the party.
-- **SaveManager** writes `{version: 3, game_version, timestamp, player: {stats,
+- **SaveManager** writes `{version: 4, game_version, timestamp, player: {stats,
   position_x, position_y}, systems: {...}, world: {seed, biome, enemies, ground_items,
-  explored, companions}}`. Equipment serializes as `{character_uid: {slot:
-  instance-dict, or Array for rings and trinkets}}`. See section 1a.
+  explored, companions}}`. `systems.inventory` is `{items, gold, equipped_items:
+  {character_uid: {slot: instance-dict, or Array for rings and trinkets}},
+  weapon_sets: {character_uid: the set in hand}}`; the slots are those of section
+  2.2. `systems.features` is `{used: {character_uid: [feature ids]}}`. Migrations:
+  format 3 had one pair of hands and a `ranged` slot, whose item `_migrate_v3_to_v4`
+  moves to `main_hand_2` (set one stays in hand). Item ids written with a renamed
+  material need no migration (section 2.3). See section 1a.
 
 ## 5. UI
 
@@ -563,24 +596,23 @@ crisis `{crisis_id, display_name, phases: [{phase: int, name, description}]}`.
 - **The action bar** (`scenes/ui/action_bar.tscn`, `ui/action_bar.gd`; one
   `scenes/ui/action_button.tscn` per action) sits in the middle of the bottom bar
   (`scripts/bottomui.gd`). Its buttons follow `CombatController.ACTION_BAR`: Attack,
-  Cast, Use Item, Dash, Disengage, Dodge, End Turn, keys 1 to 7. Every frame it asks
+  Cast, Use Item, Dash, Disengage, Dodge, Swap, End Turn, keys 1 to 8. Every frame it asks
   `check_action()` for each and shows the answer: a button that cannot be used is
   disabled and carries the reason. A press, or the number key, goes to
   `combatant.choose_action(action_id)`, which asks the controller. Above the buttons
   it shows the turn resources of whoever holds the turn. A new action needs an id in
   the controller, a button in the scene and a title in the bar; the bar holds no
   rules of its own. A click on the bottom bar is not a click on the map. The Attack
-  button names what `CombatManager` says the combatant attacks with: one weapon as
-  name and damage, a melee and a ranged weapon as a line each ("Longsword 1d8+2",
-  "Light Crossbow 1d8+1"). A button that can be pressed may carry a note in the
-  reason's place (`show_action(..., note)`): Attack uses it for a ranged weapon that
-  cannot be fired.
+  button names the weapon in hand and its damage ("Longsword", "1d8+2 slashing");
+  the Swap button shows what the other weapon set holds ("Light Crossbow", "1d8+1
+  piercing", or "Longsword", "+ Shield"). Eight buttons fit between the bar's side
+  panels at 148 pixels each; a ninth would not.
 - **Aiming an attack.** Picking Attack (button or key 1) starts aiming; Esc or key 1
   again puts it away. While aiming, `GridCharacter` draws what the controller says
-  and decides nothing: the tiles in reach, the normal and maximum range of the
-  ranged weapon as outlines, a marker on every enemy in `get_attack_targets()`, and
+  and decides nothing: the tiles in reach, for a ranged weapon in hand its normal
+  and maximum range as outlines, a marker on every enemy in `get_attack_targets()`, and
   the enemy under the pointer picked out, in red when it cannot be attacked. The
-  bar's hint line says how far each weapon reaches. The readout beside the enemy
+  bar's hint line says how far the weapon in hand reaches. The readout beside the enemy
   under the pointer is a scene of its own (`scenes/ui/attack_preview.tscn`,
   `ui/attack_preview.gd`, on a CanvasLayer the world creates): it shows
   `combatant.get_aim_preview()`, which is the controller's `preview_attack()`
@@ -589,6 +621,14 @@ crisis `{crisis_id, display_name, phases: [{phase: int, name, description}]}`.
   enemy sends the `attack` request; a refusal is shown and leaves the attack
   selected while someone else can still be attacked; a click on no enemy puts the
   attack away.
+- **The character sheet** (`scripts/character_screen.gd`) shows both weapon sets, one
+  under the other, with a caption that says which is in hand and a SWAP button, and
+  under the armour class the parts it is made of. It changes nothing itself: a
+  drop on a slot sends `equip`, a drop on the pack `unequip`, a drag between the
+  same hand of the two sets `equip` with `from_slot`, the SWAP button
+  `swap_weapons`, a right-click `use_item` - all through the combatant whose sheet
+  it is. A refusal is shown as a notification. An item's tooltip names its material,
+  notches, hardness and trait.
 - After any UI change, run the screenshot tour and look at the pictures.
 
 ## 6. Art

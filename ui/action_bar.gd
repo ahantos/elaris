@@ -1,7 +1,7 @@
 # action_bar.gd
 # The action bar (scenes/ui/action_bar.tscn): what the combatant the player
 # controls can do with its turn - Attack, Cast, Use Item, Dash, Disengage,
-# Dodge, End Turn - and, above the buttons, the turn resources of whoever holds
+# Dodge, Swap, End Turn - and, above the buttons, the turn resources of whoever holds
 # the turn: movement left, and whether the action, bonus action and reaction
 # are spent.
 # Display and input only. Each button asks the CombatController whether its
@@ -17,16 +17,18 @@ const TITLES: Dictionary = {
 	CombatController.ACTION_DASH: "Dash",
 	CombatController.ACTION_DISENGAGE: "Disengage",
 	CombatController.ACTION_DODGE: "Dodge",
+	CombatController.ACTION_SWAP_WEAPONS: "Swap",
 	CombatController.ACTION_END_TURN: "End Turn",
 }
 
 const HINTS: Dictionary = {
-	CombatController.ACTION_ATTACK: "One attack with the weapon that suits the target: the melee weapon in hand on an adjacent enemy, the ranged weapon you carry on one further away. Pick it, then click a marked enemy; resting the pointer on an enemy shows the chance to hit. Takes your action.",
+	CombatController.ACTION_ATTACK: "One attack with the weapon set in hand: a melee weapon on an adjacent enemy, a ranged weapon on one in range and in sight. Pick it, then click a marked enemy; resting the pointer on an enemy shows the chance to hit. Takes your action.",
 	CombatController.ACTION_CAST: "Open the spellbook and ready a spell, then click its target. Takes the action or bonus action the spell says.",
 	CombatController.ACTION_USE_ITEM: "Open the pack and right-click a potion, scroll or wand. Takes your action in a fight.",
 	CombatController.ACTION_DASH: "Move your speed again this turn. Takes your action.",
 	CombatController.ACTION_DISENGAGE: "For the rest of the turn your movement provokes no opportunity attacks. Takes your action.",
 	CombatController.ACTION_DODGE: "Until your next turn, attacks against you have disadvantage and you make Dexterity saves with advantage. Takes your action.",
+	CombatController.ACTION_SWAP_WEAPONS: "Take your other weapon set in hand: both hands change at once, so a shield goes away with its sword. Takes your action in a fight; free outside one.",
 	CombatController.ACTION_END_TURN: "Pass the turn to the next in the initiative order. Space does the same.",
 }
 
@@ -150,40 +152,48 @@ func _detail_for(action_id: String) -> String:
 			return "Move away without\nbeing attacked"
 		CombatController.ACTION_DODGE:
 			return "Attacks against you\nat disadvantage"
+		CombatController.ACTION_SWAP_WEAPONS:
+			return _swap_detail()
 		CombatController.ACTION_END_TURN:
 			return "Space"
 	return ""
 
 func _attack_detail() -> String:
-	"""What Attack is made with. One weapon: its name, then its damage. A melee
-	weapon and a ranged one: a line each, the melee one first, as
-	'Longsword 1d8+2'."""
-	var melee: Dictionary = CombatManager.get_melee_profile(combatant)
-	var ranged: Dictionary = CombatManager.get_ranged_profile(combatant)
-	if ranged.is_empty() or melee.weapon == null:
-		var profile: Dictionary = CombatManager.get_attack_profile(combatant)
-		return "%s\n%s" % [profile.weapon_name, CombatManager.get_damage_text(profile)]
-	return "%s\n%s" % [_weapon_line(melee), _weapon_line(ranged)]
+	"""What Attack is made with: the weapon in hand, then its damage"""
+	var profile: Dictionary = CombatManager.get_attack_profile(combatant)
+	return "%s\n%s" % [_weapon_kind(profile), CombatManager.get_damage_text(profile)]
 
-func _weapon_line(profile: Dictionary) -> String:
-	"""'Light Crossbow 1d8+1': the kind of weapon and its damage, short enough
-	for one line of a button"""
+func _swap_detail() -> String:
+	"""What the other weapon set holds: its weapon, then what is in its off
+	hand or, with that hand empty, the weapon's damage"""
+	if combatant.get_weapon_set_count() < 2:
+		return "No second set"
+	var other: int = combatant.get_other_weapon_set()
+	var profile: Dictionary = CombatManager.get_set_profile(combatant, other)
+	var off_hand = combatant.get_hand_instance("off_hand", other).get("item_data")
+	if off_hand is ItemData:
+		var held: String = off_hand.weapon_type.capitalize() if off_hand.weapon_type != "" else off_hand.item_name.get_slice(" ", off_hand.item_name.get_slice_count(" ") - 1)
+		return "%s\n+ %s" % [_weapon_kind(profile), held]
+	if profile.weapon == null:
+		return "Empty hands"
+	return "%s\n%s" % [_weapon_kind(profile), CombatManager.get_damage_text(profile)]
+
+func _weapon_kind(profile: Dictionary) -> String:
+	"""'Light Crossbow': the kind of weapon, short enough for a line of a button"""
 	var weapon: ItemData = profile.weapon
-	var kind: String = weapon.weapon_type.capitalize() if weapon.weapon_type != "" else str(profile.weapon_name)
-	return "%s %s" % [kind, CombatManager.get_damage_text(profile).get_slice(" ", 0)]
+	if weapon == null or weapon.weapon_type == "":
+		return str(profile.weapon_name)
+	return weapon.weapon_type.capitalize()
 
 func _reason_for(action_id: String) -> String:
 	"""Why the action cannot be taken right now, or "" when it can"""
 	var check: Dictionary = controller.check_action(combatant, action_id)
 	return "" if check.ok else str(check.reason)
 
-func _note_for(action_id: String) -> String:
-	"""Something to know about an action that can be taken: for Attack, a
-	ranged weapon that cannot be fired as things stand"""
-	if action_id != CombatController.ACTION_ATTACK:
-		return ""
-	var ranged: Dictionary = CombatManager.get_ranged_profile(combatant)
-	return str(ranged.reason) if not ranged.is_empty() and not ranged.usable else ""
+func _note_for(_action_id: String) -> String:
+	"""Something to know about an action that can be taken. No action has a
+	note at present."""
+	return ""
 
 func _hint_text() -> String:
 	"""What the next click will do, while an attack or a spell is being aimed"""
@@ -195,17 +205,13 @@ func _hint_text() -> String:
 	return ""
 
 func _reach_text() -> String:
-	"""How far the combatant's attacks reach, in words: 'Iron Longsword on an
-	adjacent enemy, Oak Light Crossbow to 16 tiles (to 64 at disadvantage)'"""
-	var melee: Dictionary = CombatManager.get_melee_profile(combatant)
-	var ranged: Dictionary = CombatManager.get_ranged_profile(combatant)
-	var can_shoot: bool = not ranged.is_empty() and ranged.usable
-	var parts: Array[String] = []
-	if melee.weapon != null or not can_shoot:
-		parts.append("%s on an adjacent enemy" % str(melee.weapon_name))
-	if can_shoot:
-		var reach: String = "%s to %d tiles" % [str(ranged.weapon_name), int(ranged.range_normal)]
-		if int(ranged.range_max) > int(ranged.range_normal):
-			reach += " (to %d at disadvantage)" % int(ranged.range_max)
-		parts.append(reach)
-	return ", ".join(parts)
+	"""How far the weapon in hand reaches, in words: 'Wrought Iron Longsword on
+	an adjacent enemy', or 'Oak Light Crossbow to 16 tiles (to 64 at
+	disadvantage)'"""
+	var profile: Dictionary = CombatManager.get_attack_profile(combatant)
+	if not profile.is_ranged:
+		return "%s on an adjacent enemy" % str(profile.weapon_name)
+	var reach: String = "%s to %d tiles" % [str(profile.weapon_name), int(profile.range_normal)]
+	if int(profile.range_max) > int(profile.range_normal):
+		reach += " (to %d at disadvantage)" % int(profile.range_max)
+	return reach

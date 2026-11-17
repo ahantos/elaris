@@ -31,7 +31,10 @@ const AUTOSAVE_SLOT: int = 100
 #   1: flat prototype payload (position, HP, gold)
 #   2: player stats + every system manager
 #   3: + world (dungeon seed and biome, enemies, ground loot, explored map, companions)
-const SAVE_FORMAT_VERSION: int = 3
+#   4: + two weapon sets (the item of the old "ranged" slot is in set two's main
+#        hand; systems.inventory.weapon_sets says which set is in hand)
+#      + systems.features (what has been used since the last long rest)
+const SAVE_FORMAT_VERSION: int = 4
 
 # from_dict() application order. ORDER MATTERS:
 # - factions/zones/world_events/quests/crafting/companions are independent
@@ -39,11 +42,12 @@ const SAVE_FORMAT_VERSION: int = 3
 #   faction-gated quest logic sees final reputations).
 # - spells next: resolves the "player" uid through GameManager.player.stats,
 #   which must already carry its restored class_id/level.
+# - features: resolves the "player" uid the same way.
 # - inventory LAST: its equipment resolution needs the final CharacterStats
 #   and ends by recalculating equipment bonuses on top of the restored stats.
 const SYSTEM_LOAD_ORDER: Array = [
 	"factions", "zones", "world_events", "quests",
-	"crafting", "companions", "spells", "inventory"
+	"crafting", "companions", "spells", "features", "inventory"
 ]
 
 func _ready():
@@ -195,6 +199,8 @@ func _migrate(save_data: Dictionary) -> Dictionary:
 		data = _migrate_v1_to_v2(data)
 	if version < 3:
 		data = _migrate_v2_to_v3(data)
+	if version < 4:
+		data = _migrate_v3_to_v4(data)
 	data["version"] = SAVE_FORMAT_VERSION
 	data["migrated_from"] = version
 	return data
@@ -221,6 +227,31 @@ func _migrate_v2_to_v3(data: Dictionary) -> Dictionary:
 	new dungeon and puts the player at its entrance."""
 	if not data.has("world"):
 		data["world"] = {}
+	return data
+
+func _migrate_v3_to_v4(data: Dictionary) -> Dictionary:
+	"""v4 gave every character two weapon sets and dropped the separate ranged
+	slot. A ranged weapon carried in that slot becomes the main hand of set two;
+	set one, with what was in the hands, stays the set in hand. v4 also added
+	what each character has used of its once-a-rest features: nothing, in a
+	save from before there were any."""
+	var systems = data.get("systems")
+	if not (systems is Dictionary):
+		return data
+	var inventory = systems.get("inventory")
+	if inventory is Dictionary:
+		var equipped = inventory.get("equipped_items")
+		if equipped is Dictionary:
+			for uid in equipped:
+				var slots = equipped[uid]
+				if slots is Dictionary and slots.has("ranged"):
+					if not slots.has("main_hand_2"):
+						slots["main_hand_2"] = slots["ranged"]
+					slots.erase("ranged")
+		if not inventory.has("weapon_sets"):
+			inventory["weapon_sets"] = {}
+	if not systems.has("features"):
+		systems["features"] = {"used": {}}
 	return data
 
 # === SLOT MANAGEMENT ===
@@ -300,6 +331,7 @@ func _get_system_managers() -> Dictionary:
 	return {
 		"inventory": InventoryManager,
 		"spells": SpellManager,
+		"features": FeatureManager,
 		"crafting": CraftingManager,
 		"quests": QuestManager,
 		"factions": FactionManager,

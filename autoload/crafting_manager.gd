@@ -114,7 +114,7 @@ func can_craft(recipe_id: String) -> Dictionary:
 		var player: Node = _get_player()
 		var equipped: Dictionary = {}
 		if player and player.get("stats") and player.stats:
-			equipped = InventoryManager.get_equipped_item(player.stats, slot)
+			equipped = _enchant_target(player.stats, slot)
 		if equipped.is_empty():
 			result.missing.append({
 				"item_id": "",
@@ -222,7 +222,7 @@ func _execute_enchant(recipe: Dictionary) -> Dictionary:
 		push_error("Crafting: enchant — no player stats available")
 		return {}
 
-	var equipped: Dictionary = InventoryManager.get_equipped_item(player.stats, slot)
+	var equipped: Dictionary = _enchant_target(player.stats, slot)
 	if equipped.is_empty():
 		push_error("Crafting: enchant — nothing equipped in '%s'" % slot)
 		return {}
@@ -328,6 +328,13 @@ func repair_item(item_instance: Dictionary) -> bool:
 # ---------------------------------------------------------------------------
 #  PRIVATE HELPERS
 # ---------------------------------------------------------------------------
+
+func _enchant_target(stats, slot: String) -> Dictionary:
+	"""The item an enchant recipe works on: what is worn in the slot, or for a
+	hand what the weapon set in hand holds there"""
+	if slot in InventoryManager.HANDS:
+		return InventoryManager.get_hand_item(stats, slot)
+	return InventoryManager.get_equipped_item(stats, slot)
 
 func _get_player() -> Node:
 	"""GameManager.player, or null before the world has spawned one.

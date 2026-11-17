@@ -1,5 +1,9 @@
 # character_screen.gd
-# Full-screen character + inventory UI for a single character
+# Full-screen character + inventory UI for a single character.
+# The sheet shows and asks: every change of gear - equipping, unequipping,
+# moving a weapon between the two weapon sets, swapping the sets - and every
+# item used is a request to the CombatController, made through the character's
+# combatant (_request). In a fight the controller refuses changes of gear.
 extends Control
 class_name CharacterScreen
 
@@ -11,8 +15,10 @@ var equipment_panel: Panel
 var stats_panel: Panel
 var inventory_panel: Panel
 
-# Equipment slot buttons (14 slots total)
+# Equipment slot buttons, by equipment slot id (the two weapon sets included)
 var slot_buttons: Dictionary = {}
+# The caption over each weapon set, by set number: it says which is in hand
+var weapon_set_captions: Dictionary = {}
 
 # Expandable accessory panels
 var rings_panel: Panel
@@ -182,10 +188,12 @@ func create_equipment_panel() -> Panel:
 		["rings", "RINGS ▼", right_x, start_y + spacing * 4],      # Expandable
 		["trinkets", "TRINKETS ▼", right_x, start_y + spacing * 5], # Expandable
 		
-		# Bottom center: weapons and ranged below character model
-		["main_hand", "MAIN\nHAND", 150, 500],  # User's posted values
-		["off_hand", "OFF\nHAND", 250, 500],
-		["ranged", "RANGED", 200, 570],  # Centered below weapons
+		# Bottom centre, below the character model: the two weapon sets, one
+		# under the other, each a main hand and an off hand
+		["main_hand", "MAIN", 150, 494],
+		["off_hand", "OFF", 250, 494],
+		["main_hand_2", "MAIN", 150, 610],
+		["off_hand_2", "OFF", 250, 610],
 	]
 	
 	for slot_data in slot_positions:
@@ -195,7 +203,27 @@ func create_equipment_panel() -> Panel:
 		var y = slot_data[3]
 		
 		create_positioned_equipment_slot(paper_doll, slot_id, label_text, x, y)
-	
+
+	# A caption over each weapon set, and the button that swaps them
+	for set_index in range(1, InventoryManager.WEAPON_SET_COUNT + 1):
+		var caption = Label.new()
+		caption.name = "WeaponSet%dCaption" % set_index
+		caption.position = Vector2(100, 437 + (set_index - 1) * 115)
+		caption.size = Vector2(200, 0)
+		caption.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+		caption.add_theme_font_size_override("font_size", 11)
+		paper_doll.add_child(caption)
+		weapon_set_captions[set_index] = caption
+	var swap_button = Button.new()
+	swap_button.name = "SwapWeaponsButton"
+	swap_button.text = "SWAP"
+	swap_button.tooltip_text = "Take the other weapon set in hand. In a fight this is your action."
+	swap_button.add_theme_font_size_override("font_size", 10)
+	swap_button.size = Vector2(44, 28)
+	swap_button.position = Vector2(283, 538)
+	swap_button.pressed.connect(_on_swap_weapons_pressed)
+	paper_doll.add_child(swap_button)
+
 	return panel
 
 func create_positioned_equipment_slot(parent: Control, slot_id: String, label_text: String, x: int, y: int):
@@ -741,6 +769,13 @@ func refresh_equipment():
 			# Normal single-item slots: icon, or the name when there is none
 			_show_slot_item(button, InventoryManager.get_equipped_item(current_character, slot_id))
 
+	# Which weapon set is in hand
+	var in_hand: int = InventoryManager.get_weapon_set(current_character)
+	for set_index in weapon_set_captions:
+		var caption: Label = weapon_set_captions[set_index]
+		caption.text = "WEAPON SET %d - IN HAND" % set_index if set_index == in_hand else "WEAPON SET %d" % set_index
+		caption.add_theme_color_override("font_color", Color(0.85, 0.75, 0.4) if set_index == in_hand else Color(0.6, 0.6, 0.65))
+
 func refresh_inventory():
 	"""Update inventory grid"""
 	# Clear all slots
@@ -818,6 +853,23 @@ func _use_inventory_item(index: int):
 	elif str(result.get("reason", "")) != "":
 		EventBus.ui_notification.emit(str(result.get("reason", "")), "warning")
 
+func _request(action_id: String, params: Dictionary = {}) -> bool:
+	"""Ask the CombatController, through the combatant whose sheet this is, for
+	a change of gear. The sheet changes nothing itself. A refusal is shown with
+	its reason; true when the request was approved."""
+	var user = _find_combatant(current_character)
+	if user == null:
+		return false
+	var result: Dictionary = user.request_action(action_id, params)
+	if not result.get("ok", false) and str(result.get("reason", "")) != "":
+		EventBus.ui_notification.emit(str(result.get("reason", "")), "warning")
+	return result.get("ok", false)
+
+func _on_swap_weapons_pressed():
+	"""The SWAP button: take the other weapon set in hand"""
+	_request(CombatController.ACTION_SWAP_WEAPONS)
+	refresh_all()
+
 func _find_combatant(character: CharacterStats) -> Combatant:
 	"""The combatant in the world these stats belong to, or null"""
 	var world = GameManager.world
@@ -889,67 +941,37 @@ func update_drag_preview_position():
 		drag_preview.global_position = get_global_mouse_position() - Vector2(SLOT_SIZE / 2, SLOT_SIZE / 2)
 
 func end_drag_on_equipment(target_slot_id: String):
-	"""Handle dropping item onto equipment slot"""
+	"""An item was dropped on an equipment slot: ask to equip it there. From
+	the pack it is equipped; from the same hand of the other weapon set it is
+	moved, and what was there changes places with it."""
 	if not is_dragging or dragging_item.is_empty():
 		return
-	
+
 	var item_data: ItemData = dragging_item.item_data
-	
-	# Check if item can be equipped in this slot
-	if item_data.equip_slot != target_slot_id:
+	if item_data.equip_slot != InventoryManager.hand_of_slot(target_slot_id):
 		print("Cannot equip ", item_data.item_name, " in ", target_slot_id, " slot")
 		cancel_drag()
 		return
-	
-	# Handle different source types
+
 	if drag_source_type == "equipment":
-		# Swapping between equipment slots
-		var source_slot = drag_source_id
-		if source_slot != target_slot_id:
-			# Swap items between slots
-			var target_item = InventoryManager.get_equipped_item(current_character, target_slot_id)
-			
-			if not target_item.is_empty():
-				# Both slots have items - swap them
-				InventoryManager.unequip_item(current_character, target_slot_id)
-				InventoryManager.unequip_item(current_character, source_slot)
-				InventoryManager.equip_item(target_item, current_character, source_slot)
-				InventoryManager.equip_item(dragging_item, current_character, target_slot_id)
-			else:
-				# Target slot empty - just move
-				InventoryManager.unequip_item(current_character, source_slot)
-				InventoryManager.equip_item(dragging_item, current_character, target_slot_id)
-			
-			print("Moved ", item_data.item_name, " from ", source_slot, " to ", target_slot_id)
-	
+		if drag_source_id != target_slot_id:
+			_request(CombatController.ACTION_EQUIP, {"item": dragging_item, "slot": target_slot_id, "from_slot": drag_source_id})
 	elif drag_source_type == "inventory":
-		# Equipping from inventory (can fail: occupied slot + full inventory)
-		if InventoryManager.equip_item(dragging_item, current_character, target_slot_id):
-			print("Equipped ", item_data.item_name, " to ", target_slot_id)
-		else:
-			print("Could not equip ", item_data.item_name, " to ", target_slot_id)
+		_request(CombatController.ACTION_EQUIP, {"item": dragging_item, "slot": target_slot_id})
 
 	cancel_drag()
 
-func end_drag_on_inventory(target_index: int):
-	"""Handle dropping item onto inventory slot"""
+func end_drag_on_inventory(_target_index: int):
+	"""An item was dropped on the pack: from an equipment slot, ask to unequip it"""
 	if not is_dragging or dragging_item.is_empty():
 		return
-	
-	# Handle different source types
+
 	if drag_source_type == "equipment":
-		# Unequipping to inventory (can fail: item doesn't fit in inventory)
-		var source_slot = drag_source_id
-		var unequipped = InventoryManager.unequip_item(current_character, source_slot)
-		if unequipped.is_empty():
-			print("Could not unequip ", dragging_item.item_data.item_name, " (inventory full?)")
-		else:
-			print("Unequipped ", dragging_item.item_data.item_name, " to inventory")
-	
+		_request(CombatController.ACTION_UNEQUIP, {"slot": drag_source_id})
 	elif drag_source_type == "inventory":
 		# Reordering inventory (TODO: implement inventory reordering)
 		print("Inventory reordering not yet implemented")
-	
+
 	cancel_drag()
 
 func cancel_drag():
@@ -1147,7 +1169,7 @@ func _refresh_accessory_panel(panel: Panel, slot_type: String, items_array: Arra
 			unequip_btn.text = "✕"
 			unequip_btn.custom_minimum_size = Vector2(40, 40)
 			unequip_btn.pressed.connect(func():
-				InventoryManager.unequip_item(current_character, slot_type, item)
+				_request(CombatController.ACTION_UNEQUIP, {"slot": slot_type, "item": item})
 				refresh_equipment()
 				_refresh_accessory_panel(panel, slot_type, 
 					equipped_rings if slot_type == "rings" else equipped_trinkets)

@@ -214,7 +214,7 @@ func _grant_starting_kit():
 	var kit_class = player.stats.class_id if player.stats.class_id != "" else "fighter"
 	for instance in ItemDatabase.get_starting_kit(kit_class):
 		InventoryManager.add_item(instance)
-	# Wear the kit: an unequipped fighter starts at AC 11 instead of 17
+	# Wear the kit: an unequipped fighter starts at AC 11 instead of 18
 	var worn = InventoryManager.auto_equip_from_inventory(player.stats)
 	print("World: starting kit granted (", kit_class, "), ", worn, " items equipped")
 

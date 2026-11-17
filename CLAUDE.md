@@ -38,7 +38,7 @@ a system as working because its manager runs; check that a player can reach it.
 - Per-script `--check-only` false-positives on autoload names. Do not use it.
 
 ## Architecture
-- 22 autoload singletons, listed in `project.godot` (databases, then managers, then
+- 23 autoload singletons, listed in `project.godot` (databases, then managers, then
   UIManager). `EventBus` carries all cross-system signals.
 - Three scenes: `scenes/main_menu.tscn` (main scene), `scenes/character_creation_screen.tscn`,
   `scenes/world.tscn`. `GameManager` owns the transitions and `reset_game_state()`;
@@ -51,9 +51,9 @@ a system as working because its manager runs; check that a player can reach it.
   is read-only and comes from the controller.
 - `scripts/combatant.gd` - `Combatant`, the base of every creature that fights: tile
   and grid conversion, stats, team, `is_hostile_to()`, `is_alive()`, `can_act()`,
-  the resources of a turn (movement, action, bonus action, reaction), the melee
-  weapon in hand and the ranged weapon carried, walkability, the one A* pathfinder
-  (`find_path`), HP bar and damage flash. `scripts/grid_character.gd` (player:
+  the resources of a turn (movement, action, bonus action, reaction), its two
+  weapon sets and which is in hand, what it resists, is vulnerable and immune to,
+  walkability, the one A* pathfinder (`find_path`), HP bar and damage flash. `scripts/grid_character.gd` (player:
   input, path preview, the markers of an aimed attack), `scripts/enemy.gd` (enemy
   AI) and `scripts/companion.gd` (follow, ally AI) extend it. Hostility is by team,
   never by "is it in `world.enemies`".
@@ -61,19 +61,27 @@ a system as working because its manager runs; check that a player can reach it.
   authority for whose turn it is and what is done with it: starts a fight when a
   hostile is near the player, rolls initiative for every combatant in it (companions
   included), hands out turns and their resources, counts rounds, ends the fight when
-  one side is left. Attack, Cast, Use Item, Dash, Disengage, Dodge, a move and End
-  Turn are all `request_action(combatant, action_id, params)`: it checks the turn
-  and the cost, applies the action and returns the result. Player input, enemy AI
-  and companion AI all act through it. One Attack covers melee and ranged: the
-  weapon follows the target, and the controller checks reach, range and line of
-  sight. `get_attack_targets()` and `preview_attack()` tell the HUD who can be
-  attacked and what an attack would be. See contracts section 4.
-- `autoload/combat_manager.gd` - every die: `get_attack_profile()` (the weapon for a
-  target by 5e rules: melee in reach, ranged beyond; ability, proficiency,
-  versatile, unarmed), `get_attack_modifiers()` (advantage, disadvantage and cover,
+  one side is left. Attack, Cast, Use Item, Dash, Disengage, Dodge, Swap, a move
+  and End Turn are all `request_action(combatant, action_id, params)`: it checks
+  the turn and the cost, applies the action and returns the result. So are changes
+  of gear (`equip`, `unequip`), which it refuses in a fight. Player input, enemy AI,
+  companion AI and the character sheet all act through it. Attack uses the weapon
+  set in hand and nothing else: a melee weapon in reach, a ranged weapon in range
+  and in sight; the other set takes a Swap. `get_attack_targets()` and
+  `preview_attack()` tell the HUD who can be attacked and what an attack would be.
+  See contracts section 4.
+- `autoload/combat_manager.gd` - every die: `get_attack_profile()` (the attack with
+  the weapon set in hand by 5e rules: ability, proficiency, versatile, unarmed, the
+  piece's own bonus), `get_attack_modifiers()` (advantage, disadvantage and cover,
   with the reasons), `get_hit_chance()` (the exact chance, nothing rolled),
-  `make_attack()` (the one weapon attack, for everyone), saving throws,
-  opportunity attacks.
+  `make_attack()` (the one weapon attack, for everyone), `make_spell_attack()`,
+  saving throws, opportunity attacks. And the one damage pipeline, `deal_damage()`:
+  immunity, resistance, vulnerability, and four hooks on `EventBus` that other
+  systems listen to and may change (`attack_resolved`, `damage_incoming`,
+  `damage_applied`, `dropping_to_zero`). See contracts section 2.4.
+- `autoload/feature_manager.gd` - racial traits and class features that act through
+  those hooks, and what each character has used since its last long rest. The
+  first is the half-orc's Relentless Endurance.
 - `scripts/projectile.gd` - the arrow a ranged attack shows on its way. Display only.
 - `scripts/initiativetracker.gd`, `scripts/turn_ui.gd` - display only; they show what
   the controller says and keep no turn state of their own.
@@ -86,7 +94,8 @@ a system as working because its manager runs; check that a player can reach it.
 - `ui/*.gd` - panels built in code and registered with `UIManager`, which owns
   exclusivity and pausing. `ui/notification_toasts.gd` draws `EventBus.ui_notification`.
 - `scripts/character_screen.gd`, `scripts/save_load_menu.gd` - older screens with their
-  own pause handling.
+  own pause handling. The character sheet shows both weapon sets and how the armour
+  class is made up; every change of gear on it is a request to the controller.
 - `ui/main_menu.gd`, `ui/pause_menu.gd`, `ui/game_over.gd`, `ui/settings_panel.gd` -
   newer screens: scenes laid out with containers, styled by `ui/theme/elaris_theme.tres`.
   Build new UI this way.
@@ -104,13 +113,25 @@ a system as working because its manager runs; check that a player can reach it.
   read them through `CombatManager.get_weapon_range()`.
 - Anything the game gives the player goes through `InventoryManager.add_item_or_drop()`.
 - Item instances are Dictionaries wrapping an `ItemData` Resource. `Object.get()` takes
-  one argument; a default value on a Resource is a script error.
+  one argument; a default value on a Resource is a script error. A piece's own
+  bonuses (`quality_modifier`, `magic_modifier`) are on the instance: read them
+  there (`ItemDatabase.get_instance_bonus`), never on the `ItemData` template.
+- A material sets how an item wears, what it costs and a trait. It never changes
+  damage, armour class or weight. Armour class comes from body armour, Dexterity as
+  the armour allows, the shield and bonuses; no other slot gives any, the helmet
+  included (contracts 2.3a and 2.3b).
+- All damage goes through `CombatManager.deal_damage()`. Nothing else takes hit
+  points away, so resistances and the hooks always apply.
+- Content names items by the id the database knows them by. An id with a renamed
+  material (`iron_longsword`) still loads from a save, but the content validator
+  fails on it, and on any item made of a material that cannot be obtained yet.
 - Save payloads are primitives only; items rebuild from ids.
 - Combat timers are pause-bound: `create_timer(t, false)`. Check `is_instance_valid`
   after every await.
 - Nothing is done with a turn except through `CombatController.request_action()`.
   Input, UI and AI code ask; they do not roll dice (CombatManager does), spend an
-  action or move a combatant themselves. A button asks `check_action()` whether it is
+  action or move a combatant themselves. Gear is the same: swapping weapon sets,
+  equipping and unequipping are requests, and in a fight only the swap is allowed. A button asks `check_action()` whether it is
   available. Ask who controls a combatant (`is_player_controlled()`), never whether
   it is "the player".
 - The node name "World" is load-bearing (cached lookups).
@@ -127,13 +148,14 @@ a system as working because its manager runs; check that a player can reach it.
 | Key | Action |
 |---|---|
 | WASD / click | Move. Ctrl+click adds waypoints, right-click cancels |
-| 1 | Attack, then click a marked enemy: the melee weapon on an adjacent one, the ranged weapon on one further away. Resting the pointer on an enemy shows the chance to hit (1 again puts it away) |
+| 1 | Attack with the weapon set in hand, then click a marked enemy: a melee weapon reaches an adjacent one, a ranged weapon one in range and in sight. Resting the pointer on an enemy shows the chance to hit and whether it resists the damage (1 again puts it away) |
 | 2 | Cast: opens the spellbook; ready a spell, then click its target |
 | 3 | Use Item: opens the character sheet; right-click a potion, scroll or wand |
 | 4 / 5 / 6 | Dash / Disengage / Dodge |
-| 7 or Space | End turn |
+| 7 | Swap weapon sets: the action in a fight, free outside one |
+| 8 or Space | End turn |
 | T | Toggle turn mode outside combat |
-| I | Character sheet (drag to equip, right-click to use) |
+| I | Character sheet (drag to equip or to move a weapon between the two sets, SWAP to change the set in hand, right-click to use). Gear cannot be changed in a fight, only swapped |
 | B / C / J / O / P | Spellbook / crafting / quest log / world map / companions |
 | F5 / F6 | Save / load |
 | F7 / F8 | Short / long rest |

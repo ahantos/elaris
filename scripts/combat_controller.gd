@@ -6,9 +6,10 @@
 # action, reaction), counts rounds, and ends the fight. Whatever a combatant
 # wants to do - attack, move, dash, cast, use an item, end its turn - it asks
 # for through request_action(); the controller checks the turn and the
-# resources, applies the action and reports the result. Player input, enemy AI
-# and companion AI all come in that way. The HUD (turn banner, initiative bar,
-# action bar) only shows what the controller says.
+# resources, applies the action and reports the result. That includes what it
+# holds: swapping weapon sets, and equipping and unequipping outside a fight.
+# Player input, enemy AI and companion AI all come in that way. The HUD (turn
+# banner, initiative bar, action bar) only shows what the controller says.
 extends Node
 class_name CombatController
 
@@ -27,13 +28,19 @@ const ACTION_USE_ITEM := "use_item"
 const ACTION_DASH := "dash"
 const ACTION_DISENGAGE := "disengage"
 const ACTION_DODGE := "dodge"
+const ACTION_SWAP_WEAPONS := "swap_weapons"
 const ACTION_END_TURN := "end_turn"
 const ACTION_MOVE := "move"
+const ACTION_EQUIP := "equip"
+const ACTION_UNEQUIP := "unequip"
 
-# The action bar, in the order of its buttons and number keys (1 to 7)
+# The action bar, in the order of its buttons and number keys (1 to 8)
 const ACTION_BAR: Array[String] = [
-	ACTION_ATTACK, ACTION_CAST, ACTION_USE_ITEM, ACTION_DASH, ACTION_DISENGAGE, ACTION_DODGE, ACTION_END_TURN,
+	ACTION_ATTACK, ACTION_CAST, ACTION_USE_ITEM, ACTION_DASH, ACTION_DISENGAGE, ACTION_DODGE, ACTION_SWAP_WEAPONS, ACTION_END_TURN,
 ]
+
+# Why gear cannot be changed in a fight
+const REASON_GEAR_IN_FIGHT := "Gear cannot be changed in a fight - swap weapon sets instead"
 
 # Tiles, straight line. A fight starts when a hostile is within detection_range
 # of the player; hostiles within activation_range are pulled into it.
@@ -346,11 +353,12 @@ func _remove_at(index: int):
 #
 # request_action(combatant, action_id, params) -> {ok, action, reason, ...}
 #
-#   attack     {target: Combatant}      one attack on a hostile: with the melee
-#                                       weapon in hand when it is adjacent, with
-#                                       the ranged weapon carried when it is
-#                                       further off, in range and in sight.
-#                                       Costs the action.
+#   attack     {target: Combatant}      one attack on a hostile with the weapon
+#                                       set in hand: a melee weapon on a target
+#                                       in reach, a ranged weapon on one in
+#                                       range and in sight. Costs the action.
+#   swap_weapons {}                     take the other weapon set in hand. Costs
+#                                       the action in a fight; free outside one.
 #   dash       {}                       adds the combatant's speed to this turn's
 #                                       movement. Costs the action.
 #   disengage  {}                       its movement provokes no opportunity
@@ -366,11 +374,19 @@ func _remove_at(index: int):
 #   move       {path: Array[Vector2i]}  walk the tiles, from the combatant's own.
 #                                       Costs a tile of movement for each.
 #   end_turn   {}
+#   equip      {item: instance, slot}   put an item from the pack in an equipment
+#              (+ from_slot)            slot; with from_slot, move a weapon or
+#                                       shield between the weapon sets instead.
+#                                       Refused in a fight.
+#   unequip    {slot} (+ item)          back to the pack; item names which ring
+#                                       or trinket. Refused in a fight.
 #
 # In a fight a request is approved only on the combatant's own turn, and the
 # action, bonus action and movement it costs must still be there. Outside a
 # fight nothing is spent and there is no turn to wait for; Attack, Dash,
 # Disengage and Dodge are then refused, as there is no turn to take them in.
+# Gear is the other way round: in a fight the only way to change what is in
+# hand is swap_weapons, and equip and unequip are refused.
 
 func check_action(combatant, action_id: String, params: Dictionary = {}) -> Dictionary:
 	"""Would request_action() be approved right now? Returns {ok, reason} and
@@ -378,11 +394,19 @@ func check_action(combatant, action_id: String, params: Dictionary = {}) -> Dict
 	action bar's question: is this action available at all?"""
 	if not _is_fit(combatant):
 		return _refuse("Cannot act")
+	if active and action_id in [ACTION_EQUIP, ACTION_UNEQUIP]:
+		return _refuse(REASON_GEAR_IN_FIGHT, true)
 	if active and not is_turn_of(combatant):
 		return _refuse("Not your turn")
 	match action_id:
 		ACTION_ATTACK:
 			return _check_attack(combatant, params)
+		ACTION_SWAP_WEAPONS:
+			return _check_swap(combatant)
+		ACTION_EQUIP:
+			return _check_equip(combatant, params)
+		ACTION_UNEQUIP:
+			return _check_unequip(combatant, params)
 		ACTION_DASH, ACTION_DISENGAGE, ACTION_DODGE:
 			return _check_fight_action(combatant)
 		ACTION_CAST:
@@ -424,6 +448,16 @@ func request_action(combatant, action_id: String, params: Dictionary = {}) -> Di
 			combatant.action_used = true
 			combatant.dodging = true
 			print("%s dodges" % combatant.name)
+		ACTION_SWAP_WEAPONS:
+			if active:
+				combatant.action_used = true
+			result["weapon_set"] = combatant.swap_weapon_set()
+			result["weapon_name"] = str(CombatManager.get_attack_profile(combatant).weapon_name)
+			print("%s swaps to weapon set %d (%s)" % [combatant.name, int(result.weapon_set), str(result.weapon_name)])
+		ACTION_EQUIP:
+			_apply_equip(combatant, params, result)
+		ACTION_UNEQUIP:
+			_apply_unequip(combatant, params, result)
 		ACTION_CAST:
 			_apply_cast(combatant, params, result)
 		ACTION_USE_ITEM:
@@ -443,10 +477,10 @@ func request_action(combatant, action_id: String, params: Dictionary = {}) -> Di
 	return result
 
 func get_attack_targets(combatant) -> Array[Combatant]:
-	"""The living hostiles the combatant could attack from where it stands: next
-	to it, or within the range of its ranged weapon and in its line of sight.
-	About position and weapons only; whether it has the turn and the action is
-	check_action's to say."""
+	"""The living hostiles the combatant could attack from where it stands with
+	the weapon set in hand: in reach of a melee weapon, or within the range of a
+	ranged one and in its line of sight. About position and weapons only;
+	whether it has the turn and the action is check_action's to say."""
 	var targets: Array[Combatant] = []
 	if not _is_fit(combatant):
 		return targets
@@ -467,7 +501,7 @@ func preview_attack(combatant, target) -> Dictionary:
 	var preview: Dictionary = check_action(combatant, ACTION_ATTACK, {"target": target})
 	if not _is_fit(combatant) or not _is_fit(target):
 		return preview
-	var profile: Dictionary = CombatManager.get_attack_profile(combatant, target)
+	var profile: Dictionary = CombatManager.get_attack_profile(combatant)
 	preview["target"] = target
 	preview["profile"] = profile
 	preview["weapon_name"] = str(profile.weapon_name)
@@ -512,24 +546,35 @@ func _check_attack(combatant, params: Dictionary) -> Dictionary:
 	# No target named: is there anyone this combatant could attack right now?
 	if not get_attack_targets(combatant).is_empty():
 		return _approve()
-	var melee: Dictionary = CombatManager.get_melee_profile(combatant)
-	if not melee.usable:
-		return _refuse(str(melee.reason))
-	var ranged: Dictionary = CombatManager.get_ranged_profile(combatant)
-	if ranged.is_empty():
-		return _refuse("No enemy in reach")
-	if not ranged.usable:
-		return _refuse(str(ranged.reason))
-	return _refuse("No enemy in range and in sight")
+	var profile: Dictionary = CombatManager.get_attack_profile(combatant)
+	if not profile.usable:
+		return _refuse(str(profile.reason))
+	var nobody: String = "No enemy in range and in sight" if profile.is_ranged else "No enemy in reach"
+	for hostile in combatant.get_hostiles():
+		var swap: String = _swap_advice(combatant, hostile)
+		if swap != "":
+			return _refuse("%s - %s" % [nobody, swap])
+	return _refuse(nobody)
 
 func _check_attack_target(combatant, target) -> Dictionary:
-	"""Can the combatant attack this target from where it stands? A hostile, and
-	either next to it (the melee weapon, or an unarmed strike) or within the
-	maximum range of the ranged weapon it carries and in its line of sight.
-	Says nothing about the turn or the action."""
+	"""Can the combatant attack this target from where it stands, with the
+	weapon set it has in hand? A hostile, and in reach of a melee weapon (or an
+	unarmed strike), or within the maximum range of a ranged weapon and in its
+	line of sight. A refusal says what would help when the other weapon set
+	could do it ("Out of reach - swap to the Oak Light Crossbow"). Says nothing
+	about the turn or the action."""
 	if not _is_fit(target) or not combatant.is_hostile_to(target):
 		return _refuse("Not an enemy")
-	var profile: Dictionary = CombatManager.get_attack_profile(combatant, target)
+	var check: Dictionary = _check_attack_with(combatant, target, CombatManager.get_attack_profile(combatant))
+	if not check.ok:
+		var swap: String = _swap_advice(combatant, target)
+		if swap != "":
+			check["reason"] = "%s - %s" % [str(check.reason).get_slice(" - ", 0), swap]
+	return check
+
+func _check_attack_with(combatant, target, profile: Dictionary) -> Dictionary:
+	"""Could an attack with this profile be made on the target from where the
+	combatant stands: usable, and in reach, or in range and in sight?"""
 	var from: Vector2i = combatant.get_grid_position()
 	var to: Vector2i = target.get_grid_position()
 	var distance: int = CombatGrid.get_distance_tiles(from, to)
@@ -544,6 +589,55 @@ func _check_attack_target(combatant, target) -> Dictionary:
 	var grid: Array = _dungeon_grid()
 	if not grid.is_empty() and not CombatGrid.has_line_of_sight(from, to, grid):
 		return _refuse("No line of sight")
+	return _approve()
+
+func _swap_advice(combatant, target) -> String:
+	"""'swap to the Oak Light Crossbow' when the combatant's other weapon set
+	could attack the target from here; "" when it could not, or there is none"""
+	if combatant.get_weapon_set_count() < 2:
+		return ""
+	var other: Dictionary = CombatManager.get_set_profile(combatant, combatant.get_other_weapon_set())
+	if other.weapon == null or not _check_attack_with(combatant, target, other).ok:
+		return ""
+	return "swap to the %s" % str(other.weapon_name)
+
+func _check_swap(combatant) -> Dictionary:
+	"""Taking the other weapon set in hand: the action in a fight, free outside one"""
+	if combatant.get_weapon_set_count() < 2:
+		return _refuse("No second weapon set", true)
+	if combatant.is_weapon_set_empty(1) and combatant.is_weapon_set_empty(2):
+		return _refuse("Both weapon sets are empty", true)
+	if StatusEffectManager.is_incapacitated(combatant):
+		return _refuse("Incapacitated")
+	if active:
+		if combatant.is_moving:
+			return _refuse("Still moving")
+		if combatant.action_used:
+			return _refuse("Action spent")
+	return _approve()
+
+func _check_equip(combatant, params: Dictionary) -> Dictionary:
+	"""Outside a fight: does the item belong in the slot? (In a fight the
+	request never gets this far.)"""
+	var item = params.get("item")
+	var slot: String = str(params.get("slot", ""))
+	if not (item is Dictionary) or not (item.get("item_data") is ItemData) or slot == "":
+		return _refuse("Nothing to equip", true)
+	var from_slot: String = str(params.get("from_slot", ""))
+	var refusal: String = ""
+	if from_slot != "":
+		refusal = InventoryManager.get_move_refusal(combatant.stats, from_slot, slot)
+	elif InventoryManager.get_item(str(item.get("instance_id", ""))).is_empty():
+		refusal = "That is not in the pack"
+	else:
+		refusal = InventoryManager.get_equip_refusal(item, combatant.stats, slot)
+	return _approve() if refusal == "" else _refuse(refusal, true)
+
+func _check_unequip(combatant, params: Dictionary) -> Dictionary:
+	var slot: String = str(params.get("slot", ""))
+	var held = InventoryManager.equipped_items.get(combatant.stats, {}).get(slot)
+	if held == null or (held is Array and not held.has(params.get("item"))):
+		return _refuse("Nothing is equipped there", true)
 	return _approve()
 
 func _check_cast(combatant, params: Dictionary) -> Dictionary:
@@ -663,8 +757,8 @@ func _check_end_turn(combatant) -> Dictionary:
 # --- applying an approved request ---
 
 func _apply_attack(combatant, params: Dictionary, result: Dictionary):
-	"""Spend the action and resolve the attack at once, with the weapon that
-	suits the target: the roll and the damage. The number over the target's
+	"""Spend the action and resolve the attack at once, with the weapon set in
+	hand: the roll and the damage. The number over the target's
 	head follows at once for a melee attack, and when the projectile lands for
 	a ranged one."""
 	if not params.has("target"):
@@ -673,7 +767,7 @@ func _apply_attack(combatant, params: Dictionary, result: Dictionary):
 		return
 	var target = params["target"]
 	combatant.action_used = true
-	var attack: Dictionary = CombatManager.make_attack(combatant, target, CombatManager.get_attack_profile(combatant, target))
+	var attack: Dictionary = CombatManager.make_attack(combatant, target, CombatManager.get_attack_profile(combatant))
 	if attack.is_empty():
 		result["ok"] = false
 		result["reason"] = "The attack could not be made"
@@ -684,6 +778,27 @@ func _apply_attack(combatant, params: Dictionary, result: Dictionary):
 	# A shot reaches further than the fight was drawn: whoever is attacked is
 	# in it from then on
 	add_combatant(target)
+
+func _apply_equip(combatant, params: Dictionary, result: Dictionary):
+	"""Put an item from the pack in a slot, or move one between the weapon sets"""
+	var slot: String = str(params.get("slot", ""))
+	var from_slot: String = str(params.get("from_slot", ""))
+	var done: bool = false
+	if from_slot != "":
+		done = InventoryManager.move_equipped_item(combatant.stats, from_slot, slot)
+	else:
+		done = InventoryManager.equip_item(params["item"], combatant.stats, slot)
+	if not done:
+		result["ok"] = false
+		result["reason"] = "There is no room in the pack for what was there"
+
+func _apply_unequip(combatant, params: Dictionary, result: Dictionary):
+	"""Take an item off and put it in the pack"""
+	var item = params.get("item")
+	var taken: Dictionary = InventoryManager.unequip_item(combatant.stats, str(params.get("slot", "")), item if item is Dictionary else {})
+	if taken.is_empty():
+		result["ok"] = false
+		result["reason"] = "There is no room in the pack"
 
 func _apply_cast(combatant, params: Dictionary, result: Dictionary):
 	"""Cast the spell through SpellManager and spend what its casting time costs"""

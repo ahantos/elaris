@@ -487,7 +487,7 @@ func _build_weapon_item(wb: Dictionary, mat: MaterialData) -> ItemData:
 	item.is_ranged = bool(wb["ranged"])
 	item.range_normal = int(wb["rn"])
 	item.range_max = int(wb["rm"])
-	item.equip_slot = "ranged" if bool(wb["ranged"]) else "main_hand"
+	item.equip_slot = "main_hand"
 	item.has_durability = true
 	item.max_durability = mat.durability_score
 	for prop in (wb["props"] as Array):

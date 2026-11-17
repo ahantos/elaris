@@ -15,8 +15,10 @@ extends SceneTree
 #     hooks can change the outcome (Relentless Endurance),
 #   - armour class follows 5e: body armour, Dexterity as it allows, shield,
 #     bonuses, and nothing from any other slot,
-#   - a ranged attack follows range, line of sight, cover and free hands, and
-#     the chance to hit that is shown is the exact one,
+#   - a character has two weapon sets and attacks with the one in hand;
+#     swapping them, equipping and unequipping are requests,
+#   - a ranged attack follows range, line of sight and cover, and the chance
+#     to hit that is shown is the exact one,
 #   - a turn has movement, an action, a bonus action and a reaction, and every
 #     action is a request the combat controller approves,
 #   - the combat controller alone decides whose turn it is,
@@ -172,6 +174,7 @@ func _run():
 	_check_starting_character(world)
 	_check_encumbrance(world)
 	_check_weapons(world)
+	await _check_weapon_sets(world)
 	_check_materials(world)
 	await _check_armor_class(world)
 	await _check_damage(world)
@@ -270,7 +273,7 @@ func _check_layout(world):
 	check(is_equal_approx(bottom.size.x, screen.size.x) and is_equal_approx(bottom.end.y, screen.size.y) and bottom.size.y >= 200.0,
 		"bottom bar spans the screen and sits on its lower edge", str(bottom))
 
-	# The action bar: seven actions in key order, centred in the bottom bar,
+	# The action bar: eight actions in key order, centred in the bottom bar,
 	# clear of the panels at either end
 	var bar = world.bottom_ui.action_bar
 	await _frames(2)
@@ -287,8 +290,8 @@ func _check_layout(world):
 		last_end = rect.end.x
 		row_top = rect.position.y
 	var first_rect: Rect2 = bar.get_button(world.combat.ACTION_BAR[0]).get_global_rect()
-	check(titles == ["Attack", "Cast", "Use Item", "Dash", "Disengage", "Dodge", "End Turn"] and in_order,
-		"the action bar shows its seven actions in key order, in one row inside the bottom bar", str(titles))
+	check(titles == ["Attack", "Cast", "Use Item", "Dash", "Disengage", "Dodge", "Swap", "End Turn"] and in_order,
+		"the action bar shows its eight actions in key order, in one row inside the bottom bar", str(titles))
 	check(first_rect.position.x >= 340.0 and last_end <= 1680.0 and absf((first_rect.position.x + last_end) / 2.0 - screen.size.x / 2.0) <= 2.0,
 		"the action bar is centred and clear of the panels at either end", "%d to %d" % [first_rect.position.x, last_end])
 	check(bottom.encloses(bar._hint.get_global_rect()) and bottom.encloses(bar._movement_label.get_global_rect()),
@@ -835,7 +838,7 @@ func _damage_range(combat, profile: Dictionary, is_crit: bool = false) -> Array:
 
 func _check_weapons(world):
 	"""The default fighter (STR 14, DEX 12, proficiency +2) with its starting
-	kit: longsword, shield, light crossbow in the ranged slot"""
+	kit: longsword and shield in weapon set one, a light crossbow in set two"""
 	var combat = _mgr("CombatManager")
 	var inv = _mgr("InventoryManager")
 	var items = _mgr("ItemDatabase")
@@ -843,10 +846,10 @@ func _check_weapons(world):
 	var stats = player.stats
 	var longsword: Dictionary = inv.get_equipped_item(stats, "main_hand")
 	var shield: Dictionary = inv.get_equipped_item(stats, "off_hand")
-	var crossbow: Dictionary = inv.get_equipped_item(stats, "ranged")
+	var crossbow: Dictionary = inv.get_equipped_item(stats, "main_hand_2")
 	check(stats.class_id == "fighter" and stats.get_str_modifier() == 2 and stats.get_dex_modifier() == 1 and stats.proficiency_bonus == 2
 		and not longsword.is_empty() and longsword.item_data.item_id == "longsword" and not shield.is_empty() and not crossbow.is_empty(),
-		"test setup: the fighter holds a longsword and a shield and carries a crossbow")
+		"test setup: the fighter holds a longsword and a shield and carries a crossbow in its second weapon set")
 	if longsword.is_empty() or shield.is_empty() or crossbow.is_empty():
 		return
 
@@ -948,12 +951,12 @@ func _check_weapons(world):
 	check(combat.get_attack_profile(player).proficient and combat.build_attack_profile(player, battleaxe).proficient,
 		"a fighter is proficient with martial weapons")
 
-	# --- a ranged weapon in hand, then nothing in hand ---
-	inv.unequip_item(stats, "main_hand")
+	# --- the second weapon set: a ranged weapon in hand, then nothing in hand ---
+	inv.swap_weapon_set(stats)
 	profile = combat.get_attack_profile(player)
 	check(profile.weapon == crossbow.item_data and profile.weapon_name == "Oak Light Crossbow" and profile.is_ranged and profile.usable
 		and profile.ability == "dex" and profile.ability_modifier == 1 and profile.attack_bonus == 3 and _damage_range(combat, profile) == [2, 9],
-		"with the main hand empty the carried ranged weapon is the weapon in hand, and it attacks with Dexterity",
+		"with the second weapon set in hand its ranged weapon is the weapon in hand, and it attacks with Dexterity",
 		"%s %s %+d, damage %s" % [profile.weapon_name, profile.ability, profile.attack_bonus, str(_damage_range(combat, profile))])
 	var ranges: Array = []
 	for item_id in ["shortbow", "longbow", "light_crossbow", "heavy_crossbow"]:
@@ -962,26 +965,37 @@ func _check_weapons(world):
 	check(ranges == ["shortbow 16/64", "longbow 30/120", "light_crossbow 16/64", "heavy_crossbow 20/80"]
 		and combat.get_weapon_range(longsword.item_data) == {"normal": 0, "max": 0},
 		"ranged weapons say how far they shoot, in tiles: a normal range and a maximum", str(ranges))
-	inv.equipped_items[stats]["off_hand"] = shield
+	inv.equipped_items[stats]["off_hand_2"] = shield  # a state the equip rules never produce
 	profile = combat.get_attack_profile(player)
 	check(not profile.usable and "both hands" in profile.reason, "a two-handed ranged weapon beside a full off hand cannot be fired, and says why", profile.reason)
-	inv.equipped_items[stats].erase("off_hand")
-	inv.unequip_item(stats, "ranged")
+	inv.equipped_items[stats].erase("off_hand_2")
+	inv.unequip_item(stats, "main_hand_2")
 	profile = combat.get_attack_profile(player)
 	check(profile.weapon == null and profile.weapon_name == "Unarmed strike" and profile.damage_type == "bludgeoning" and profile.proficient
 		and profile.attack_bonus == 4 and profile.usable and _damage_range(combat, profile) == [3, 3] and _damage_range(combat, profile, true) == [3, 3],
 		"with no weapon the attack is an unarmed strike: 1 + Strength modifier bludgeoning, proficient",
 		"%s %s %s" % [profile.weapon_name, str(_damage_range(combat, profile)), profile.damage_type])
 
+	# --- a bow or crossbow cannot share a set with a shield, either way round ---
+	inv.equip_item(shield, stats, "off_hand_2")
+	var bow_refused: bool = not inv.equip_item(crossbow, stats, "main_hand_2")
+	inv.unequip_item(stats, "off_hand_2")
+	inv.equip_item(crossbow, stats, "main_hand_2")
+	var shield_refused: bool = not inv.equip_item(shield, stats, "off_hand_2")
+	check(bow_refused and shield_refused and inv.get_equipped_item(stats, "main_hand_2") == crossbow
+		and inv.get_equipped_item(stats, "off_hand_2").is_empty() and "both hands" in inv.get_equip_refusal(shield, stats, "off_hand_2"),
+		"a crossbow cannot be equipped in a weapon set whose off hand holds a shield, nor a shield beside a crossbow")
+	inv.swap_weapon_set(stats)
+
 	# Back to the starting kit
 	inv.equip_item(longsword, stats, "main_hand")
 	inv.equip_item(shield, stats, "off_hand")
-	inv.equip_item(crossbow, stats, "ranged")
 	inv.remove_item(greatsword.instance_id)
 	inv.remove_item(rapier.instance_id)
 	stats.current_hp = stats.max_hp
 	check(inv.get_equipped_item(stats, "main_hand") == longsword and inv.get_equipped_item(stats, "off_hand") == shield
-		and inv.get_equipped_item(stats, "ranged") == crossbow, "test teardown: the starting kit is back in place")
+		and inv.get_equipped_item(stats, "main_hand_2") == crossbow and player.get_weapon_set() == 1,
+		"test teardown: the starting kit is back in place")
 
 # ---------------------------------------------------------------------------
 #  Materials: durability data, a price and a trait - and nothing else
@@ -1738,6 +1752,209 @@ func _check_damage(world):
 		"test teardown: the staged enemies are gone, no fight started and the fighter is as it was")
 
 # ---------------------------------------------------------------------------
+#  Weapon sets: two, one in hand; every change of gear is a request
+# ---------------------------------------------------------------------------
+
+func _bag_snapshot(inv) -> Array:
+	"""What is in the pack, to put back after a check: [instance, stack count]"""
+	var snapshot: Array = []
+	for instance in inv.items:
+		snapshot.append([instance, int(instance.get("stack_count", 1))])
+	return snapshot
+
+func _bag_restore(inv, snapshot: Array):
+	inv.items.clear()
+	for entry in snapshot:
+		entry[0]["stack_count"] = entry[1]
+		inv.items.append(entry[0])
+
+func _drag(sheet, inv, item: Dictionary, from_slot: String, to_slot: String):
+	"""Drag an item on the character sheet the way the mouse does: from an
+	equipment slot ("" for the pack) onto an equipment slot ("" for the pack)"""
+	if from_slot == "":
+		sheet.start_drag(item, "inventory", str(inv.items.find(item)))
+	else:
+		sheet.start_drag(item, "equipment", from_slot)
+	if to_slot == "":
+		sheet.end_drag_on_inventory(0)
+	else:
+		sheet.end_drag_on_equipment(to_slot)
+
+func _check_weapon_sets(world):
+	"""Outside a fight: the default fighter with its kit - longsword and shield
+	in weapon set one, a light crossbow in set two. What a fight adds (the swap
+	costs the action, the sheet cannot change gear) is checked in the staged
+	fights."""
+	var inv = _mgr("InventoryManager")
+	var items = _mgr("ItemDatabase")
+	var combat = _mgr("CombatManager")
+	var bus = _mgr("EventBus")
+	var builder = load("res://data/stats/character_builder.gd")
+	var controller = world.combat
+	var player = world.player
+	var stats = player.stats
+	var sheet = world.character_screen
+	var sword: Dictionary = inv.get_equipped_item(stats, "main_hand")
+	var shield: Dictionary = inv.get_equipped_item(stats, "off_hand")
+	var crossbow: Dictionary = inv.get_equipped_item(stats, "main_hand_2")
+	var bag: Array = _bag_snapshot(inv)
+	var taken: Array = []
+	var on_action = func(combatant, action_id, result): taken.append([combatant, action_id, result])
+	controller.action_taken.connect(on_action)
+	var notes: Array = []
+	var on_note = func(message, _type): notes.append(message)
+	bus.ui_notification.connect(on_note)
+
+	check(not sword.is_empty() and not shield.is_empty() and not crossbow.is_empty() and inv.get_equipped_item(stats, "off_hand_2").is_empty()
+		and sword.item_data.item_id == "longsword" and crossbow.item_data.item_id == "light_crossbow"
+		and not inv.equipped_items[stats].has("ranged") and items.get_item("light_crossbow").equip_slot == "main_hand",
+		"the fighter's kit is two weapon sets: longsword and shield in the first, the light crossbow in the second; there is no ranged slot")
+
+	# --- every class's kit ---
+	var kits: Array = []
+	for class_id in ["fighter", "rogue", "wizard", "cleric"]:
+		var kit_stats = builder.build(class_id, "human", {"str": 15, "dex": 14, "con": 13, "int": 12, "wis": 10, "cha": 8}, "Kit")
+		for instance in items.get_starting_kit(class_id):
+			inv.add_item(instance)
+		inv.auto_equip_from_inventory(kit_stats)
+		var held: Array = []
+		for slot in ["main_hand", "off_hand", "main_hand_2", "off_hand_2", "chest"]:
+			var item_data = inv.get_equipped_item(kit_stats, slot).get("item_data")
+			held.append(item_data.item_id if item_data != null else "-")
+		kits.append("%s: %s (AC %d, set %d)" % [class_id, " ".join(held), kit_stats.armor_class, inv.get_weapon_set(kit_stats)])
+		inv.equipped_items.erase(kit_stats)
+		inv.weapon_sets_in_hand.erase(kit_stats)
+		_bag_restore(inv, bag)
+	check(kits == ["fighter: longsword shield light_crossbow - chain_mail (AC 18, set 1)", "rogue: rapier - shortbow - leather_armor (AC 13, set 1)",
+		"wizard: quarterstaff - dagger - - (AC 12, set 1)", "cleric: mace shield light_crossbow - scale_mail (AC 18, set 1)"],
+		"every class's starting kit is put on in two weapon sets, the first in hand", str(kits))
+
+	# --- one set is in hand ---
+	check(player.get_weapon_set() == 1 and player.get_other_weapon_set() == 2 and player.get_weapon() == sword.item_data
+		and player.get_weapon(2) == crossbow.item_data and not player.is_off_hand_free() and player.is_off_hand_free(2)
+		and combat.get_attack_profile(player).weapon == sword.item_data and combat.get_set_profile(player, 2).weapon == crossbow.item_data
+		and stats.armor_class == 18 and inv.get_active_equipped_items(stats).has(shield) and not inv.get_active_equipped_items(stats).has(crossbow)
+		and inv.get_all_equipped_items(stats).has(crossbow),
+		"an attack, and what the gear gives, come from the weapon set in hand; the other set is carried")
+
+	# --- outside a fight the swap is a request that costs nothing ---
+	taken.clear()
+	var swap: Dictionary = controller.request_action(player, "swap_weapons")
+	var with_crossbow: Array = [player.get_weapon_set(), stats.armor_class, combat.get_attack_profile(player).weapon_name, player.action_used]
+	var back: Dictionary = controller.request_action(player, "swap_weapons")
+	check(swap.ok and swap.weapon_set == 2 and with_crossbow == [2, 16, "Oak Light Crossbow", false] and taken.size() == 2
+		and taken[0][0] == player and taken[0][1] == "swap_weapons" and back.ok and player.get_weapon_set() == 1 and stats.armor_class == 18,
+		"outside a fight swapping weapon sets is a request that costs nothing, and the shield's armour class goes with its set",
+		str(with_crossbow))
+
+	# --- the hands of a set ---
+	var bow: Dictionary = items.create_item_instance("shortbow")
+	var spare_shield: Dictionary = items.create_item_instance("shield")
+	var dagger: Dictionary = items.create_item_instance("dagger")
+	for instance in [bow, spare_shield, dagger]:
+		inv.add_item(instance)
+	var bow_beside_shield: Dictionary = controller.request_action(player, "equip", {"item": bow, "slot": "main_hand"})
+	var shield_beside_crossbow: Dictionary = controller.request_action(player, "equip", {"item": spare_shield, "slot": "off_hand_2"})
+	var wrong_hand: Dictionary = controller.request_action(player, "equip", {"item": bow, "slot": "off_hand_2"})
+	var not_carried: Dictionary = controller.request_action(player, "equip", {"item": items.create_item_instance("dagger"), "slot": "main_hand_2"})
+	check(not bow_beside_shield.ok and "both hands" in bow_beside_shield.reason and inv.get_equipped_item(stats, "main_hand") == sword
+		and not inv.get_item(bow.instance_id).is_empty(),
+		"a bow is refused in a weapon set whose off hand holds a shield, and the request says why", str(bow_beside_shield.reason))
+	check(not shield_beside_crossbow.ok and "both hands" in shield_beside_crossbow.reason and inv.get_equipped_item(stats, "off_hand_2").is_empty()
+		and not wrong_hand.ok and "does not go there" in wrong_hand.reason and not not_carried.ok and not_carried.reason == "That is not in the pack",
+		"a shield is refused beside a crossbow, a weapon in the wrong hand, and an item that is not carried",
+		"%s / %s / %s" % [str(shield_beside_crossbow.reason), str(wrong_hand.reason), str(not_carried.reason)])
+
+	# --- the character sheet shows both sets ---
+	sheet.show_character(stats)
+	await _frames(2)
+	var panel_rect: Rect2 = sheet.equipment_panel.get_global_rect()
+	var shown: Array = []
+	var misplaced: Array = []  # what lies outside the equipment panel or over something else
+	var rects: Array = []
+	for slot in ["main_hand", "off_hand", "main_hand_2", "off_hand_2"]:
+		var button: Button = sheet.slot_buttons.get(slot)
+		var icon: TextureRect = button.get_node_or_null("ItemIcon") if button != null else null
+		var item_data = inv.get_equipped_item(stats, slot).get("item_data")
+		shown.append(icon != null and icon.texture == (item_data.icon if item_data != null else null))
+		if button == null or not panel_rect.encloses(button.get_global_rect()):
+			misplaced.append("%s outside the panel" % slot)
+		else:
+			for other in rects:
+				if other.intersects(button.get_global_rect()):
+					misplaced.append("%s over another hand" % slot)
+			rects.append(button.get_global_rect())
+	for other_slot in sheet.slot_buttons:
+		if not other_slot in ["main_hand", "off_hand", "main_hand_2", "off_hand_2"]:
+			for weapon_rect in rects:
+				if weapon_rect.intersects(sheet.slot_buttons[other_slot].get_global_rect()):
+					misplaced.append("%s over a hand" % other_slot)
+	var sheet_swap: Button = sheet.equipment_panel.find_child("SwapWeaponsButton", true, false)
+	for control in [sheet_swap, sheet.weapon_set_captions.get(1), sheet.weapon_set_captions.get(2)]:
+		if control == null or not panel_rect.encloses(control.get_global_rect()):
+			misplaced.append("%s outside the panel" % (str(control.name) if control != null else "a missing control"))
+		else:
+			for weapon_rect in rects:
+				if weapon_rect.intersects(control.get_global_rect()):
+					misplaced.append("%s %s over a hand %s" % [str(control.name), str(control.get_global_rect()), str(weapon_rect)])
+	check(shown == [true, true, true, true] and not sheet.slot_buttons.has("ranged") and misplaced.is_empty()
+		and sheet.weapon_set_captions[1].text == "WEAPON SET 1 - IN HAND" and sheet.weapon_set_captions[2].text == "WEAPON SET 2",
+		"the character sheet shows both weapon sets, each hand with its item, and says which set is in hand",
+		"%s, misplaced %s, '%s'" % [str(shown), str(misplaced), sheet.weapon_set_captions[1].text])
+
+	# --- on the sheet every change of gear is a request ---
+	taken.clear()
+	_drag(sheet, inv, dagger, "", "main_hand_2")
+	check(inv.get_equipped_item(stats, "main_hand_2") == dagger and not inv.get_item(crossbow.instance_id).is_empty()
+		and taken.size() == 1 and taken[0][1] == "equip" and taken[0][0] == player,
+		"dropping a weapon on a slot of the sheet asks the controller to equip it there; what the slot held goes to the pack")
+	_drag(sheet, inv, dagger, "main_hand_2", "main_hand")
+	check(inv.get_equipped_item(stats, "main_hand") == dagger and inv.get_equipped_item(stats, "main_hand_2") == sword
+		and taken.size() == 2 and taken[1][1] == "equip" and inv.get_item(sword.instance_id).is_empty(),
+		"dragging a weapon to the same hand of the other set makes the two change places")
+	_drag(sheet, inv, crossbow, "", "main_hand_2")
+	notes.clear()
+	_drag(sheet, inv, crossbow, "main_hand_2", "main_hand")
+	check(inv.get_equipped_item(stats, "main_hand") == dagger and inv.get_equipped_item(stats, "main_hand_2") == crossbow
+		and notes.size() == 1 and "both hands" in notes[0],
+		"a two-handed weapon cannot be dragged into the set that holds the shield, and the sheet says why", str(notes))
+	_drag(sheet, inv, dagger, "main_hand", "")
+	check(inv.get_equipped_item(stats, "main_hand").is_empty() and not inv.get_item(dagger.instance_id).is_empty() and taken[-1][1] == "unequip",
+		"dragging an item from a slot to the pack asks the controller to unequip it")
+	_drag(sheet, inv, sword, "", "main_hand")
+	sheet._on_swap_weapons_pressed()
+	await _frames(1)
+	var ac_label: Label = sheet.stats_panel.find_child("ACLabel", true, false)
+	var swapped_shown: Array = [player.get_weapon_set(), sheet.weapon_set_captions[1].text, sheet.weapon_set_captions[2].text, ac_label.text]
+	sheet._on_swap_weapons_pressed()
+	check(swapped_shown == [2, "WEAPON SET 1", "WEAPON SET 2 - IN HAND", "AC: 16"] and player.get_weapon_set() == 1 and taken[-1][1] == "swap_weapons",
+		"the SWAP button of the sheet takes the other set in hand, and the sheet shows it", str(swapped_shown))
+	sheet.hide_screen()
+	paused = false
+
+	# --- enemies and companions: set one, a second if they have one ---
+	var enemy = world.enemies[0]
+	var no_second: Dictionary = controller.check_action(enemy, "swap_weapons")
+	enemy.second_weapon = items.get_item("shortbow")
+	var enemy_swap: Dictionary = controller.request_action(enemy, "swap_weapons")
+	var enemy_holds = enemy.get_weapon()
+	controller.request_action(enemy, "swap_weapons")
+	enemy.second_weapon = null
+	check(not no_second.ok and no_second.reason == "No second weapon set" and enemy_swap.ok and enemy_holds == items.get_item("shortbow")
+		and enemy.get_weapon_set() == 1 and enemy.get_weapon_set_count() == 1 and enemy.get_weapon().item_name == "Enemy Weapon",
+		"an enemy fights with its first weapon set; a second is optional, and swapped to the same way", str(no_second.reason))
+
+	controller.action_taken.disconnect(on_action)
+	bus.ui_notification.disconnect(on_note)
+	_bag_restore(inv, bag)
+	stats.current_hp = stats.max_hp
+	await _frames(2)
+	check(inv.get_equipped_item(stats, "main_hand") == sword and inv.get_equipped_item(stats, "off_hand") == shield
+		and inv.get_equipped_item(stats, "main_hand_2") == crossbow and inv.get_equipped_item(stats, "off_hand_2").is_empty()
+		and player.get_weapon_set() == 1 and stats.armor_class == 18,
+		"test teardown: the starting kit is back in its two sets, the first in hand")
+
+# ---------------------------------------------------------------------------
 #  Turn resources and actions: everything done in a turn is a request
 # ---------------------------------------------------------------------------
 
@@ -1862,10 +2079,11 @@ func _check_actions(world):
 		"movement %d" % player.movement_left)
 	await _frames(2)
 	var attack_button = bar.get_button("attack")
-	check(not attack_button.disabled and attack_button.get_detail() == "Longsword 1d8+2\nLight Crossbow 1d8+1",
-		"the Attack button names the melee weapon and the ranged weapon, each with its die", attack_button.get_detail())
-	check(not attack_button.disabled and attack_button.get_reason() == "Oak Light Crossbow needs both hands free",
-		"the Attack button, usable on the enemy in reach, notes that the ranged weapon cannot be fired beside the shield", attack_button.get_reason())
+	var swap_button = bar.get_button("swap_weapons")
+	check(not attack_button.disabled and attack_button.get_detail() == "Longsword\n1d8+2 slashing" and attack_button.get_reason() == "",
+		"the Attack button names the weapon in hand and its damage", attack_button.get_detail())
+	check(not swap_button.disabled and swap_button.get_title() == "Swap" and swap_button.get_detail() == "Light Crossbow\n1d8+1 piercing",
+		"the Swap button shows what the other weapon set holds", swap_button.get_detail())
 	check(bar._turn_label.text == "Your turn" and bar._movement_label.text == "Movement 6 / 6" and bar._action_label.text == "Action ready"
 		and bar._bonus_label.text == "Bonus action ready" and bar._action_label.visible,
 		"the HUD shows the turn-holder's movement and that its action and bonus action are unspent",
@@ -1906,9 +2124,8 @@ func _check_actions(world):
 	var friendly: Dictionary = controller.request_action(player, "attack", {"target": player})
 	check(not friendly.ok and not player.action_used, "an attack on anything but a hostile combatant is refused")
 
-	# --- nothing in hand (ranged weapons have their own checks, _check_ranged) ---
+	# --- nothing in hand (ranged weapons and the swap have their own checks, _check_ranged) ---
 	var sword: Dictionary = inv.unequip_item(stats, "main_hand")
-	var bow: Dictionary = inv.unequip_item(stats, "ranged")
 	_toughen(stats)
 	await _frames(2)
 	check(attack_button.get_detail() == "Unarmed strike\n3 bludgeoning", "with nothing in hand the Attack button offers an unarmed strike",
@@ -1925,8 +2142,25 @@ func _check_actions(world):
 		and blows.size() == 1 and blows[0][3] == combat_mgr.DamageType.BLUDGEONING,
 		"with nothing in hand the Attack action is an unarmed strike for 1 + Strength modifier", str(punch.get("damage", "no hit")))
 	inv.equip_item(sword, stats, "main_hand")
-	inv.equip_item(bow, stats, "ranged")
 	_toughen(stats)
+
+	# --- gear cannot be changed from the sheet in a fight ---
+	var spare: Dictionary = items.create_item_instance("dagger")
+	inv.add_item(spare)
+	player.refresh_turn_resources()
+	notes.clear()
+	sheet.show_character(stats)
+	_drag(sheet, inv, spare, "", "main_hand")
+	_drag(sheet, inv, inv.get_equipped_item(stats, "off_hand"), "off_hand", "")
+	_drag(sheet, inv, sword, "main_hand", "main_hand_2")
+	sheet.hide_screen()
+	var gear_request: Dictionary = controller.request_action(player, "unequip", {"slot": "chest"})
+	check(inv.get_equipped_item(stats, "main_hand") == sword and not inv.get_equipped_item(stats, "off_hand").is_empty()
+		and not inv.get_item(spare.instance_id).is_empty() and not inv.get_equipped_item(stats, "chest").is_empty()
+		and notes == [controller.REASON_GEAR_IN_FIGHT, controller.REASON_GEAR_IN_FIGHT, controller.REASON_GEAR_IN_FIGHT]
+		and not gear_request.ok and gear_request.reason == controller.REASON_GEAR_IN_FIGHT and not player.action_used,
+		"in a fight the character sheet cannot equip, unequip or move gear: each request is refused and says to swap weapon sets", str(notes))
+	inv.remove_item(spare.instance_id)
 
 	# --- Dash ---
 	player.refresh_turn_resources()
@@ -2018,6 +2252,12 @@ func _check_actions(world):
 	_press(KEY_6)
 	check(player.action_used and player.is_dodging(), "key 6 takes the Dodge action")
 	player.refresh_turn_resources()
+	_press(KEY_7)
+	check(player.action_used and player.get_weapon_set() == 2, "key 7 takes the Swap action")
+	player.refresh_turn_resources()
+	controller.request_action(player, "swap_weapons")
+	_toughen(stats)
+	player.refresh_turn_resources()
 	_press(KEY_1)
 	await _frames(2)
 	check(player.attack_mode and attack_button.button_pressed and "click a marked enemy" in bar._hint.text,
@@ -2055,8 +2295,8 @@ func _check_actions(world):
 	player.teleport_to_grid(here - step * 2)
 	effects.apply_effect(goblin, "prone", 1)  # disadvantage on its attacks; gone at the end of its turn
 	taken.clear()
-	_press(KEY_7)
-	check(controller.is_turn_of(goblin), "key 7 ends the turn")
+	_press(KEY_8)
+	check(controller.is_turn_of(goblin), "key 8 ends the turn")
 	await _frames(2)
 	check(bar._turn_label.text == "Goblin's turn" and attack_button.disabled and attack_button.get_reason() == "Not your turn",
 		"on an enemy's turn the HUD shows that combatant's resources and the buttons say it is not our turn", bar._turn_label.text)
@@ -2253,11 +2493,13 @@ func _is_beyond(rect: Rect2, target, shooter) -> bool:
 
 func _check_ranged(world):
 	"""A staged fight on a strip of open floor: the default fighter (STR 14,
-	DEX 12, proficiency +2; longsword, shield, light crossbow) and a goblin
-	that stands still a few tiles away. Checks that the weapon follows the
-	target; what range, line of sight, cover, a hostile next to the shooter and
-	full hands do to a shot; that the chance shown before the shot is the exact
-	one; what aiming shows; and that an enemy shoots through the same request."""
+	DEX 12, proficiency +2; longsword and shield in weapon set one, a light
+	crossbow in set two) and a goblin that stands still a few tiles away. Checks
+	that an attack is made with the set in hand and nothing else, and what
+	swapping sets costs; what range, line of sight, cover and a hostile next to
+	the shooter do to a shot; that the chance shown before the shot is the
+	exact one; what aiming shows; and that an enemy shoots through the same
+	request."""
 	var combat_mgr = _mgr("CombatManager")
 	var effects = _mgr("StatusEffectManager")
 	var inv = _mgr("InventoryManager")
@@ -2271,18 +2513,21 @@ func _check_ranged(world):
 	var stats = player.stats
 	var bar = world.bottom_ui.action_bar
 	var attack_button = bar.get_button("attack")
+	var swap_button = bar.get_button("swap_weapons")
 	var readout = world.attack_preview
 	var grid: Array = world.current_dungeon.dungeon_grid
 	var wall: int = world.current_dungeon.TileType.WALL
 	var piercing: int = combat_mgr.DamageType.PIERCING
 	var home: Vector2i = player.grid_position
-	var crossbow: Dictionary = inv.get_equipped_item(stats, "ranged")
+	var sword: Dictionary = inv.get_equipped_item(stats, "main_hand")
 	var shield: Dictionary = inv.get_equipped_item(stats, "off_hand")
+	var crossbow: Dictionary = inv.get_equipped_item(stats, "main_hand_2")
 
 	var strip: Array = _find_strip(world, home, 8)
-	var set_up: bool = not strip.is_empty() and not world.in_combat and not crossbow.is_empty() and not shield.is_empty() \
-		and stats.class_id == "fighter" and stats.get_str_modifier() == 2 and stats.get_dex_modifier() == 1 and stats.proficiency_bonus == 2
-	check(set_up, "test setup: a strip of open floor, and the fighter with its longsword, shield and crossbow")
+	var set_up: bool = not strip.is_empty() and not world.in_combat and not sword.is_empty() and not crossbow.is_empty() and not shield.is_empty() \
+		and player.get_weapon_set() == 1 and stats.class_id == "fighter" and stats.get_str_modifier() == 2 and stats.get_dex_modifier() == 1 \
+		and stats.proficiency_bonus == 2
+	check(set_up, "test setup: a strip of open floor, and the fighter with its longsword and shield in hand and its crossbow in the second set")
 	if not set_up:
 		return
 	var here: Vector2i = strip[0]
@@ -2323,29 +2568,50 @@ func _check_ranged(world):
 		Engine.time_scale = 1.0
 		return
 
-	# --- hands: a two-handed ranged weapon and a shield ---
+	# --- the set in hand, and only that: a sword does not reach four tiles ---
 	var blocked_check: Dictionary = controller.check_action(player, "attack")
 	var blocked_shot: Dictionary = controller.request_action(player, "attack", {"target": far})
 	await _frames(2)
-	check(not blocked_check.ok and "both hands" in blocked_check.reason and not blocked_shot.ok and blocked_shot.reason == blocked_check.reason
-		and not player.action_used and far.stats.current_hp == 500,
-		"a two-handed ranged weapon cannot be fired while a shield is in the off hand", str(blocked_shot.get("reason", "")))
-	check(attack_button.disabled and attack_button.get_reason() == "Oak Light Crossbow needs both hands free"
-		and attack_button.get_detail() == "Longsword 1d8+2\nLight Crossbow 1d8+1",
-		"with no enemy in reach the Attack button is disabled and says why the ranged weapon cannot be fired",
-		"%s / %s" % [attack_button.get_detail(), attack_button.get_reason()])
+	check(not blocked_check.ok and blocked_check.reason == "No enemy in reach - swap to the Oak Light Crossbow"
+		and not blocked_shot.ok and blocked_shot.reason == "Out of reach - swap to the Oak Light Crossbow"
+		and not player.action_used and far.stats.current_hp == 500 and controller.get_attack_targets(player).is_empty(),
+		"Attack uses only the weapon set in hand: with sword and shield an enemy four tiles off cannot be attacked, and the refusal says to swap to the crossbow",
+		"%s / %s" % [str(blocked_check.get("reason", "")), str(blocked_shot.get("reason", ""))])
+	check(attack_button.disabled and attack_button.get_reason() == blocked_check.reason and attack_button.get_detail() == "Longsword\n1d8+2 slashing"
+		and not swap_button.disabled and swap_button.get_title() == "Swap" and swap_button.get_detail() == "Light Crossbow\n1d8+1 piercing",
+		"the Attack button names the weapon in hand and says to swap; the Swap button shows what the other set holds",
+		"%s / %s / %s" % [attack_button.get_detail(), attack_button.get_reason(), swap_button.get_detail()])
 
-	# --- the off hand empty: the weapon follows the target ---
-	inv.unequip_item(stats, "off_hand")
-	_toughen(stats)
-	var profile: Dictionary = combat_mgr.get_attack_profile(player, far)
+	# --- swapping sets: a request, the action in a fight ---
+	var ac_with_shield: int = stats.armor_class
+	taken.clear()
+	var swap: Dictionary = controller.request_action(player, "swap_weapons")
+	_toughen(stats)  # here and below: a change of gear works the character's numbers out again
+	check(swap.ok and swap.weapon_set == 2 and player.get_weapon_set() == 2 and player.action_used and swap.weapon_name == "Oak Light Crossbow"
+		and taken.size() == 1 and taken[0][0] == player and taken[0][1] == "swap_weapons",
+		"swapping weapon sets is a request the controller approves, and in a fight it costs the action", str(swap))
+	check(ac_with_shield == 18 and stats.armor_class == 16 and stats.shield_name == "" and not player.is_off_hand_free(1) and player.is_off_hand_free(),
+		"the shield goes away with its set: armour class 18 with it in hand, 16 with the crossbow", "AC %d" % stats.armor_class)
+	var second_swap: Dictionary = controller.request_action(player, "swap_weapons")
+	var attack_after_swap: Dictionary = controller.request_action(player, "attack", {"target": far})
+	await _frames(2)
+	check(not second_swap.ok and second_swap.reason == "Action spent" and player.get_weapon_set() == 2
+		and not attack_after_swap.ok and attack_after_swap.reason == "Action spent" and far.stats.current_hp == 500,
+		"the swap was the turn's action: no second swap and no attack after it", "%s / %s" % [str(second_swap.reason), str(attack_after_swap.reason)])
+	check(swap_button.disabled and swap_button.get_reason() == "Action spent" and swap_button.get_detail() == "Longsword\n+ Shield"
+		and attack_button.get_detail() == "Light Crossbow\n1d8+1 piercing",
+		"the bar follows the swap: Attack names the crossbow, Swap the sword and shield", "%s / %s" % [attack_button.get_detail(), swap_button.get_detail()])
+	player.refresh_turn_resources()  # test setup, here and below: a fresh turn's resources without waiting a round
+
+	# --- the ranged weapon in hand ---
+	var profile: Dictionary = combat_mgr.get_attack_profile(player)
 	check(profile.weapon == crossbow.item_data and profile.is_ranged and profile.usable and profile.ability == "dex" and profile.ability_modifier == 1
 		and profile.proficient and profile.attack_bonus == 3 and profile.damage_dice == "1d8" and profile.damage_type == "piercing"
 		and profile.range_normal == 16 and profile.range_max == 64 and _damage_range(combat_mgr, profile) == [2, 9],
-		"for a target beyond reach the attack is made with the ranged weapon: Dexterity for the roll and the damage, its die, its damage type",
+		"with the second set in hand the attack is made with its ranged weapon: Dexterity for the roll and the damage, its die, its damage type",
 		"%s %s %+d %s %s" % [profile.weapon_name, profile.ability, profile.attack_bonus, profile.damage_dice, profile.damage_type])
 	check(controller.check_action(player, "attack").ok and controller.get_attack_targets(player).has(far),
-		"with the off hand empty the enemy in range and in sight can be attacked")
+		"with the crossbow in hand the enemy in range and in sight can be attacked")
 
 	far.stats.armor_class = -100
 	var popups_before: int = _count_nodes(world, popup_script)
@@ -2356,7 +2622,7 @@ func _check_ranged(world):
 		and shot.damage_type == "piercing" and shot.attack_bonus == 3 and shot.distance == 4 and not shot.disadvantage
 		and shot.damage >= (3 if shot.is_crit else 2) and shot.damage <= (17 if shot.is_crit else 9) and shot.hp_lost == shot.damage
 		and blows.size() == 1 and blows[0][0] == player and blows[0][1] == far and blows[0][2] == shot.damage and blows[0][3] == piercing,
-		"the Attack action on a distant enemy shoots the ranged weapon, a plain roll at normal range, and its damage is piercing",
+		"the Attack action on a distant enemy shoots the ranged weapon in hand, a plain roll at normal range, and its damage is piercing",
 		str(shot.get("damage", "no hit")))
 	var landed: bool = await _until(func(): return _count_nodes(world, projectile_script) == 0, 3.0)
 	check(in_flight >= 1 and popups_in_flight == popups_before and landed and _count_nodes(world, popup_script) > popups_before,
@@ -2367,28 +2633,22 @@ func _check_ranged(world):
 	check(player.action_used and not again.ok and again.reason == "Action spent" and far.stats.current_hp == hp_after_shot,
 		"a second shot in the same turn is refused: the action is spent", str(again))
 
-	# --- an enemy in reach as well: the melee weapon for it, and trouble for the shot ---
+	# --- an enemy in reach as well: it is shot too, and that spoils every shot ---
 	var near = world._spawn_enemy("goblin", 1, 500, here + side)
 	near.stats.movement_speed = 0
 	near.stats.armor_class = -100
-	var swing: Dictionary = _attack_until_hit(controller, player, near, blows)
-	check(not swing.is_empty() and swing.weapon_name == "Wrought Iron Longsword" and not swing.is_ranged and swing.damage_type == "slashing"
-		and swing.attack_bonus == 4 and swing.distance == 1 and _count_nodes(world, projectile_script) == 0,
-		"an attack on an adjacent enemy is still made with the main-hand weapon when a ranged weapon is carried too",
-		str(swing.get("weapon_name", "refused")))
+	var point_blank: Dictionary = _attack_until_hit(controller, player, near, blows)
+	check(not point_blank.is_empty() and point_blank.weapon_name == "Oak Light Crossbow" and point_blank.is_ranged and point_blank.distance == 1
+		and point_blank.disadvantage and "enemy adjacent" in point_blank.reasons,
+		"with a ranged weapon in hand an adjacent enemy is shot, at disadvantage: Attack never reaches for the other set",
+		str(point_blank.get("weapon_name", "refused")))
 	check(controller.get_order().has(near) and controller.is_turn_of(player),
 		"a hostile that is attacked from outside the fight joins it, without taking the turn", "%d in the order" % controller.get_order().size())
-
-	# --- what the target is to the damage shows on the number over its head ---
-	_set_nature(near, [], ["slashing"], [])
-	var doubled: Dictionary = _attack_until_hit(controller, player, near, blows)
-	var doubled_popup = _newest_popup(world)
-	_set_nature(near, [], [], [])
-	check(not doubled.is_empty() and doubled.damage == doubled.damage_rolled * 2 and doubled.damage_response == "vulnerable"
-		and doubled.hp_lost == doubled.damage and blows.size() == 1 and blows[0][2] == doubled.damage
-		and doubled_popup != null and doubled_popup.response == "vulnerable" and doubled_popup.damage == doubled.damage,
-		"the Attack action on a vulnerable enemy does double damage, and the number over its head says so",
-		"%s of %s" % [str(doubled.get("damage", "?")), str(doubled.get("damage_rolled", "?"))])
+	player.reaction_used = false
+	var snap: Dictionary = combat_mgr.trigger_opportunity_attack(player, near)
+	check(snap.triggered and snap.result.weapon_name == "Unarmed strike" and not snap.result.is_ranged and player.reaction_used,
+		"an opportunity attack is never a shot: with a ranged weapon in hand it is an unarmed strike", str(snap.get("reason", "")))
+	player.reaction_used = false
 
 	far.stats.armor_class = 13
 	var crowded: Dictionary = combat_mgr.get_hit_chance(player, far)
@@ -2403,7 +2663,7 @@ func _check_ranged(world):
 		"%s / stunned: %s" % [str(crowded.reasons), str(beside_stunned.reasons)])
 
 	# --- aiming: who can be attacked is marked, and the readout says what the attack would be ---
-	player.refresh_turn_resources()  # test setup, here and below: a fresh turn's resources without waiting a round
+	player.refresh_turn_resources()
 	_press(KEY_1)
 	player._update_aim(far.grid_position)
 	readout.refresh()
@@ -2457,8 +2717,9 @@ func _check_ranged(world):
 		"the readout sits beyond the enemy, away from the shooter, on whichever side that is", "%s, %s" % [beyond_first, beyond_second])
 	player._update_aim(near.grid_position)
 	readout.refresh()
-	check(player.get_aim_preview().get("weapon_name", "") == "Wrought Iron Longsword" and readout.get_lines().slice(0, 2) == ["Goblin", "Wrought Iron Longsword"],
-		"on an enemy in reach the readout names the melee weapon", str(readout.get_lines()))
+	check(player.get_aim_preview().get("weapon_name", "") == "Oak Light Crossbow" and readout.get_lines().slice(0, 2) == ["Goblin", "Oak Light Crossbow"]
+		and readout.get_lines()[-1] == "Disadvantage: enemy adjacent",
+		"on an enemy in reach the readout names the weapon in hand all the same, and the disadvantage of shooting it", str(readout.get_lines()))
 	# The mouse itself: the pointer moved onto the far goblin, and then onto the bottom bar
 	var camera_still: bool = await _camera_at_rest(far)
 	_move_pointer(_on_screen(far))
@@ -2473,9 +2734,9 @@ func _check_ranged(world):
 	check(player.attack_mode and player._pointer_tile() == Vector2i(-1, -1) and player.get_aim_preview().is_empty() and not readout.is_showing(),
 		"with the mouse pointer on the bottom bar no tile of the map is pointed at, and the readout is gone", str(player._pointer_tile()))
 	_move_pointer(Vector2.ZERO)
-	check(attack_button.button_pressed and "click a marked enemy" in bar._hint.text and "Wrought Iron Longsword on an adjacent enemy" in bar._hint.text
-		and "Oak Light Crossbow to 16 tiles (to 64 at disadvantage)" in bar._hint.text,
-		"while aiming, the bar says how far each weapon reaches", bar._hint.text)
+	check(attack_button.button_pressed and "click a marked enemy" in bar._hint.text
+		and "Oak Light Crossbow to 16 tiles (to 64 at disadvantage)" in bar._hint.text and not "Longsword" in bar._hint.text,
+		"while aiming, the bar says how far the weapon in hand reaches", bar._hint.text)
 
 	grid[wall_tile.y][wall_tile.x] = wall
 	player._update_aim(far.grid_position)
@@ -2497,25 +2758,37 @@ func _check_ranged(world):
 	await _frames(2)
 	check(not readout.is_showing(), "the readout goes away with the aim")
 
-	# --- only a ranged weapon in hand, and the enemy adjacent ---
-	var sword: Dictionary = inv.unequip_item(stats, "main_hand")
+	# --- the first set back in hand: the sword for the enemy in reach ---
+	player.refresh_turn_resources()
+	notes.clear()
+	_press(KEY_1)
+	_press(KEY_7)
 	_toughen(stats)
-	var point_blank: Dictionary = _attack_until_hit(controller, player, near, blows)
-	check(not point_blank.is_empty() and point_blank.weapon_name == "Oak Light Crossbow" and point_blank.is_ranged and point_blank.distance == 1
-		and point_blank.disadvantage and "enemy adjacent" in point_blank.reasons,
-		"with only a ranged weapon in hand an adjacent enemy is shot, at disadvantage", str(point_blank.get("weapon_name", "refused")))
-	inv.equip_item(shield, stats, "off_hand")
-	_toughen(stats)
-	var fist: Dictionary = _attack_until_hit(controller, player, near, blows)
-	check(not fist.is_empty() and fist.weapon_name == "Unarmed strike" and not fist.is_ranged and fist.damage == 3,
-		"with only a ranged weapon that cannot be fired, an adjacent enemy gets an unarmed strike", str(fist.get("weapon_name", "refused")))
-	inv.unequip_item(stats, "off_hand")
-	inv.equip_item(sword, stats, "main_hand")
-	_toughen(stats)
+	check(player.get_weapon_set() == 1 and player.action_used and not player.attack_mode and notes == ["In hand: Wrought Iron Longsword."],
+		"key 7 swaps the weapon sets, says what is in hand now, and puts an aimed attack away", str(notes))
+	player.refresh_turn_resources()
+	await _until(func(): return _count_nodes(world, projectile_script) == 0, 3.0)  # the last shot has landed
+	var swing: Dictionary = _attack_until_hit(controller, player, near, blows)
+	check(not swing.is_empty() and swing.weapon_name == "Wrought Iron Longsword" and not swing.is_ranged and swing.damage_type == "slashing"
+		and swing.attack_bonus == 4 and swing.distance == 1 and _count_nodes(world, projectile_script) == 0,
+		"with the first set back in hand the enemy in reach is struck with the sword", str(swing.get("weapon_name", "refused")))
+
+	# --- what the target is to the damage shows on the number over its head ---
+	_set_nature(near, [], ["slashing"], [])
+	var doubled: Dictionary = _attack_until_hit(controller, player, near, blows)
+	var doubled_popup = _newest_popup(world)
+	_set_nature(near, [], [], [])
+	check(not doubled.is_empty() and doubled.damage == doubled.damage_rolled * 2 and doubled.damage_response == "vulnerable"
+		and doubled.hp_lost == doubled.damage and blows.size() == 1 and blows[0][2] == doubled.damage
+		and doubled_popup != null and doubled_popup.response == "vulnerable" and doubled_popup.damage == doubled.damage,
+		"the Attack action on a vulnerable enemy does double damage, and the number over its head says so",
+		"%s of %s" % [str(doubled.get("damage", "?")), str(doubled.get("damage_rolled", "?"))])
 	_remove_enemy(world, near)
 
 	# --- range: plain up to normal, disadvantage up to the maximum, then not at all ---
-	# A bow of the test's own with a short reach: 2 tiles normal, 5 at most
+	# A bow of the test's own with a short reach, in the second set: 2 tiles normal, 5 at most
+	player.refresh_turn_resources()
+	controller.request_action(player, "swap_weapons")
 	var short_bow = item_script.new()
 	short_bow.item_id = "smoke_shortbow"
 	short_bow.item_name = "Test Bow"
@@ -2529,10 +2802,10 @@ func _check_ranged(world):
 	short_bow.damage_type = "piercing"
 	short_bow.range_normal = 2
 	short_bow.range_max = 5
-	short_bow.equip_slot = "ranged"
+	short_bow.equip_slot = "main_hand"
 	var test_bow: Dictionary = {"item_data": short_bow}
 	inv.add_item(test_bow)
-	inv.equip_item(test_bow, stats, "ranged")
+	inv.equip_item(test_bow, stats, "main_hand_2")
 	_toughen(stats)
 	var bands: Array = []
 	for tiles in [2, 3, 5, 6]:
@@ -2564,7 +2837,7 @@ func _check_ranged(world):
 
 	# --- the chance to hit, before anything is rolled ---
 	# The crossbow again: +3 to hit against armour class 13 needs a 10 on the die
-	inv.equip_item(crossbow, stats, "ranged")
+	inv.equip_item(crossbow, stats, "main_hand_2")
 	inv.remove_item(test_bow.instance_id)
 	_toughen(stats)
 	var cover_tile: Vector2i = far.grid_position + side
@@ -2622,8 +2895,9 @@ func _check_ranged(world):
 		"cover raises the target's armour class for a ranged attack", "AC %s behind cover, %s in the open"
 		% [str(covered_shot.get("target_ac", "?")), str(open_shot.get("target_ac", "?"))])
 
-	# --- an enemy with a ranged weapon shoots through the same request ---
-	far.ranged_weapon = items.get_item("shortbow")
+	# --- an enemy shoots through the same request, and swaps through it too ---
+	far.weapon = items.get_item("shortbow")
+	far.second_weapon = items.get_item("club")
 	stats.armor_class = -100
 	taken.clear()
 	controller.request_action(player, "end_turn")
@@ -2631,8 +2905,11 @@ func _check_ranged(world):
 	var hp_off_turn: int = far.stats.current_hp
 	player.action_used = false  # a gate on the action alone would let the shot through
 	var off_turn: Dictionary = controller.request_action(player, "attack", {"target": far})
+	var off_turn_swap: Dictionary = controller.request_action(player, "swap_weapons")
 	check(their_turn and not off_turn.ok and off_turn.reason == "Not your turn" and not player.action_used and far.stats.current_hp == hp_off_turn,
 		"a shot is refused when it is not the shooter's turn", str(off_turn))
+	check(their_turn and not off_turn_swap.ok and off_turn_swap.reason == "Not your turn" and player.get_weapon_set() == 2 and not player.action_used,
+		"a swap of weapon sets is refused when it is not the combatant's turn", str(off_turn_swap))
 	var arrow: Dictionary = _attack_until_hit(controller, far, player, blows)
 	var arrows_in_flight: int = _count_nodes(world, projectile_script)
 	check(not arrow.is_empty() and arrow.weapon_name == "Oak Shortbow" and arrow.is_ranged and arrow.damage_dice == "1d6"
@@ -2640,18 +2917,27 @@ func _check_ranged(world):
 		and blows.size() == 1 and blows[0][0] == far and blows[0][1] == player and blows[0][3] == piercing
 		and taken.any(func(entry): return entry[0] == far and entry[1] == "attack" and entry[2].is_ranged),
 		"an enemy given a ranged weapon shoots through the same request", str(arrow.get("weapon_name", "refused")))
-	far.ranged_weapon = null
+	far.action_used = false
+	var enemy_swap: Dictionary = controller.request_action(far, "swap_weapons")
+	check(enemy_swap.ok and enemy_swap.weapon_set == 2 and far.action_used and far.get_weapon() == items.get_item("club")
+		and combat_mgr.get_attack_profile(far).weapon_name == "Oak Club",
+		"an enemy with a second weapon set swaps through the same request, for its action", str(enemy_swap))
+	far.weapon = null
+	far.second_weapon = null
+	far.weapon_set = 1
 	await _until(func(): return controller.is_turn_of(player) or not world.in_combat)
 
-	# --- the fight ends; the starting kit goes back on ---
+	# --- the fight ends; outside it the swap back is free ---
 	combat_mgr.deal_damage(player, far, 9999)
 	await _until(func(): return not world.in_combat, 5.0)
 	Engine.time_scale = 1.0
-	inv.equip_item(shield, stats, "off_hand")
-	check(not world.in_combat and inv.get_equipped_item(stats, "main_hand") == sword and inv.get_equipped_item(stats, "off_hand") == shield
-		and inv.get_equipped_item(stats, "ranged") == crossbow and grid[wall_tile.y][wall_tile.x] == wall_was
-		and grid[cover_tile.y][cover_tile.x] == cover_was,
-		"test teardown: the staged fight is over, the starting kit is back in place and the floor is floor again")
+	var free_swap: Dictionary = controller.request_action(player, "swap_weapons")
+	check(not world.in_combat and free_swap.ok and player.get_weapon_set() == 1 and not player.action_used,
+		"outside a fight swapping weapon sets costs nothing", str(free_swap))
+	check(inv.get_equipped_item(stats, "main_hand") == sword and inv.get_equipped_item(stats, "off_hand") == shield
+		and inv.get_equipped_item(stats, "main_hand_2") == crossbow and inv.get_equipped_item(stats, "off_hand_2").is_empty()
+		and grid[wall_tile.y][wall_tile.x] == wall_was and grid[cover_tile.y][cover_tile.x] == cover_was,
+		"test teardown: the staged fight is over, the starting kit is in its two sets and the floor is floor again")
 
 	controller.action_taken.disconnect(on_action)
 	bus.damage_dealt.disconnect(on_damage)
@@ -2965,6 +3251,7 @@ func _check_game_flow():
 	var combat = _mgr("CombatManager")
 	var items = _mgr("ItemDatabase")
 	var ui = _mgr("UIManager")
+	var features = _mgr("FeatureManager")
 
 	# --- main menu, no saves yet ---
 	game.go_to_main_menu()
@@ -3039,6 +3326,13 @@ func _check_game_flow():
 	comp.recruit("kaelen")
 	await _wait(0.3)
 	world.companion_nodes["kaelen"].stats.current_hp = 5
+	# Of the gear a save carries both weapon sets, which one is in hand, and
+	# what has been used since the last long rest
+	var swapped: Dictionary = world.combat.request_action(world.player, "swap_weapons")
+	features._mark_used(stats, "relentless_endurance")
+	check(swapped.ok and inv.get_weapon_set(stats) == 2 and inv.get_equipped_item(stats, "main_hand").item_data.item_id == "quarterstaff"
+		and inv.get_equipped_item(stats, "main_hand_2").item_data.item_id == "dagger",
+		"test setup: the new wizard has its staff in the first weapon set and its dagger, now in hand, in the second")
 	stats.current_hp = max(1, stats.max_hp - 2)
 	var expected := {
 		"pos": world.player.grid_position,
@@ -3072,6 +3366,10 @@ func _check_game_flow():
 	check(inv.gold == expected.gold and inv.items.size() == expected.bag, "gold and bag are as saved, not as left",
 		"gold %d bag %d" % [inv.gold, inv.items.size()])
 	check(not inv.get_equipped_item(stats, "main_hand").is_empty(), "equipment is restored")
+	check(inv.get_equipped_item(stats, "main_hand").item_data.item_id == "quarterstaff"
+		and inv.get_equipped_item(stats, "main_hand_2").item_data.item_id == "dagger" and inv.get_weapon_set(stats) == 2
+		and world.player.get_weapon().item_id == "dagger" and features.is_used(stats, "relentless_endurance"),
+		"both weapon sets, which of them is in hand, and what was used since the last long rest are restored")
 	check(_enemy_summary(world) == expected.enemies, "the enemies are the same ones, with the same wounds",
 		"%s vs %s" % [str(_enemy_summary(world)), str(expected.enemies)])
 	var drop_ok := false
@@ -3141,6 +3439,19 @@ func _check_game_flow():
 	_write_raw_save(saves, 6, {"version": "0.1.0", "timestamp": 1000, "position_x": 5, "position_y": 5,
 		"hp": 7, "max_hp": 12, "gold": 77, "player_level": 1})
 	_write_raw_save(saves, 7, {"version": 99, "timestamp": 2000})
+	# Format 3: one pair of hands and a ranged slot, items under the material ids of the time
+	var v3: Dictionary = raw.duplicate(true)
+	v3["version"] = 3
+	var v3_gear: Dictionary = v3["systems"]["inventory"]["equipped_items"]["player"]
+	v3_gear.erase("main_hand_2")
+	v3_gear.erase("off_hand_2")
+	v3_gear["main_hand"] = {"item_id": "iron_dagger", "quality_modifier": 0, "magic_modifier": 0, "current_durability": 40, "stack_count": 1}
+	v3_gear["ranged"] = {"item_id": "ash_shortbow", "quality_modifier": 1, "magic_modifier": 0, "current_durability": 28, "stack_count": 1}
+	v3["systems"]["inventory"].erase("weapon_sets")
+	v3["systems"]["inventory"]["items"].append({"item_id": "leather_jerkin", "quality_modifier": 0, "magic_modifier": 0,
+		"current_durability": 30, "stack_count": 1})
+	v3["systems"].erase("features")
+	_write_raw_save(saves, 8, v3)
 
 	var migrated: Dictionary = saves.read_save(5)
 	check(int(migrated.get("version", 0)) == saves.SAVE_FORMAT_VERSION and migrated.get("world") is Dictionary
@@ -3148,6 +3459,28 @@ func _check_game_flow():
 	check(int(saves.get_save_info(6).get("gold", -1)) == 77, "a format-1 save is readable in the slot list")
 	check(saves.read_save(7).is_empty() and not game.load_game(7) and _world() == world,
 		"a save from a newer version is refused and nothing changes")
+
+	var from_v3: Dictionary = saves.read_save(8)
+	var migrated_gear: Dictionary = from_v3["systems"]["inventory"]["equipped_items"]["player"]
+	check(int(from_v3.get("version", 0)) == 4 and saves.SAVE_FORMAT_VERSION == 4 and int(from_v3.get("migrated_from", 0)) == 3
+		and not migrated_gear.has("ranged") and migrated_gear.get("main_hand_2", {}).get("item_id", "") == "ash_shortbow"
+		and from_v3["systems"]["inventory"].get("weapon_sets") is Dictionary and from_v3["systems"].get("features") is Dictionary,
+		"a format-3 save is migrated on read: the item of the ranged slot becomes the main hand of the second weapon set")
+	check(game.load_game(8), "a format-3 save loads")
+	await _wait(1.0)
+	world = _world()
+	var old_stats = world.player.stats if world != null else null
+	var carried: Array = []
+	for carried_item in inv.items:
+		carried.append(carried_item.item_data.item_id)
+	var old_bow: Dictionary = inv.get_equipped_item(old_stats, "main_hand_2") if old_stats != null else {}
+	check(not old_bow.is_empty() and old_bow.item_data.item_id == "ash_shortbow" and int(old_bow.quality_modifier) == 1
+		and inv.get_weapon_set(old_stats) == 1 and world.player.get_weapon(2) == old_bow.item_data and not inv.equipped_items[old_stats].has("ranged")
+		and not features.is_used(old_stats, "relentless_endurance"),
+		"an old save's ranged weapon is in the second weapon set after loading, and the first set is in hand")
+	check(old_stats != null and inv.get_equipped_item(old_stats, "main_hand").item_data.item_id == "wrought_iron_dagger"
+		and world.player.get_weapon().item_name == "Wrought Iron Dagger" and "cowhide_jerkin" in carried,
+		"items an old save holds under old material ids load as the items they became", str(carried))
 
 	check(game.load_game(5), "a format-2 save loads")
 	await _wait(1.0)
