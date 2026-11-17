@@ -562,13 +562,24 @@ should matter what it is made of.
   takes two or more notches at once cracks the piece; the next crit against it, or
   natural 1 with it, breaks it outright; only a forge mends it. He is not attached
   to any of his twelve states but wants more states than cracked and corroded
-  ("i'd want MORE"). Proposed, not yet answered, in three families:
-  - Damage: cracked; dull (weapons) and loose (armour, shields) as the warning
-    stage of wear, at half the marks to a notch, cleared by routine care in the
-    field; corroded (acid, rust: marks count double); scorched (fire: hardness -2
-    until reworked at a forge); brittle (cold: counts as cracked until thawed by a
-    fire); soaked (leather, cloth, bowstrings); drained (magic bonus suppressed).
-  - Care, prepared at camp and worn off in use: honed, oiled, fitted.
+  ("i'd want MORE").
+- His rule for states: **a state never has anything to do with wear marks.** It
+  may interact with notches. Marks stay a plain counter driven only by the length
+  of fights. For the same reason a state does not change hardness, since hardness
+  sets how many marks cost a notch. (My first list broke this: dull and loose
+  keyed off marks, corroded doubled them, fitted produced them, scorched lowered
+  hardness. He rejected it.)
+- Proposed states under that rule, not yet answered, in three families:
+  - Damage: cracked; breached (armour, from a piercing crit: enemies crit on 19-20
+    against the wearer until that notch is repaired); corroded (metal, from acid
+    and rust: loses one more notch after every fight until cleaned with oil);
+    scorched (fire: one maximum notch gone until reworked at a forge); brittle
+    (cold: any blow that takes a notch takes one extra, until thawed by a fire);
+    soaked (leather, cloth, bowstrings: weight and bow accuracy); drained (magic
+    bonus suppressed until recharged).
+  - Care, prepared at camp and worn off in use: honed (+1 damage until the weapon
+    next loses a notch), oiled (shrugs off the next corrosion or soaking), fitted
+    (ignores the first notch it would lose).
   - History, earned and erased by a reforge: blooded, tempered, named.
   Each state must do something a notch cannot, have a cause the player can see
   coming, and have one cure. States are built as their causes arrive (elemental
