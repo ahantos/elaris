@@ -211,6 +211,18 @@ func get_attack_advantage_state(attacker: Node, defender: Node) -> Dictionary:
 	return {"advantage": advantage, "disadvantage": disadvantage}
 
 
+func get_attack_advantage_sources(attacker: Node, defender: Node) -> Dictionary:
+	"""Which effects stand behind get_attack_advantage_state, by name, for showing
+	to the player: {advantage: [..], disadvantage: [..]}. An effect on the
+	attacker is named as it is ("poisoned"); one on the defender as
+	"target stunned"."""
+	var advantage: Array[String] = _effect_names_with(attacker, "attack_advantage")
+	advantage.append_array(_effect_names_with(defender, "grants_advantage_to_attackers", "target "))
+	var disadvantage: Array[String] = _effect_names_with(attacker, "attack_disadvantage")
+	disadvantage.append_array(_effect_names_with(defender, "grants_disadvantage_to_attackers", "target "))
+	return {"advantage": advantage, "disadvantage": disadvantage}
+
+
 func is_incapacitated(target: Node) -> bool:
 	"""True when any active effect incapacitates (stunned, paralyzed, frozen)."""
 	return _any_bool_modifier(target, "incapacitated")
@@ -308,6 +320,20 @@ func _any_bool_modifier(target: Node, key: String) -> bool:
 		if modifiers.get(key, false):
 			return true
 	return false
+
+
+func _effect_names_with(target: Node, key: String, prefix: String = "") -> Array[String]:
+	"""The names, in lower case, of the combatant's active effects that set a
+	bool modifier key"""
+	var names: Array[String] = []
+	_purge_freed_targets()
+	if target == null or not is_instance_valid(target) or not active_effects.has(target):
+		return names
+	for effect_id in active_effects[target]:
+		var definition: Dictionary = effect_definitions.get(effect_id, {})
+		if definition.get("modifiers", {}).get(key, false):
+			names.append(prefix + str(definition.get("display_name", effect_id)).to_lower())
+	return names
 
 
 func _process_ticks(target: Node, timing: String):

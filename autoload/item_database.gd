@@ -141,7 +141,8 @@ func get_materials_by_category(category: MaterialData.Category) -> Array:
 # { id, name, cat ("simple" | "martial"), dice, dtype, 2h, ranged, rn, rm,
 #   weight, value, props, mats }
 # A weapon with the "versatile" property also gives "vdice": its damage dice
-# when it is held in both hands.
+# when it is held in both hands. "rn" and "rm" are a ranged weapon's normal and
+# maximum range in tiles of 5 feet (a shortbow's 80 and 320 feet are 16 and 64).
 const WEAPON_BASES := [
 	# ── MELEE ────────────────────────────────────────────────────────
 	{

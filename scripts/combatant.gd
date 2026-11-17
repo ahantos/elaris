@@ -126,6 +126,12 @@ func is_aiming_attack() -> bool:
 	"""True while the player is picking a target for this combatant's attack"""
 	return false
 
+func get_aim_preview() -> Dictionary:
+	"""While an attack is being aimed and the pointer rests on a hostile: what
+	the CombatController says attacking it would be (preview_attack). {}
+	otherwise."""
+	return {}
+
 func get_display_name() -> String:
 	"""What to call this combatant on screen"""
 	if stats != null and stats.character_name != "":
@@ -208,20 +214,38 @@ func _on_status_effect_applied_event(target, _effect_id: String, _duration: int)
 		dodging = false
 
 # ============================================================================
-# WEAPON IN HAND
+# WEAPONS
 # ============================================================================
 
+func get_melee_weapon() -> ItemData:
+	"""The melee weapon in the main hand: what an attack on an adjacent target
+	is made with. null means an unarmed strike."""
+	var weapon: ItemData = _equipped_weapon("main_hand")
+	return weapon if weapon != null and not weapon.is_ranged else null
+
+func get_ranged_weapon() -> ItemData:
+	"""The ranged weapon this combatant carries, in the `ranged` slot or in the
+	main hand: what an attack on a target beyond reach is made with. null when
+	it has none."""
+	for slot in ["ranged", "main_hand"]:
+		var weapon: ItemData = _equipped_weapon(slot)
+		if weapon != null and weapon.is_ranged:
+			return weapon
+	return null
+
 func get_wielded_weapon() -> ItemData:
-	"""The weapon this combatant attacks with: what is in its main hand; with
-	that hand empty, the ranged weapon it carries; with neither, null, which
+	"""The weapon in hand when no target has been named: the melee weapon; with
+	the main hand empty, the ranged weapon it carries; with neither, null, which
 	is an unarmed strike."""
+	var melee: ItemData = get_melee_weapon()
+	return melee if melee != null else get_ranged_weapon()
+
+func _equipped_weapon(slot: String) -> ItemData:
+	"""The weapon in an equipment slot, or null"""
 	if stats == null:
 		return null
-	for slot in ["main_hand", "ranged"]:
-		var item_data = InventoryManager.get_equipped_item(stats, slot).get("item_data")
-		if item_data is ItemData and item_data.is_weapon:
-			return item_data
-	return null
+	var item_data = InventoryManager.get_equipped_item(stats, slot).get("item_data")
+	return item_data if item_data is ItemData and item_data.is_weapon else null
 
 func is_off_hand_free() -> bool:
 	"""True when nothing is held in the off hand, so a versatile weapon can be

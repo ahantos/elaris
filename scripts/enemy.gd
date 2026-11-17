@@ -26,6 +26,9 @@ var path_index: int = 0
 
 # The weapon every enemy attacks with until the bestiary gives each type its own
 var _stand_in_weapon: ItemData = null
+# The ranged weapon this enemy carries. None has one until the bestiary: the AI
+# below only ever attacks an adjacent target.
+var ranged_weapon: ItemData = null
 
 func _init():
 	team = Team.HOSTILE
@@ -115,7 +118,7 @@ func _finish_turn_effects():
 		return
 	StatusEffectManager.process_turn_end(self)
 
-func get_wielded_weapon() -> ItemData:
+func get_melee_weapon() -> ItemData:
 	"""A stand-in until the bestiary gives each enemy type its own attacks: a
 	plain 1d6 weapon"""
 	if _stand_in_weapon == null:
@@ -125,6 +128,9 @@ func get_wielded_weapon() -> ItemData:
 		_stand_in_weapon.weapon_category = "simple"
 		_stand_in_weapon.damage_dice = "1d6"
 	return _stand_in_weapon
+
+func get_ranged_weapon() -> ItemData:
+	return ranged_weapon
 
 func get_flank_partners() -> Array:
 	"""Enemies do not flank yet: their attacks stay as they were until the

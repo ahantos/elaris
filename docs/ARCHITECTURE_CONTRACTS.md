@@ -128,10 +128,11 @@ and "the boot has no script errors" is no longer what done means.
   `flash_damage`, `draw_hp_bar`, `animate_attack`, opportunity-attack checks on
   leaving a hostile's reach, and the turn interface the combat controller calls:
   `is_player_controlled()`, `take_turn()`, `on_combat_started()`,
-  `on_combat_ended()`, `follow_path(tiles)`. A subclass that overrides `_ready()`
-  calls `super._ready()` first. What a combatant does on its turn stays in the
-  subclass, and it does it by asking: `combatant.request_action(action_id, params)`
-  (section 4).
+  `on_combat_ended()`, `follow_path(tiles)`. For the HUD it answers
+  `is_aiming_attack()` and `get_aim_preview()` (section 5). A subclass that
+  overrides `_ready()` calls `super._ready()` first. What a combatant does on its
+  turn stays in the subclass, and it does it by asking:
+  `combatant.request_action(action_id, params)` (section 4).
 - **Turn resources live on the base** (5e): `movement_left` and `movement_granted`
   (tiles), `action_used`, `bonus_action_used`, `reaction_used`, and the two states a
   turn can leave behind, `disengaged` and `dodging` (ask `is_dodging()`). The
@@ -142,11 +143,14 @@ and "the boot has no script errors" is no longer what done means.
   Walking spends a tile of movement per tile reached while `is_taking_turns()` (a
   fight; for the player also the turn mode outside one). The action economy exists
   only in a fight.
-- **The weapon in hand** is `get_wielded_weapon()`: the main-hand item; with that
-  hand empty, the item in the `ranged` slot; with neither, null, an unarmed strike.
-  Enemies answer with a stand-in 1d6 weapon until the bestiary. `is_off_hand_free()`
-  and `get_flank_partners()` complete what an attack needs to know (enemies have no
-  flank partners yet).
+- **Weapons.** `get_melee_weapon()` is the melee weapon in the main hand (null: an
+  unarmed strike) and `get_ranged_weapon()` the weapon in the `ranged` slot (null:
+  none). `get_wielded_weapon()` is what is in hand when no target has been named:
+  the melee weapon; without one, the ranged weapon; with neither, null. Which of
+  them an attack uses depends on the target (section 4). Enemies answer with a
+  stand-in 1d6 melee weapon and carry no ranged weapon (`Enemy.ranged_weapon` is
+  null) until the bestiary. `is_off_hand_free()` and `get_flank_partners()` complete
+  what an attack needs to know (enemies have no flank partners yet).
 - The world lists the combatants in the scene: `World.get_combatants()`,
   `get_combatant_at(tile)`, `is_tile_occupied(tile, exclude)`.
 
@@ -169,6 +173,10 @@ off hand holds something, and anything in the off hand beside a two-handed weapo
   `weapon_category` (`simple` or `martial`), `damage_dice`, `damage_type`,
   `is_two_handed`, `is_ranged`, and `special_properties` (`finesse`, `versatile`,
   `thrown`); a versatile weapon also has `versatile_dice`, its dice in both hands.
+  A ranged weapon has `range_normal` and `range_max`, **in tiles** (one tile is 5
+  feet): a shortbow's 16 and 64 are the 5e 80 and 320 feet. Read them through
+  `CombatManager.get_weapon_range(weapon)`, the one place that knows the unit. All
+  four ranged bases are two-handed and go in the `ranged` slot.
   `CharacterStats.is_proficient_with_weapon(weapon)` reads proficiency from the class
   data and the character's own list, by category or by base id.
 - Armour bases (slot): helmet (head), chain_mail (chest), chestplate (chest),
@@ -263,7 +271,7 @@ crisis `{crisis_id, display_name, phases: [{phase: int, name, description}]}`.
 
     | `action_id` | `params` | Costs | Adds to the result |
     |---|---|---|---|
-    | `attack` | `{target: Combatant}` | action | the `CombatManager.make_attack` result (`hit`, `damage`, `damage_type`, `is_crit`, `weapon_name`, ...), `target` |
+    | `attack` | `{target: Combatant}` | action | the `CombatManager.make_attack` result (`hit`, `damage`, `damage_type`, `is_crit`, `weapon_name`, `is_ranged`, `advantage`, `disadvantage`, `reasons`, `cover_bonus`, `distance`, ...), `target` |
     | `dash` | | action | `movement_added` |
     | `disengage` | | action | |
     | `dodge` | | action | |
@@ -275,10 +283,32 @@ crisis `{crisis_id, display_name, phases: [{phase: int, name, description}]}`.
     In a fight a request is approved only on the combatant's own turn. Outside a
     fight nothing is spent and there is no turn to wait for: items, moves and spells
     on oneself are free, and `attack`, `dash`, `disengage` and `dodge` are refused
-    ("Not in combat"). A `reaction` spell cannot be cast yet. An attack is one melee
-    attack on an adjacent hostile; a ranged weapon in hand, or a two-handed weapon
-    beside a full off hand, is refused with the reason. An attack is resolved at
-    once: the roll, the damage and the floating number happen inside the request.
+    ("Not in combat"). A `reaction` spell cannot be cast yet.
+  - **An attack is one weapon attack on a hostile, and the weapon follows the
+    target.** An adjacent target: the melee weapon in the main hand, or an unarmed
+    strike. A target beyond reach: the ranged weapon the combatant carries, when the
+    target is within the weapon's maximum range and in line of sight
+    (`CombatGrid.has_line_of_sight`). With nothing but a ranged weapon an adjacent
+    target is shot, or struck unarmed when the weapon cannot be fired. Refused, with
+    the reason: a target beyond reach and no ranged weapon; beyond the maximum
+    range; out of sight; a two-handed weapon, melee or ranged, beside a full off
+    hand. What is in the main hand never stops a shot: drawing and stowing a weapon
+    is the free object interaction, and there is no weapon-swap action. Any
+    combatant attacks this way; the weapons come from `get_melee_weapon()` and
+    `get_ranged_weapon()`.
+  - An attack is resolved at once: the roll and the damage happen inside the
+    request. A melee attack shows its floating number at once. A ranged one sends
+    a `Projectile` (`scripts/projectile.gd`: drawn in code, display only, moved in
+    `_process` so it stands still while the game is paused) from the attacker to
+    the target, and the number appears when it lands. A hostile that is attacked
+    from outside the fight joins it (`add_combatant`).
+  - `get_attack_targets(combatant)` lists the living hostiles the combatant could
+    attack from where it stands, by weapon, reach, range and line of sight; it says
+    nothing about the turn. `preview_attack(combatant, target)` is what attacking
+    one target would be: `{ok, reason}` as `check_action` answers it, plus `target`,
+    `profile`, `weapon_name`, `damage_text`, `distance` and `hit_chance` (the
+    `CombatManager.get_hit_chance` answer). Neither changes anything or rolls a
+    die; they are what the targeting display draws.
   - **Anything that acts in a fight asks first.** `Combatant.can_act()` is true outside
     a fight and, inside one, only for the turn-holder. Never keep a second idea of
     whose turn it is (a flag, an index in a UI widget).
@@ -305,25 +335,53 @@ crisis `{crisis_id, display_name, phases: [{phase: int, name, description}]}`.
   - `scripts/initiativetracker.gd`, `scripts/turn_ui.gd` and the action bar only
     draw what the controller says.
 - **CombatManager** rolls every die of a fight. It owns `get_attack_profile`,
-  `make_attack`, `roll_attack`, `roll_damage`, `apply_damage`, `make_saving_throw`,
-  `roll_initiative`, `trigger_opportunity_attack`. It reads StatusEffectManager for
-  advantage, AC modifiers and incapacitation, and `scripts/combat_grid.gd` for
+  `get_attack_modifiers`, `get_hit_chance`, `make_attack`, `roll_attack`,
+  `roll_damage`, `apply_damage`, `make_saving_throw`, `roll_initiative`,
+  `trigger_opportunity_attack`. It reads StatusEffectManager for advantage, AC
+  modifiers and incapacitation, and `scripts/combat_grid.gd` for
   `has_line_of_sight`, `get_cover_ac_bonus`, `is_flanking` and `get_distance_tiles`
   (Chebyshev). It rolls and applies; it does not know whose turn it is.
-  - `get_attack_profile(combatant)` is how the combatant attacks right now, by 5e
-    rules, as numbers: `{weapon, weapon_name, damage_dice, flat_damage, damage_type,
-    ability, ability_modifier, proficient, attack_bonus, two_handed_grip, is_ranged,
-    usable, reason}`. Strength, or Dexterity for a finesse weapon when it is the
-    higher; the proficiency bonus only with proficiency; the larger dice of a
-    versatile weapon when the off hand is empty; an unarmed strike (1 + Strength
-    modifier, bludgeoning, proficient) with no weapon. `usable` is false, with the
-    reason, for a ranged weapon (until ranged attacks are built) and for a two-handed
-    weapon beside a full off hand.
-  - `make_attack(attacker, target)` is the one weapon attack: profile, d20, damage
-    (dice doubled on a critical hit, plus the same ability modifier), applied with
-    the weapon's damage type. The Attack action and opportunity attacks of the
-    player, companions and enemies all come through it. `roll_attack(attacker,
-    target, profile)` rolls without applying.
+  - `get_attack_profile(combatant, target)` is how the combatant attacks that
+    target, by 5e rules, as numbers: `{weapon, weapon_name, damage_dice,
+    flat_damage, damage_type, ability, ability_modifier, proficient, attack_bonus,
+    two_handed_grip, is_ranged, range_normal, range_max, usable, reason}`. The
+    weapon follows the target (melee in reach, ranged beyond it; see the `attack`
+    request above); without a target it is the weapon in hand.
+    `get_melee_profile(combatant)` and `get_ranged_profile(combatant)` (`{}` with no
+    ranged weapon) give the two on their own, `get_unarmed_profile` the unarmed
+    strike. Strength, or Dexterity for a finesse weapon when it is the higher, and
+    always Dexterity for a ranged weapon, for the roll and the damage alike; the
+    proficiency bonus only with proficiency; the larger dice of a versatile weapon
+    when the off hand is empty; an unarmed strike (1 + Strength modifier,
+    bludgeoning, proficient) with no weapon. `range_normal` and `range_max` are
+    tiles (`get_weapon_range`). `usable` is false, with the reason, for a two-handed
+    weapon, melee or ranged, beside a full off hand. `get_damage_text(profile)` is
+    the damage as the player reads it ("1d8+2 slashing").
+  - `get_attack_modifiers(attacker, target, profile)` is everything that bears on
+    the roll before the die is cast, and why: `{advantage, disadvantage,
+    advantage_reasons, disadvantage_reasons, reasons, attack_bonus, target_ac,
+    cover_bonus, flanking, distance}`. Status effects on either side; a dodging
+    target (disadvantage); a heavily laden party member (disadvantage); for a melee
+    attack, flanking (advantage); for a ranged attack, a target beyond the weapon's
+    normal range (disadvantage, "long range") and a hostile next to the attacker
+    that is not incapacitated (disadvantage, "enemy adjacent"); cover from
+    `CombatGrid.get_cover_ac_bonus` on the target's AC ("half cover"), which only an
+    attack from beyond reach can meet. Advantage and disadvantage together cancel.
+    `reasons` are words to show the player; the `REASON_*` constants name them.
+  - `get_hit_chance(attacker, target, profile)` turns those modifiers into the
+    chance to hit, exactly and without rolling: `{chance (0 to 1), percent, needed
+    (the lowest d20 face that hits), ...the modifiers, auto_fail}`. A natural 20
+    always hits and a natural 1 always misses, so the chance never leaves 5% to
+    95%; advantage is the better of two dice, disadvantage the worse.
+    `roll_attack` rolls with the same `get_attack_modifiers` answer, so what is
+    shown is what is rolled. Interface code shows this; it never rolls.
+  - `make_attack(attacker, target, profile)` is the one weapon attack, melee or
+    ranged: profile, d20, damage (dice doubled on a critical hit, plus the same
+    ability modifier), applied with the weapon's damage type. The Attack action
+    and opportunity attacks of the player, companions and enemies all come through
+    it. `roll_attack(attacker, target, profile)` rolls without applying. Neither
+    judges reach, range or sight: that is the controller's check. An opportunity
+    attack is always made with the melee weapon or an unarmed strike.
   - A dodging target gives the attacker disadvantage and makes Dexterity saves with
     advantage.
   - Reactions: an opportunity attack spends the reactor's `reaction_used`, which
@@ -376,7 +434,26 @@ crisis `{crisis_id, display_name, phases: [{phase: int, name, description}]}`.
   `combatant.choose_action(action_id)`, which asks the controller. Above the buttons
   it shows the turn resources of whoever holds the turn. A new action needs an id in
   the controller, a button in the scene and a title in the bar; the bar holds no
-  rules of its own. A click on the bottom bar is not a click on the map.
+  rules of its own. A click on the bottom bar is not a click on the map. The Attack
+  button names what `CombatManager` says the combatant attacks with: one weapon as
+  name and damage, a melee and a ranged weapon as a line each ("Longsword 1d8+2",
+  "Light Crossbow 1d8+1"). A button that can be pressed may carry a note in the
+  reason's place (`show_action(..., note)`): Attack uses it for a ranged weapon that
+  cannot be fired.
+- **Aiming an attack.** Picking Attack (button or key 1) starts aiming; Esc or key 1
+  again puts it away. While aiming, `GridCharacter` draws what the controller says
+  and decides nothing: the tiles in reach, the normal and maximum range of the
+  ranged weapon as outlines, a marker on every enemy in `get_attack_targets()`, and
+  the enemy under the pointer picked out, in red when it cannot be attacked. The
+  bar's hint line says how far each weapon reaches. The readout beside the enemy
+  under the pointer is a scene of its own (`scenes/ui/attack_preview.tscn`,
+  `ui/attack_preview.gd`, on a CanvasLayer the world creates): it shows
+  `combatant.get_aim_preview()`, which is the controller's `preview_attack()`
+  answer - the weapon, the chance to hit, the damage, the reasons for advantage or
+  disadvantage and the cover, or why the enemy cannot be attacked. A click on an
+  enemy sends the `attack` request; a refusal is shown and leaves the attack
+  selected while someone else can still be attacked; a click on no enemy puts the
+  attack away.
 - After any UI change, run the screenshot tour and look at the pictures.
 
 ## 6. Art

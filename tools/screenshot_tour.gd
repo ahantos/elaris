@@ -140,6 +140,59 @@ func _add_art_sheet(world, art, manifest) -> Node2D:
 				next += 1
 	return sheet
 
+func _aim_ranged_shot(world, target):
+	"""The player's first turn of the fight: a few tiles from the enemy and in
+	its sight, the shield off so that the ranged weapon can be fired, Attack
+	picked, the pointer resting on the enemy; then one shot, for the arrow on
+	its way. The enemy is made to survive the shot, the action is handed back
+	and the shield goes back on: the rest of the tour is the fight it was."""
+	var inventory = root.get_node("InventoryManager")
+	var grid_script = load("res://scripts/combat_grid.gd")
+	var player = world.player
+	if not is_instance_valid(target) or not target.is_alive():
+		return
+	for distance in [4, 3, 5, 2]:
+		var moved := false
+		for offset in [Vector2i(distance, 0), Vector2i(-distance, 0), Vector2i(0, distance), Vector2i(0, -distance)]:
+			var tile: Vector2i = target.grid_position + offset
+			if not moved and grid_script.has_line_of_sight(tile, target.grid_position, world.current_dungeon.dungeon_grid) \
+					and (tile == player.grid_position or player.teleport_to_grid(tile)):
+				moved = true
+		if moved:
+			break
+	if player.get_ranged_weapon() == null:
+		var bow: Dictionary = root.get_node("ItemDatabase").create_item_instance("shortbow")
+		inventory.add_item(bow)
+		inventory.equip_item(bow, player.stats, "ranged")
+	var shield: Dictionary = inventory.get_equipped_item(player.stats, "off_hand")
+	if not shield.is_empty():
+		inventory.unequip_item(player.stats, "off_hand")
+	player.choose_action("attack")
+	# The tour's window has a real mouse somewhere: hold the pointer on the
+	# enemy for the picture instead
+	player.set_process(false)
+	player._update_aim(target.grid_position)
+	await _wait(0.3)
+	await _shot("combat_ranged_aim")
+	player.set_process(true)
+	player.attack_mode = false
+	player.queue_redraw()
+
+	var hp_before: int = target.stats.current_hp
+	target.stats.max_hp += 100
+	target.stats.current_hp += 100
+	world.combat.request_action(player, "attack", {"target": target})
+	await _shot("combat_ranged_shot")
+	await _wait(1.5)  # the arrow has landed and its number has gone
+	target.stats.max_hp -= 100
+	target.stats.current_hp = hp_before
+	target.queue_redraw()
+	player.action_used = false
+
+	if not shield.is_empty():
+		inventory.equip_item(shield, player.stats, "off_hand")
+	await _wait(0.2)
+
 func _remove_tour_saves():
 	"""Delete this run's scratch folder and everything in it"""
 	var dir := DirAccess.open(_save_dir)
@@ -261,6 +314,8 @@ func _run():
 			if not world.in_combat or not is_instance_valid(player):
 				break
 			await _wait(0.4)
+			if round_number == 0:
+				await _aim_ranged_shot(world, target)
 			var adjacent = null
 			for enemy in world.enemies:
 				if is_instance_valid(enemy) and enemy.stats and enemy.stats.is_alive():

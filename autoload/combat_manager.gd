@@ -1,21 +1,38 @@
 # combat_manager.gd
 # AutoLoad singleton - every die rolled in a fight: attack rolls, damage, saving
 # throws, initiative, opportunity attacks. It works out what a combatant attacks
-# with (the weapon in hand, by 5e rules), reads status effects and position
-# (cover and flanking via CombatGrid), and applies the damage. It does not know
-# whose turn it is: the CombatController decides what may be done and asks here
-# for the outcome.
+# with (the melee weapon in hand or the ranged weapon it carries, by 5e rules),
+# reads status effects and position (range, cover and flanking via CombatGrid),
+# says what the chance to hit is before anything is rolled, and applies the
+# damage. It does not know whose turn it is: the CombatController decides what
+# may be done and asks here for the outcome.
 extends Node
 
 # Combat constants
 const BASE_AC: int = 10  # Base armor class (10 + DEX)
 const CRIT_THRESHOLD: int = 20  # Natural 20 = crit
 const FUMBLE_THRESHOLD: int = 1  # Natural 1 = fumble
+const D20_FACES: int = 20
+
+# How far a melee attack reaches, in tiles
+const MELEE_REACH: int = 1
 
 # An unarmed strike (5e): 1 + Strength modifier, bludgeoning, always proficient
 const UNARMED_NAME: String = "Unarmed strike"
 const UNARMED_DAMAGE: int = 1
 const UNARMED_DAMAGE_TYPE: String = "bludgeoning"
+
+# Why an attack roll has advantage or disadvantage, or its target more armour:
+# the words get_attack_modifiers and get_hit_chance give in their reasons.
+# Status effects add their own names (StatusEffectManager.get_attack_advantage_sources).
+const REASON_LONG_RANGE: String = "long range"
+const REASON_ENEMY_ADJACENT: String = "enemy adjacent"
+const REASON_ENCUMBERED: String = "encumbered"
+const REASON_TARGET_DODGING: String = "target dodging"
+const REASON_FLANKING: String = "flanking"
+const REASON_HALF_COVER: String = "half cover"
+const REASON_FULL_COVER: String = "full cover"
+const REASON_INCAPACITATED: String = "incapacitated"
 
 # Damage types
 enum DamageType {
@@ -56,28 +73,81 @@ func _ready():
 
 # === WHAT A COMBATANT ATTACKS WITH ===
 
-func get_attack_profile(attacker: Combatant) -> Dictionary:
-	"""How the combatant attacks right now: the weapon in its hand, or an
-	unarmed strike when it holds none. See build_attack_profile for the keys."""
-	return build_attack_profile(attacker, attacker.get_wielded_weapon())
+func get_attack_profile(attacker: Combatant, target: Combatant = null) -> Dictionary:
+	"""How the combatant attacks. With a target, the weapon follows it:
+	- a target in reach (adjacent): the melee weapon in the main hand, or an
+	  unarmed strike;
+	- a target beyond reach: the ranged weapon the attacker carries, if it has
+	  one;
+	- an adjacent target and nothing but a ranged weapon: that weapon (the shot
+	  has disadvantage, see get_attack_modifiers), or an unarmed strike when it
+	  cannot be fired.
+	Without a target: the weapon in hand (Combatant.get_wielded_weapon).
+	Whether the target can be attacked at all - reach, range, line of sight - is
+	the CombatController's to say. See build_attack_profile for the keys."""
+	if target == null or not is_instance_valid(target):
+		return build_attack_profile(attacker, attacker.get_wielded_weapon())
+	var melee: ItemData = attacker.get_melee_weapon()
+	var ranged: ItemData = attacker.get_ranged_weapon()
+	if CombatGrid.get_distance_tiles(attacker.get_grid_position(), target.get_grid_position()) > MELEE_REACH:
+		return build_attack_profile(attacker, ranged if ranged != null else melee)
+	if melee != null or ranged == null:
+		return build_attack_profile(attacker, melee)
+	var shot: Dictionary = build_attack_profile(attacker, ranged)
+	return shot if shot.usable else get_unarmed_profile(attacker)
+
+func get_melee_profile(attacker: Combatant) -> Dictionary:
+	"""The combatant's attack on a target in reach: its melee weapon, or an
+	unarmed strike"""
+	return build_attack_profile(attacker, attacker.get_melee_weapon())
+
+func get_ranged_profile(attacker: Combatant) -> Dictionary:
+	"""The combatant's attack on a target beyond reach, or {} when it carries
+	no ranged weapon"""
+	var weapon: ItemData = attacker.get_ranged_weapon()
+	return build_attack_profile(attacker, weapon) if weapon != null else {}
 
 func get_unarmed_profile(attacker: Combatant) -> Dictionary:
 	"""The combatant's unarmed strike, whatever it is holding"""
 	return build_attack_profile(attacker, null)
 
+func get_weapon_range(weapon: ItemData) -> Dictionary:
+	"""{normal, max}: how far a ranged weapon shoots, in tiles (one tile is 5
+	feet). Up to normal it shoots plainly, up to max at disadvantage, further
+	not at all. The weapon table stores its ranges in tiles already: a shortbow's
+	16 and 64 are the 5e 80 and 320 feet. {0, 0} for anything that is not a
+	ranged weapon."""
+	if weapon == null or not weapon.is_ranged:
+		return {"normal": 0, "max": 0}
+	return {"normal": weapon.range_normal, "max": max(weapon.range_normal, weapon.range_max)}
+
+func get_damage_text(profile: Dictionary) -> String:
+	"""An attack profile's damage as the player reads it: '1d8+2 slashing' for a
+	weapon, '3 bludgeoning' for an unarmed strike"""
+	var modifier: int = int(profile.get("ability_modifier", 0))
+	var amount: String = str(profile.get("damage_dice", ""))
+	if amount == "":
+		amount = str(max(1, int(profile.get("flat_damage", 0)) + modifier))
+	elif modifier > 0:
+		amount += "+%d" % modifier
+	elif modifier < 0:
+		amount += str(modifier)
+	return "%s %s" % [amount, str(profile.get("damage_type", "physical"))]
+
 func build_attack_profile(attacker: Combatant, weapon: ItemData) -> Dictionary:
 	"""One attack by 5e rules, as numbers. weapon null is an unarmed strike.
 	- Ability: Strength; a finesse weapon uses Dexterity when that is higher;
-	  a ranged weapon uses Dexterity.
+	  a ranged weapon uses Dexterity, for the attack roll and the damage.
 	- Proficiency bonus only when the attacker is proficient with the weapon.
 	- A versatile weapon uses its larger dice when the off hand is empty.
-	- A two-handed weapon with something in the off hand, and (until ranged
-	  attacks are built) a ranged weapon, cannot attack: usable is false and
-	  reason says why.
+	- A two-handed weapon, melee or ranged, with something in the off hand
+	  cannot attack: usable is false and reason says why. What is in the main
+	  hand never stops a shot: drawing and stowing a weapon is free.
 	Returns {weapon: ItemData or null, weapon_name, damage_dice ("" when the
 	damage has no dice), flat_damage, damage_type (contract string), ability
 	("str" | "dex"), ability_modifier, proficient, attack_bonus, two_handed_grip,
-	is_ranged, usable, reason}."""
+	is_ranged, range_normal, range_max (tiles; 0 for a melee attack), usable,
+	reason}."""
 	var stats: CharacterStats = attacker.stats
 	var strength: int = stats.get_str_modifier()
 	var profile: Dictionary = {
@@ -92,6 +162,8 @@ func build_attack_profile(attacker: Combatant, weapon: ItemData) -> Dictionary:
 		"attack_bonus": strength + stats.proficiency_bonus,
 		"two_handed_grip": false,
 		"is_ranged": false,
+		"range_normal": 0,
+		"range_max": 0,
 		"usable": true,
 		"reason": "",
 	}
@@ -102,6 +174,9 @@ func build_attack_profile(attacker: Combatant, weapon: ItemData) -> Dictionary:
 	profile["weapon_name"] = weapon.item_name
 	profile["damage_type"] = weapon.damage_type if weapon.damage_type != "" else "physical"
 	profile["is_ranged"] = weapon.is_ranged
+	var reach: Dictionary = get_weapon_range(weapon)
+	profile["range_normal"] = reach.normal
+	profile["range_max"] = reach.max
 	if weapon.damage_dice != "":
 		profile["damage_dice"] = weapon.damage_dice
 		profile["flat_damage"] = 0
@@ -124,25 +199,22 @@ func build_attack_profile(attacker: Combatant, weapon: ItemData) -> Dictionary:
 		attack_bonus += weapon.magic_modifier
 	profile["attack_bonus"] = attack_bonus
 
-	if weapon.is_ranged:
+	if weapon.is_two_handed and not off_hand_free:
 		profile["usable"] = false
-		profile["reason"] = "%s is a ranged weapon - ranged attacks cannot be made yet" % weapon.item_name
-	elif weapon.is_two_handed and not off_hand_free:
-		profile["usable"] = false
-		profile["reason"] = "%s needs both hands - empty the off hand" % weapon.item_name
+		profile["reason"] = "%s needs both hands free" % weapon.item_name
 	return profile
 
 # === ATTACK SYSTEM ===
 
 func make_attack(attacker: Combatant, target: Combatant, profile: Dictionary = {}) -> Dictionary:
-	"""One melee attack, start to finish: the weapon in the attacker's hand (or
-	the profile given), the d20, the damage, and the damage applied to the
-	target with the weapon's damage type. Every weapon attack in the game comes
-	through here - the Attack action and opportunity attacks, by the player,
-	companions and enemies alike.
+	"""One weapon attack, melee or ranged, start to finish: the weapon that
+	suits the target (or the profile given), the d20, the damage, and the damage
+	applied to the target with the weapon's damage type. Every weapon attack in
+	the game comes through here - the Attack action and opportunity attacks, by
+	the player, companions and enemies alike.
 	Returns the roll_attack result, or {} when the attack could not be made."""
 	if profile.is_empty():
-		profile = get_attack_profile(attacker)
+		profile = get_attack_profile(attacker, target)
 	if not profile.get("usable", false):
 		print("CombatManager: %s cannot attack (%s)" % [attacker.name, str(profile.get("reason", ""))])
 		return {}
@@ -153,45 +225,166 @@ func make_attack(attacker: Combatant, target: Combatant, profile: Dictionary = {
 		apply_damage(target, result.damage, damage_type_from_string(result.damage_type), attacker, result.is_crit)
 	return result
 
+func get_attack_modifiers(attacker: Combatant, target: Combatant, profile: Dictionary,
+						  advantage: bool = false, disadvantage: bool = false) -> Dictionary:
+	"""Everything that bears on one attack roll before the die is cast, and why.
+	roll_attack rolls with it and get_hit_chance turns it into a chance, so what
+	the player is shown is what is rolled. No dice.
+	- Status effects on either side give advantage or disadvantage; blessed or
+	  cursed change the attack bonus; the target's AC takes its effects.
+	- A target that is dodging gives disadvantage.
+	- A heavily laden party member attacks at disadvantage.
+	- Melee: an ally of the attacker on the far side of the target (flanking)
+	  gives advantage; the attacker says who its flank partners are.
+	- Ranged: beyond the weapon's normal range, disadvantage; a hostile next to
+	  the attacker that is not incapacitated, disadvantage.
+	- Cover (CombatGrid.get_cover_ac_bonus) adds to the target's AC. Only an
+	  attack from beyond reach can meet any.
+	Returns {advantage, disadvantage, advantage_reasons, disadvantage_reasons,
+	reasons (both lists and the cover, as words to show: "long range", "enemy
+	adjacent", "half cover"), attack_bonus, target_ac, cover_bonus, flanking,
+	distance (tiles)}. Advantage and disadvantage together cancel out."""
+	var advantage_reasons: Array[String] = []
+	var disadvantage_reasons: Array[String] = []
+	if advantage:
+		advantage_reasons.append("advantage")
+	if disadvantage:
+		disadvantage_reasons.append("disadvantage")
+
+	var attacker_pos: Vector2i = attacker.get_grid_position()
+	var target_pos: Vector2i = target.get_grid_position()
+	var distance: int = CombatGrid.get_distance_tiles(attacker_pos, target_pos)
+	var is_ranged: bool = profile.get("is_ranged", false)
+
+	# Encumbrance - only for whoever is carrying the party's load
+	if InventoryManager.is_party_member(attacker.stats) and InventoryManager.has_disadvantage_on_physical_rolls():
+		disadvantage_reasons.append(REASON_ENCUMBERED)
+
+	# Status effects on both sides
+	var sources: Dictionary = StatusEffectManager.get_attack_advantage_sources(attacker, target)
+	advantage_reasons.append_array(sources.advantage)
+	disadvantage_reasons.append_array(sources.disadvantage)
+
+	# The Dodge action: attack rolls against the dodger have disadvantage
+	if target.is_dodging():
+		disadvantage_reasons.append(REASON_TARGET_DODGING)
+
+	var flanking: bool = false
+	if is_ranged:
+		if distance > int(profile.get("range_normal", 0)):
+			disadvantage_reasons.append(REASON_LONG_RANGE)
+		if _has_threat_adjacent(attacker):
+			disadvantage_reasons.append(REASON_ENEMY_ADJACENT)
+	else:
+		# Flanking: an ally mirrored on the far side of the target
+		var flank_partners: Array = attacker.get_flank_partners()
+		flanking = not flank_partners.is_empty() and CombatGrid.is_flanking(attacker_pos, target_pos, flank_partners)
+		if flanking:
+			advantage_reasons.append(REASON_FLANKING)
+
+	# Positional cover adds to the target's AC
+	var cover_bonus: int = 0
+	var dungeon_grid: Array = _get_dungeon_grid()
+	if not dungeon_grid.is_empty():
+		cover_bonus = CombatGrid.get_cover_ac_bonus(attacker_pos, target_pos, dungeon_grid)
+
+	var reasons: Array[String] = []
+	reasons.append_array(disadvantage_reasons)
+	reasons.append_array(advantage_reasons)
+	if cover_bonus >= CombatGrid.COVER_FULL:
+		reasons.append(REASON_FULL_COVER)
+	elif cover_bonus > 0:
+		reasons.append(REASON_HALF_COVER)
+
+	return {
+		"advantage": not advantage_reasons.is_empty(),
+		"disadvantage": not disadvantage_reasons.is_empty(),
+		"advantage_reasons": advantage_reasons,
+		"disadvantage_reasons": disadvantage_reasons,
+		"reasons": reasons,
+		# Ability modifier, proficiency and the weapon's own bonus come from the
+		# profile; blessed and cursed add to the roll
+		"attack_bonus": int(profile.get("attack_bonus", 0)) + StatusEffectManager.get_attack_roll_modifier(attacker),
+		"target_ac": target.stats.armor_class + StatusEffectManager.get_ac_modifier(target) + cover_bonus,
+		"cover_bonus": cover_bonus,
+		"flanking": flanking,
+		"distance": distance,
+	}
+
+func get_hit_chance(attacker: Combatant, target: Combatant, profile: Dictionary = {}) -> Dictionary:
+	"""The chance that an attack by attacker on target hits, worked out and not
+	rolled: what the player is shown before committing. profile is what the
+	attacker attacks with (default: get_attack_profile for this target).
+	A natural 20 always hits and a natural 1 always misses; with advantage the
+	better of two d20 counts, with disadvantage the worse, and the two cancel.
+	Returns {chance (0.0 to 1.0), percent (rounded), needed (the lowest d20
+	face that hits, 2 to 20), attack_bonus, target_ac, cover_bonus, advantage,
+	disadvantage, advantage_reasons, disadvantage_reasons, reasons, flanking,
+	distance, auto_fail} - the modifiers as get_attack_modifiers gives them.
+	An incapacitated attacker cannot attack: chance 0 and auto_fail."""
+	var preview: Dictionary = {
+		"chance": 0.0, "percent": 0, "needed": CRIT_THRESHOLD,
+		"attack_bonus": 0, "target_ac": 0, "cover_bonus": 0,
+		"advantage": false, "disadvantage": false,
+		"advantage_reasons": [], "disadvantage_reasons": [], "reasons": [],
+		"flanking": false, "distance": 0, "auto_fail": false,
+	}
+	if attacker == null or target == null or not is_instance_valid(attacker) or not is_instance_valid(target) \
+			or attacker.stats == null or target.stats == null:
+		return preview
+	if profile.is_empty():
+		profile = get_attack_profile(attacker, target)
+	preview.merge(get_attack_modifiers(attacker, target, profile), true)
+
+	if StatusEffectManager.is_incapacitated(attacker):
+		preview["auto_fail"] = true
+		preview["reasons"] = [REASON_INCAPACITATED]
+		return preview
+
+	var needed: int = clampi(int(preview.target_ac) - int(preview.attack_bonus), FUMBLE_THRESHOLD + 1, CRIT_THRESHOLD)
+	var chance: float = float(D20_FACES - needed + 1) / float(D20_FACES)
+	if preview.advantage and not preview.disadvantage:
+		chance = 1.0 - (1.0 - chance) * (1.0 - chance)
+	elif preview.disadvantage and not preview.advantage:
+		chance = chance * chance
+	preview["needed"] = needed
+	preview["chance"] = chance
+	preview["percent"] = int(round(chance * 100.0))
+	return preview
+
 func roll_attack(attacker: Combatant, target: Combatant, profile: Dictionary = {},
 				 advantage: bool = false, disadvantage: bool = false) -> Dictionary:
 	"""Roll one attack by attacker against target, without applying anything.
-	profile is what the attacker attacks with (default: get_attack_profile).
-	On top of the d20 and the profile's attack bonus:
+	profile is what the attacker attacks with (default: get_attack_profile for
+	this target). The d20 is rolled with what get_attack_modifiers says:
+	advantage or disadvantage, the attack bonus, the target's AC with cover.
+	Besides:
 	- an incapacitated attacker (stunned, paralyzed, frozen) cannot attack at
 	  all (the result has auto_fail = true),
-	- status effects on either side give advantage or disadvantage, and blessed
-	  or cursed change the roll,
-	- a target that is dodging gives the attacker disadvantage,
-	- a heavily laden party member attacks at disadvantage,
-	- an ally of the attacker on the far side of the target (flanking) gives
-	  advantage; the attacker says who its flank partners are,
-	- the target's AC takes status-effect modifiers and cover,
 	- a melee hit on a paralyzed or frozen target next to the attacker is a
 	  critical hit.
 	Returns {hit, roll, total, target_ac, is_crit, is_fumble, damage,
-	damage_type, damage_dice, weapon_name, attack_bonus, advantage,
-	disadvantage, cover_bonus, flanking, auto_fail}."""
+	damage_type, damage_dice, weapon_name, is_ranged, attack_bonus, advantage,
+	disadvantage, reasons, cover_bonus, flanking, distance, auto_fail}."""
 	if attacker == null or target == null or not is_instance_valid(attacker) or not is_instance_valid(target) \
 			or attacker.stats == null or target.stats == null:
 		push_error("CombatManager.roll_attack: missing attacker or target")
 		return {}
 	if profile.is_empty():
-		profile = get_attack_profile(attacker)
+		profile = get_attack_profile(attacker, target)
 
-	var attacker_stats: CharacterStats = attacker.stats
-	var target_stats: CharacterStats = target.stats
 	var result: Dictionary = {
 		"hit": false, "roll": 0, "total": 0,
-		"target_ac": target_stats.armor_class,
+		"target_ac": target.stats.armor_class,
 		"is_crit": false, "is_fumble": false,
 		"damage": 0,
 		"damage_type": str(profile.get("damage_type", "physical")),
 		"damage_dice": str(profile.get("damage_dice", "")),
 		"weapon_name": str(profile.get("weapon_name", UNARMED_NAME)),
+		"is_ranged": bool(profile.get("is_ranged", false)),
 		"attack_bonus": 0,
-		"advantage": false, "disadvantage": false,
-		"cover_bonus": 0, "flanking": false,
+		"advantage": false, "disadvantage": false, "reasons": [],
+		"cover_bonus": 0, "flanking": false, "distance": 0,
 		"auto_fail": false
 	}
 
@@ -201,35 +394,17 @@ func roll_attack(attacker: Combatant, target: Combatant, profile: Dictionary = {
 		result["auto_fail"] = true
 		return result
 
-	# Encumbrance disadvantage - only for whoever is carrying the party's load
-	if InventoryManager.is_party_member(attacker_stats) and InventoryManager.has_disadvantage_on_physical_rolls():
-		disadvantage = true
-		print("⚠️ Heavily encumbered! Disadvantage on attack roll")
-
-	# Status effects on both sides
-	var adv_state = StatusEffectManager.get_attack_advantage_state(attacker, target)
-	advantage = advantage or adv_state.get("advantage", false)
-	disadvantage = disadvantage or adv_state.get("disadvantage", false)
-
-	# The Dodge action: attack rolls against the dodger have disadvantage
-	if target.is_dodging():
-		disadvantage = true
-
-	var attacker_pos: Vector2i = attacker.get_grid_position()
-	var target_pos: Vector2i = target.get_grid_position()
-
-	# Flanking: an ally mirrored on the far side of the target grants advantage
-	var flank_partners: Array = attacker.get_flank_partners()
-	var flanking = false
-	if not flank_partners.is_empty():
-		flanking = CombatGrid.is_flanking(attacker_pos, target_pos, flank_partners)
-		if flanking:
-			advantage = true
-			print("CombatManager: flanking! Advantage on the attack")
+	var modifiers: Dictionary = get_attack_modifiers(attacker, target, profile, advantage, disadvantage)
+	advantage = modifiers.advantage
+	disadvantage = modifiers.disadvantage
+	var attack_bonus: int = modifiers.attack_bonus
+	var target_ac: int = modifiers.target_ac
+	if not modifiers.reasons.is_empty():
+		print("CombatManager: %s attacks %s - %s" % [attacker.name, target.name, ", ".join(modifiers.reasons)])
 
 	# Roll d20 (with advantage/disadvantage)
-	var roll1 = randi_range(1, 20)
-	var roll2 = randi_range(1, 20) if (advantage or disadvantage) else roll1
+	var roll1 = randi_range(1, D20_FACES)
+	var roll2 = randi_range(1, D20_FACES) if (advantage or disadvantage) else roll1
 
 	var roll = roll1
 	if advantage and not disadvantage:  # Advantage cancels disadvantage
@@ -240,21 +415,7 @@ func roll_attack(attacker: Combatant, target: Combatant, profile: Dictionary = {
 	# Check for crit/fumble
 	var is_crit = (roll == CRIT_THRESHOLD)
 	var is_fumble = (roll == FUMBLE_THRESHOLD)
-
-	# Ability modifier, proficiency and the weapon's own bonus come from the
-	# profile; blessed and cursed add to the roll
-	var attack_bonus: int = int(profile.get("attack_bonus", 0)) + StatusEffectManager.get_attack_roll_modifier(attacker)
 	var total = roll + attack_bonus
-
-	# Target AC: base + status-effect AC modifiers + positional cover
-	var target_ac = target_stats.armor_class + StatusEffectManager.get_ac_modifier(target)
-	var cover_bonus = 0
-	var dungeon_grid = _get_dungeon_grid()
-	if not dungeon_grid.is_empty():
-		cover_bonus = CombatGrid.get_cover_ac_bonus(attacker_pos, target_pos, dungeon_grid)
-		if cover_bonus > 0:
-			print("CombatManager: target has cover (+%d AC)" % cover_bonus)
-	target_ac += cover_bonus
 
 	# Check if hit
 	var hit = false
@@ -266,11 +427,10 @@ func roll_attack(attacker: Combatant, target: Combatant, profile: Dictionary = {
 		hit = (total >= target_ac)
 
 	# Melee hits on helpless (paralyzed/frozen) targets within 1 tile auto-crit
-	if hit and not is_crit and not profile.get("is_ranged", false):
-		if CombatGrid.get_distance_tiles(attacker_pos, target_pos) <= 1:
-			if StatusEffectManager.has_effect(target, "paralyzed") or StatusEffectManager.has_effect(target, "frozen"):
-				is_crit = true
-				print("CombatManager: melee hit on a helpless target - automatic critical!")
+	if hit and not is_crit and not result.is_ranged and modifiers.distance <= MELEE_REACH:
+		if StatusEffectManager.has_effect(target, "paralyzed") or StatusEffectManager.has_effect(target, "frozen"):
+			is_crit = true
+			print("CombatManager: melee hit on a helpless target - automatic critical!")
 
 	result["hit"] = hit
 	result["roll"] = roll
@@ -282,8 +442,10 @@ func roll_attack(attacker: Combatant, target: Combatant, profile: Dictionary = {
 	result["attack_bonus"] = attack_bonus
 	result["advantage"] = advantage
 	result["disadvantage"] = disadvantage
-	result["cover_bonus"] = cover_bonus
-	result["flanking"] = flanking
+	result["reasons"] = modifiers.reasons
+	result["cover_bonus"] = modifiers.cover_bonus
+	result["flanking"] = modifiers.flanking
+	result["distance"] = modifiers.distance
 	return result
 
 func roll_damage(profile: Dictionary, is_crit: bool = false) -> int:
@@ -480,8 +642,9 @@ func trigger_opportunity_attack(reactor: Node, mover: Node) -> Dictionary:
 	own turn) and can take reactions (status effects), and the mover stands next to
 	it (Chebyshev distance exactly 1).
 	On success: spends the reaction and makes one melee attack through make_attack
-	with the weapon in the reactor's hand; a weapon that cannot make a melee attack
-	(a ranged one) gives way to an unarmed strike. Emits
+	with the melee weapon in the reactor's hand, never the ranged weapon it carries;
+	a weapon that cannot be swung (two-handed, with a full off hand) gives way to an
+	unarmed strike. Emits
 	EventBus.reaction_triggered(reactor, "opportunity_attack", mover).
 	A missed opportunity attack still spends the reaction.
 	Returns {triggered: bool, reason: String, result: Dictionary (attack result if rolled)}.
@@ -499,7 +662,7 @@ func trigger_opportunity_attack(reactor: Node, mover: Node) -> Dictionary:
 	if CombatGrid.get_distance_tiles(reactor.get_grid_position(), mover.get_grid_position()) != 1:
 		return {"triggered": false, "reason": "not_adjacent", "result": {}}
 
-	var profile: Dictionary = get_attack_profile(reactor)
+	var profile: Dictionary = get_melee_profile(reactor)
 	if not profile.usable:
 		profile = get_unarmed_profile(reactor)
 
@@ -525,6 +688,16 @@ func _weapon_has_property(weapon: ItemData, property_name: String) -> bool:
 	if weapon == null:
 		return false
 	return property_name in weapon.special_properties
+
+func _has_threat_adjacent(attacker: Combatant) -> bool:
+	"""True when a hostile that is not incapacitated stands next to the
+	attacker: it spoils a ranged attack"""
+	var from: Vector2i = attacker.get_grid_position()
+	for hostile in attacker.get_hostiles():
+		if CombatGrid.get_distance_tiles(from, hostile.get_grid_position()) <= MELEE_REACH \
+				and not StatusEffectManager.is_incapacitated(hostile):
+			return true
+	return false
 
 func _get_dungeon_grid() -> Array:
 	"""Resolve the active dungeon's [y][x] tile grid for cover/LoS checks.
