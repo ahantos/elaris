@@ -144,8 +144,14 @@ plus multi-slots `rings`, `trinkets` (InventoryManager stores Arrays for those t
 - Plain-base aliases: `"{base_id}"` (`longsword`, `chain_mail`) registered as the
   default-material version, because class starting kits use plain ids.
 - Weapon bases: dagger, shortsword, longsword, greatsword, handaxe, battleaxe,
-  greataxe, mace, warhammer, spear, quarterstaff, club, shortbow, longbow,
-  light_crossbow, heavy_crossbow.
+  greataxe, mace, warhammer, spear, rapier, quarterstaff, club, shortbow, longbow,
+  light_crossbow, heavy_crossbow. They follow the 5e SRD weapon table
+  (`ItemDatabase.WEAPON_BASES`). A weapon item carries `weapon_type` (its base id),
+  `weapon_category` (`simple` or `martial`), `damage_dice`, `damage_type`,
+  `is_two_handed`, `is_ranged`, and `special_properties` (`finesse`, `versatile`,
+  `thrown`); a versatile weapon also has `versatile_dice`, its dice in both hands.
+  `CharacterStats.is_proficient_with_weapon(weapon)` reads proficiency from the class
+  data and the character's own list, by category or by base id.
 - Armour bases (slot): helmet (head), chain_mail (chest), chestplate (chest),
   gauntlets (hands), greaves (legs), plate_boots (feet), shield (off_hand); leather:
   leather_cap (head), jerkin (chest), gloves (hands), leggings (legs), boots (feet);

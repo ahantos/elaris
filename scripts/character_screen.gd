@@ -504,7 +504,19 @@ func _item_tooltip(item_instance: Dictionary) -> String:
 		var damage := "Damage: " + item_data.damage_dice
 		if item_data.damage_type != "":
 			damage += " " + item_data.damage_type
+		if item_data.versatile_dice != "":
+			damage += " (%s in both hands)" % item_data.versatile_dice
 		lines.append(damage)
+	if item_data.is_weapon:
+		var traits: Array = []
+		if item_data.weapon_category != "":
+			traits.append(item_data.weapon_category.capitalize() + " weapon")
+		if item_data.is_two_handed:
+			traits.append("two-handed")
+		for property in item_data.special_properties:
+			traits.append(property)
+		if not traits.is_empty():
+			lines.append(", ".join(traits))
 	if item_data.armor_class_bonus > 0:
 		lines.append("Armour: +%d AC" % item_data.armor_class_bonus)
 	if item_data.equip_slot != "":
