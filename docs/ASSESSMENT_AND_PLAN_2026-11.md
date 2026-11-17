@@ -874,6 +874,19 @@ Under discussion since 2026-11-17. Nothing is decided.
   worn, mercenary mood with a muted base palette and a few saturated accents.
   Chunkiness on screen comes from how far the camera is zoomed in as much as from
   the drawing: the games he names show small sprites large.
+- **The style anchor.** A barbarian drawn by a separate agent from the theory
+  reference alone, in six rounds of render, look and fix, is the first figure Ákos
+  responded to strongly: "oh my god that looks amazing" and "i actually love the
+  art style of the barbarian". It is saved as `art_work/barbarian/a1.px.js`, with
+  its review sheet beside it. Until he says otherwise, new figures and gear match
+  it: a wide range from dark to light, hard shadows under overhangs, each material
+  told apart by its contrast, six tones per material (contour, deep shadow,
+  shadow, base, light, highlight), one shared blue-purple near-black, and light
+  from above and slightly in front.
+- What produced it, as opposed to the plain figures before: the theory applied
+  deliberately; several rounds of looking at the rendered result on a review sheet
+  (four sizes on two floor colours, a greyscale copy, a silhouette, a mirror, and
+  the figure with gear removed); and an agent doing nothing else.
 - Facing, decided by Ákos on 2026-11-17: figures face left or right, never the
   camera, as in Stoneshard ("the main problem is that stoneshard's stuff always
   looks to one side, and we should do that too"). One drawing faces right and is
