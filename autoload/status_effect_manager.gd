@@ -223,6 +223,22 @@ func get_attack_advantage_sources(attacker: Node, defender: Node) -> Dictionary:
 	return {"advantage": advantage, "disadvantage": disadvantage}
 
 
+func get_damage_traits(target: Node, which: String) -> Array:
+	"""The damage types the combatant's active effects make it resistant,
+	vulnerable or immune to. which is the modifier key: "resistances",
+	"vulnerabilities" or "immunities"."""
+	var types: Array = []
+	_purge_freed_targets()
+	if target == null or not is_instance_valid(target) or not active_effects.has(target):
+		return types
+	for effect_id in active_effects[target]:
+		var modifiers: Dictionary = effect_definitions.get(effect_id, {}).get("modifiers", {})
+		for damage_type in modifiers.get(which, []):
+			if not types.has(damage_type):
+				types.append(damage_type)
+	return types
+
+
 func is_incapacitated(target: Node) -> bool:
 	"""True when any active effect incapacitates (stunned, paralyzed, frozen)."""
 	return _any_bool_modifier(target, "incapacitated")
@@ -358,9 +374,11 @@ func _process_ticks(target: Node, timing: String):
 			var source = entry.get("source", null)
 			if source != null and not is_instance_valid(source):
 				source = null
-			print("StatusEffects: %s takes %d %s damage from '%s'" % [target.name, amount, type_string, effect_id])
-			EventBus.status_effect_ticked.emit(target, effect_id, amount)
-			CombatManager.apply_damage(target, amount, CombatManager.damage_type_from_string(type_string), source, false)
+			var dealt: Dictionary = CombatManager.deal_damage(source, target, amount, type_string,
+				{"kind": CombatManager.KIND_EFFECT, "effect_id": effect_id})
+			print("StatusEffects: %s takes %d %s damage from '%s'" % [target.name, int(dealt.get("amount", 0)), type_string, effect_id])
+			if is_instance_valid(target):
+				EventBus.status_effect_ticked.emit(target, effect_id, int(dealt.get("amount", 0)))
 			# Stop ticking a combatant that just died
 			if not is_instance_valid(target) or target.get("stats") == null or not target.stats.is_alive():
 				return

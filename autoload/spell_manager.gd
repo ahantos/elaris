@@ -449,33 +449,24 @@ func _chebyshev(a: Vector2i, b: Vector2i) -> int:
 # === PER-TARGET RESOLUTION ===
 
 func _resolve_attack(caster: Node, spell: Dictionary, target: Node, result: Dictionary):
-	"""Spell attack: own d20 + caster spell_attack_bonus vs target AC (+ status AC mods).
-	Nat 20 doubles the damage dice; nat 1 always misses. attack_count rolls multiple
-	independent attacks (scorching_ray)."""
+	"""Spell attack: CombatManager rolls the d20 and the damage and puts the
+	damage through the pipeline (make_spell_attack); what else the spell does on
+	a hit is applied here. attack_count makes several independent attacks
+	(scorching_ray)."""
 	var rays = maxi(1, int(spell.get("attack_count", 1)))
 	for _i in range(rays):
 		if not is_instance_valid(target) or target.get("stats") == null or not target.stats.is_alive():
 			break
-		var roll = randi_range(1, 20)
-		var is_crit = roll == 20
-		var is_fumble = roll == 1
-		var attack_bonus = int(caster.stats.spell_attack_bonus) if is_instance_valid(caster) and caster.get("stats") != null else 0
-		var total = roll + attack_bonus
-		var target_ac = int(target.stats.armor_class)
-		if StatusEffectManager.has_method("get_ac_modifier"):
-			target_ac += StatusEffectManager.get_ac_modifier(target)
-		var hit = is_crit or (not is_fumble and total >= target_ac)
-
+		var attack: Dictionary = CombatManager.make_spell_attack(caster, target, spell)
 		var entry = {
-			"target": target, "kind": "attack", "roll": roll, "total": total,
-			"target_ac": target_ac, "hit": hit, "is_crit": is_crit, "damage": 0
+			"target": target, "kind": "attack", "roll": attack.roll, "total": attack.total,
+			"target_ac": attack.target_ac, "hit": attack.hit, "is_crit": attack.is_crit,
+			"damage": attack.damage, "response": attack.damage_response
 		}
-		if hit:
-			var damage = _roll_spell_damage(str(spell.get("damage_dice", "")), is_crit)
-			if damage > 0:
-				_deal_damage(target, damage, str(spell.get("damage_type", "")), caster, is_crit)
-				entry["damage"] = damage
-				result["total_damage"] += damage
+		if attack.hit:
+			result["total_damage"] += int(attack.damage)
+			if is_instance_valid(target):
+				_notify_player_hp(target)
 			_apply_heal(spell, target, result, entry)
 			_apply_spell_effect(spell, target, result)
 			_apply_effect_removal(spell, target)
@@ -496,13 +487,11 @@ func _resolve_save(caster: Node, spell: Dictionary, target: Node, result: Dictio
 	}
 	var damage_dice = str(spell.get("damage_dice", ""))
 	if damage_dice != "":
-		var damage = _roll_spell_damage(damage_dice, false)
+		var damage = _roll_spell_damage(damage_dice)
 		if success:
 			damage = int(damage / 2.0) if save_info.get("half_on_save", false) else 0
 		if damage > 0:
-			_deal_damage(target, damage, str(spell.get("damage_type", "")), caster, false)
-			entry["damage"] = damage
-			result["total_damage"] += damage
+			_deal_damage(target, damage, spell, caster, entry, result)
 	if not success:
 		_apply_heal(spell, target, result, entry)
 		_apply_spell_effect(spell, target, result)
@@ -520,11 +509,9 @@ func _resolve_automatic(caster: Node, spell: Dictionary, target: Node, result: D
 
 	var damage_dice = str(spell.get("damage_dice", ""))
 	if damage_dice != "":
-		var damage = _roll_spell_damage(damage_dice, false)
+		var damage = _roll_spell_damage(damage_dice)
 		if damage > 0:
-			_deal_damage(target, damage, str(spell.get("damage_type", "")), caster, false)
-			entry["damage"] = damage
-			result["total_damage"] += damage
+			_deal_damage(target, damage, spell, caster, entry, result)
 
 	_apply_heal(spell, target, result, entry)
 	_apply_spell_effect(spell, target, result)
@@ -578,77 +565,38 @@ func _apply_effect_removal(spell: Dictionary, target: Node):
 		StatusEffectManager.remove_effect(target, str(effect_id))
 
 
-# === DICE / DAMAGE / SAVE PLUMBING (has_method-guarded cross-system calls) ===
+# === DICE / DAMAGE / SAVE PLUMBING (CombatManager rolls and applies; nothing is rolled here) ===
 
 func _roll_dice(dice_string: String) -> int:
-	"""Roll dice notation, preferring CombatManager's parser with a local fallback."""
-	if CombatManager.has_method("roll_dice"):
-		return CombatManager.roll_dice(dice_string)
-	var text = dice_string.strip_edges().to_lower()
-	if text == "":
-		return 0
-	if text.is_valid_int():
-		return int(text)
-	var bonus = 0
-	var plus_idx = text.find("+")
-	if plus_idx > 0:
-		bonus = int(text.substr(plus_idx + 1))
-		text = text.substr(0, plus_idx)
-	var parts = text.split("d")
-	if parts.size() != 2:
-		return bonus
-	var total = bonus
-	for _i in range(maxi(1, int(parts[0]))):
-		total += randi_range(1, maxi(1, int(parts[1])))
-	return total
+	"""Roll dice notation. CombatManager rolls every die."""
+	return CombatManager.roll_dice(dice_string)
 
 
-func _roll_spell_damage(damage_dice: String, is_crit: bool) -> int:
-	"""Spell damage roll; a critical hit doubles the dice (rolled twice)."""
-	if damage_dice == "":
-		return 0
-	var damage = _roll_dice(damage_dice)
-	if is_crit:
-		damage += _roll_dice(damage_dice)
-	return damage
+func _roll_spell_damage(damage_dice: String) -> int:
+	"""The damage dice of a spell that makes no attack roll (a save, or none at all)"""
+	return _roll_dice(damage_dice) if damage_dice != "" else 0
 
 
-func _deal_damage(target: Node, amount: int, damage_type_string: String, caster: Node, is_crit: bool):
-	"""Apply spell damage through CombatManager (string -> enum mapped per contracts 2.4),
-	with a minimal direct fallback if the expanded CombatManager API is unavailable."""
+func _deal_damage(target: Node, amount: int, spell: Dictionary, caster: Node, entry: Dictionary, result: Dictionary):
+	"""Put a spell's damage through CombatManager's damage pipeline and record
+	what it came to: the hit points lost and what the target's nature did to
+	the damage go into the target's entry, the hit points into the cast's total."""
 	if amount <= 0 or target == null or not is_instance_valid(target):
 		return
-	var damage_type = 0
-	if CombatManager.has_method("damage_type_from_string"):
-		damage_type = CombatManager.damage_type_from_string(damage_type_string)
-	if CombatManager.has_method("apply_damage"):
-		CombatManager.apply_damage(target, amount, damage_type, caster, is_crit)
-	else:
-		if target.get("stats") == null:
-			return
-		var still_alive = target.stats.take_damage(amount)
-		EventBus.damage_dealt.emit(caster, target, amount, is_crit, damage_type)
-		if not still_alive and target.has_method("die"):
-			target.die()
+	var dealt: Dictionary = CombatManager.deal_damage(caster, target, amount, str(spell.get("damage_type", "physical")),
+		{"kind": CombatManager.KIND_SPELL, "spell_id": str(spell.get("spell_id", ""))})
+	entry["damage"] = int(dealt.get("amount", 0))
+	entry["response"] = str(dealt.get("response", ""))
+	result["total_damage"] += int(dealt.get("amount", 0))
 	if is_instance_valid(target):
 		_notify_player_hp(target)
 
 
 func _make_save(target: Node, stat: String, dc: int) -> Dictionary:
-	"""Saving throw through CombatManager (with target_node for status-effect rules),
-	falling back to a plain d20 + stat modifier when unavailable."""
+	"""Saving throw, rolled by CombatManager (with target_node for status-effect rules)"""
 	if target == null or not is_instance_valid(target) or target.get("stats") == null:
 		return {"success": false, "roll": 0, "total": 0, "dc": dc}
-	if CombatManager.has_method("make_saving_throw"):
-		var save_result = CombatManager.make_saving_throw(target.stats, stat, dc, false, false, target)
-		if save_result is Dictionary and not save_result.is_empty():
-			return save_result
-	var roll = randi_range(1, 20)
-	var modifier = 0
-	if target.stats.has_method("get_modifier_for_stat"):
-		modifier = target.stats.get_modifier_for_stat(stat)
-	var total = roll + modifier
-	return {"success": total >= dc, "roll": roll, "total": total, "dc": dc, "modifier": modifier}
+	return CombatManager.make_saving_throw(target.stats, stat, dc, false, false, target)
 
 
 func _notify_player_hp(node: Node):

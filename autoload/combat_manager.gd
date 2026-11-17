@@ -6,6 +6,60 @@
 # says what the chance to hit is before anything is rolled, and applies the
 # damage. It does not know whose turn it is: the CombatController decides what
 # may be done and asks here for the outcome.
+#
+# THE DAMAGE PIPELINE
+# All damage - a weapon hit, a spell, a status effect's tick, anything else -
+# is applied by deal_damage(source, target, amount, damage_type, context), in
+# this order:
+#   1. EventBus.damage_incoming(event). event.amount is what was rolled; a
+#      listener may change it (a flat bonus or reduction). The event already
+#      says whether the target is immune, resistant or vulnerable to the type.
+#   2. The target's immunity (no damage), resistance (half, rounded down) and
+#      vulnerability (double) to the damage type, as in 5e.
+#   3. If that would leave the target on 0 hit points:
+#      EventBus.dropping_to_zero(event). A listener may set event.prevented =
+#      true (and event.hp_left, 1 unless it says otherwise, and
+#      event.prevented_by, a name to show).
+#   4. The hit points are taken. EventBus.damage_applied(event), with
+#      event.amount now the hit points lost, and EventBus.damage_dealt for
+#      listeners that only need to know someone was hurt.
+#   5. Death, when the target is on 0.
+# The event Dictionary, the same object through all the steps:
+#   source        Combatant or null: who or what did it
+#   target        Combatant
+#   damage_type   contract string ("slashing", "fire", "poison")
+#   amount        see the steps above
+#   rolled        the amount handed to deal_damage; never changed
+#   is_critical   bool
+#   kind          "weapon" | "spell" | "effect" | "other"
+#   context       what the caller passed: weapon (ItemData), weapon_instance,
+#                 spell_id, effect_id
+#   immune, resistant, vulnerable   bool: what the target is to this type
+#   response      "" | "immune" | "resisted" | "vulnerable": what its nature did
+#   prevented, hp_left, prevented_by   see step 3
+#   hp_before, hp_after, killed        filled in step 4
+#
+# An attack roll is announced with EventBus.attack_resolved(event), once the
+# roll is made and its damage applied - for a hit and for a miss, for weapon
+# attacks (make_attack) and spell attacks (make_spell_attack):
+#   attacker, target
+#   kind             "weapon" | "unarmed" | "spell"
+#   roll             the natural d20 that counted
+#   hit, is_crit, is_fumble (a natural 1)
+#   outcome          "critical" | "hit" | "miss" | "natural_1"
+#   weapon           ItemData or null
+#   weapon_instance  the item instance in the attacker's hand, {} when there is
+#                    none behind the attack
+#   natural_weapon   true when no item instance is behind a weapon attack: an
+#                    unarmed strike, or a creature's own attack (every enemy
+#                    until the bestiary gives them gear)
+#   weapon_name, damage_type, is_ranged
+#   two_handed       the weapon is a two-handed weapon
+#   two_handed_grip  it was swung in both hands (also a versatile weapon)
+#   damage           hit points the target lost; 0 on a miss
+#   damage_response  the response of the damage event ("resisted", ...)
+#   spell_id         for a spell attack
+#   result           the whole attack result
 extends Node
 
 # Combat constants
@@ -34,6 +88,18 @@ const REASON_FLANKING: String = "flanking"
 const REASON_HALF_COVER: String = "half cover"
 const REASON_FULL_COVER: String = "full cover"
 const REASON_INCAPACITATED: String = "incapacitated"
+
+# What a target's nature did to damage of a type (the damage event's response)
+const RESPONSE_IMMUNE: String = "immune"
+const RESPONSE_RESISTED: String = "resisted"
+const RESPONSE_VULNERABLE: String = "vulnerable"
+
+# Who dealt the damage, in the damage event's kind
+const KIND_WEAPON: String = "weapon"
+const KIND_UNARMED: String = "unarmed"
+const KIND_SPELL: String = "spell"
+const KIND_EFFECT: String = "effect"
+const KIND_OTHER: String = "other"
 
 # Damage types
 enum DamageType {
@@ -125,7 +191,7 @@ func get_weapon_range(weapon: ItemData) -> Dictionary:
 func get_damage_text(profile: Dictionary) -> String:
 	"""An attack profile's damage as the player reads it: '1d8+2 slashing' for a
 	weapon, '3 bludgeoning' for an unarmed strike"""
-	var modifier: int = int(profile.get("ability_modifier", 0))
+	var modifier: int = int(profile.get("ability_modifier", 0)) + int(profile.get("damage_bonus", 0))
 	var amount: String = str(profile.get("damage_dice", ""))
 	if amount == "":
 		amount = str(max(1, int(profile.get("flat_damage", 0)) + modifier))
@@ -144,18 +210,24 @@ func build_attack_profile(attacker: Combatant, weapon: ItemData) -> Dictionary:
 	- A two-handed weapon, melee or ranged, with something in the off hand
 	  cannot attack: usable is false and reason says why. What is in the main
 	  hand never stops a shot: drawing and stowing a weapon is free.
-	Returns {weapon: ItemData or null, weapon_name, damage_dice ("" when the
-	damage has no dice), flat_damage, damage_type (contract string), ability
-	("str" | "dex"), ability_modifier, proficient, attack_bonus, two_handed_grip,
-	is_ranged, range_normal, range_max (tiles; 0 for a melee attack), usable,
-	reason}."""
+	- The piece in the attacker's hand adds its own bonus, read from the item
+	  instance: the higher of its craftsmanship and magic bonus to the attack
+	  roll, its magic bonus to the damage.
+	Returns {weapon: ItemData or null, weapon_instance (the instance the
+	attacker holds of it, {} for none), weapon_name, damage_dice ("" when the
+	damage has no dice), flat_damage, damage_bonus (the weapon's magic bonus to
+	damage), damage_type (contract string), ability ("str" | "dex"),
+	ability_modifier, proficient, attack_bonus, two_handed_grip, is_ranged,
+	range_normal, range_max (tiles; 0 for a melee attack), usable, reason}."""
 	var stats: CharacterStats = attacker.stats
 	var strength: int = stats.get_str_modifier()
 	var profile: Dictionary = {
 		"weapon": null,
+		"weapon_instance": {},
 		"weapon_name": UNARMED_NAME,
 		"damage_dice": "",
 		"flat_damage": UNARMED_DAMAGE,
+		"damage_bonus": 0,
 		"damage_type": UNARMED_DAMAGE_TYPE,
 		"ability": "str",
 		"ability_modifier": strength,
@@ -171,8 +243,10 @@ func build_attack_profile(attacker: Combatant, weapon: ItemData) -> Dictionary:
 	if weapon == null or not weapon.is_weapon:
 		return profile
 
+	var instance: Dictionary = attacker.get_weapon_instance(weapon)
 	profile["weapon"] = weapon
-	profile["weapon_name"] = weapon.item_name
+	profile["weapon_instance"] = instance
+	profile["weapon_name"] = weapon.item_name if instance.is_empty() else ItemDatabase.get_instance_name(instance)
 	profile["damage_type"] = weapon.damage_type if weapon.damage_type != "" else "physical"
 	profile["is_ranged"] = weapon.is_ranged
 	var reach: Dictionary = get_weapon_range(weapon)
@@ -196,9 +270,9 @@ func build_attack_profile(attacker: Combatant, weapon: ItemData) -> Dictionary:
 	var attack_bonus: int = int(profile["ability_modifier"])
 	if profile["proficient"]:
 		attack_bonus += stats.proficiency_bonus
-	if weapon.magic_modifier > 0:
-		attack_bonus += weapon.magic_modifier
+	attack_bonus += ItemDatabase.get_instance_bonus(instance)
 	profile["attack_bonus"] = attack_bonus
+	profile["damage_bonus"] = ItemDatabase.get_instance_magic_bonus(instance)
 
 	if weapon.is_two_handed and not off_hand_free:
 		profile["usable"] = false
@@ -210,21 +284,124 @@ func build_attack_profile(attacker: Combatant, weapon: ItemData) -> Dictionary:
 func make_attack(attacker: Combatant, target: Combatant, profile: Dictionary = {}) -> Dictionary:
 	"""One weapon attack, melee or ranged, start to finish: the weapon that
 	suits the target (or the profile given), the d20, the damage, and the damage
-	applied to the target with the weapon's damage type. Every weapon attack in
-	the game comes through here - the Attack action and opportunity attacks, by
-	the player, companions and enemies alike.
-	Returns the roll_attack result, or {} when the attack could not be made."""
+	put through the pipeline (deal_damage) with the weapon's damage type. Every
+	weapon attack in the game comes through here - the Attack action and
+	opportunity attacks, by the player, companions and enemies alike. Announces
+	the attack with EventBus.attack_resolved, hit or miss.
+	Returns the roll_attack result, or {} when the attack could not be made. On
+	a hit, damage is the hit points the target lost, damage_rolled what the dice
+	gave, damage_response what the target's nature did to it ("resisted",
+	"vulnerable", "immune" or "") and prevented_by what kept the target on its
+	feet, if anything did."""
 	if profile.is_empty():
 		profile = get_attack_profile(attacker, target)
 	if not profile.get("usable", false):
 		print("CombatManager: %s cannot attack (%s)" % [attacker.name, str(profile.get("reason", ""))])
 		return {}
 	var result: Dictionary = roll_attack(attacker, target, profile)
-	if result.is_empty():
+	if result.is_empty() or result.auto_fail:
 		return result
+	result["damage_rolled"] = result.damage
+	result["damage_response"] = ""
+	result["prevented_by"] = ""
+	var weapon: ItemData = profile.get("weapon")
+	var instance: Dictionary = profile.get("weapon_instance", {})
 	if result.hit:
-		apply_damage(target, result.damage, damage_type_from_string(result.damage_type), attacker, result.is_crit)
+		var dealt: Dictionary = deal_damage(attacker, target, result.damage, result.damage_type, {
+			"kind": KIND_WEAPON, "is_critical": result.is_crit, "weapon": weapon, "weapon_instance": instance,
+		})
+		result["damage"] = int(dealt.get("amount", 0))
+		result["damage_response"] = str(dealt.get("response", ""))
+		result["prevented_by"] = str(dealt.get("prevented_by", ""))
+	EventBus.attack_resolved.emit({
+		"attacker": attacker,
+		"target": target,
+		"kind": KIND_WEAPON if weapon != null else KIND_UNARMED,
+		"roll": result.roll,
+		"hit": result.hit,
+		"is_crit": result.is_crit,
+		"is_fumble": result.is_fumble,
+		"outcome": _attack_outcome(result),
+		"weapon": weapon,
+		"weapon_instance": instance,
+		"natural_weapon": instance.is_empty(),
+		"weapon_name": result.weapon_name,
+		"damage_type": result.damage_type,
+		"is_ranged": result.is_ranged,
+		"two_handed": weapon != null and weapon.is_two_handed,
+		"two_handed_grip": bool(profile.get("two_handed_grip", false)) or (weapon != null and weapon.is_two_handed),
+		"damage": result.damage,
+		"damage_response": result.damage_response,
+		"result": result,
+	})
 	return result
+
+func make_spell_attack(caster: Combatant, target: Combatant, spell: Dictionary) -> Dictionary:
+	"""One spell attack: a d20 plus the caster's spell attack bonus against the
+	target's armour class (with its status effects), and on a hit the spell's
+	damage dice, rolled twice on a natural 20, put through the pipeline with the
+	spell's damage type. A natural 1 always misses. Announces the attack with
+	EventBus.attack_resolved, hit or miss.
+	Returns {hit, roll, total, attack_bonus, target_ac, is_crit, is_fumble,
+	damage (hit points lost), damage_rolled, damage_type, damage_response,
+	prevented_by}."""
+	var spell_id: String = str(spell.get("spell_id", ""))
+	var damage_type: String = str(spell.get("damage_type", "physical"))
+	var roll: int = randi_range(1, D20_FACES)
+	var is_crit: bool = roll == CRIT_THRESHOLD
+	var is_fumble: bool = roll == FUMBLE_THRESHOLD
+	var attack_bonus: int = int(caster.stats.spell_attack_bonus) if is_instance_valid(caster) and caster.stats != null else 0
+	var target_ac: int = int(target.stats.armor_class) + StatusEffectManager.get_ac_modifier(target)
+	var result: Dictionary = {
+		"hit": is_crit or (not is_fumble and roll + attack_bonus >= target_ac),
+		"roll": roll, "total": roll + attack_bonus, "attack_bonus": attack_bonus, "target_ac": target_ac,
+		"is_crit": is_crit, "is_fumble": is_fumble,
+		"damage": 0, "damage_rolled": 0, "damage_type": damage_type, "damage_response": "", "prevented_by": "",
+	}
+	var dice: String = str(spell.get("damage_dice", ""))
+	if result.hit and dice != "":
+		var rolled: int = roll_dice(dice)
+		if is_crit:
+			rolled += roll_dice(dice)
+		result["damage_rolled"] = rolled
+		if rolled > 0:
+			var dealt: Dictionary = deal_damage(caster, target, rolled, damage_type, {
+				"kind": KIND_SPELL, "is_critical": is_crit, "spell_id": spell_id,
+			})
+			result["damage"] = int(dealt.get("amount", 0))
+			result["damage_response"] = str(dealt.get("response", ""))
+			result["prevented_by"] = str(dealt.get("prevented_by", ""))
+	EventBus.attack_resolved.emit({
+		"attacker": caster,
+		"target": target,
+		"kind": KIND_SPELL,
+		"roll": roll,
+		"hit": result.hit,
+		"is_crit": is_crit,
+		"is_fumble": is_fumble,
+		"outcome": _attack_outcome(result),
+		"weapon": null,
+		"weapon_instance": {},
+		"natural_weapon": false,
+		"weapon_name": str(spell.get("display_name", spell_id)),
+		"damage_type": damage_type,
+		"is_ranged": int(spell.get("range_tiles", 0)) > MELEE_REACH,
+		"two_handed": false,
+		"two_handed_grip": false,
+		"damage": result.damage,
+		"damage_response": result.damage_response,
+		"spell_id": spell_id,
+		"result": result,
+	})
+	return result
+
+func _attack_outcome(result: Dictionary) -> String:
+	"""An attack result in one word: critical, hit, miss or natural_1"""
+	if result.get("is_fumble", false):
+		return "natural_1"
+	if not result.get("hit", false):
+		return "miss"
+	return "critical" if result.get("is_crit", false) else "hit"
 
 func get_attack_modifiers(attacker: Combatant, target: Combatant, profile: Dictionary,
 						  advantage: bool = false, disadvantage: bool = false) -> Dictionary:
@@ -455,15 +632,15 @@ func roll_attack(attacker: Combatant, target: Combatant, profile: Dictionary = {
 
 func roll_damage(profile: Dictionary, is_crit: bool = false) -> int:
 	"""Roll the damage of one hit with an attack profile: its dice (rolled
-	twice on a critical hit), any flat damage, and the same ability modifier
-	the attack roll used. Never less than 1."""
+	twice on a critical hit), any flat damage, the same ability modifier the
+	attack roll used and the weapon's magic bonus. Never less than 1."""
 	var damage: int = int(profile.get("flat_damage", 0))
 	var dice: String = str(profile.get("damage_dice", ""))
 	if dice != "":
 		damage += roll_dice(dice)
 		if is_crit:
 			damage += roll_dice(dice)
-	damage += int(profile.get("ability_modifier", 0))
+	damage += int(profile.get("ability_modifier", 0)) + int(profile.get("damage_bonus", 0))
 	return max(1, damage)
 
 func roll_dice(dice_string: String) -> int:
@@ -502,28 +679,106 @@ func damage_type_from_string(type_name: String) -> int:
 	enum. Unknown strings map to PHYSICAL (see ARCHITECTURE_CONTRACTS.md 2.4)."""
 	return DAMAGE_TYPE_FROM_STRING.get(type_name.to_lower().strip_edges(), DamageType.PHYSICAL)
 
-func apply_damage(target: Node, amount: int, damage_type: int = DamageType.PHYSICAL, attacker: Node = null, is_critical: bool = false) -> bool:
-	"""Apply damage to target, returns true if still alive. damage_type (a
-	DamageType) travels with the damage and is announced with it; it changes
-	nothing yet (resistances come with the damage pipeline)."""
-	if not target:
-		push_error("CombatManager.apply_damage: No target provided!")
-		return false
+func is_damage_type(type_name: String) -> bool:
+	"""True for a damage type of the rules ("fire", "poison", "bludgeoning")"""
+	return DAMAGE_TYPE_FROM_STRING.has(type_name)
 
-	# Check if target has stats property
-	if not target.get("stats") or not target.stats:
-		push_error("CombatManager.apply_damage: Target '%s' has no CharacterStats!" % target.name)
-		return false
+func get_damage_response(target, damage_type: String) -> Dictionary:
+	"""What the target's nature does to damage of a type, without dealing any:
+	{immune, resistant, vulnerable, response, text}. response is what the damage
+	event will say ("immune", "resisted", "vulnerable", or "" when nothing
+	changes the amount - also when resistance and vulnerability meet); text is
+	the same for the player ("Immune to fire: no damage", "Resists poison: half
+	damage", "Vulnerable to bludgeoning: double damage")."""
+	var answer: Dictionary = {"immune": false, "resistant": false, "vulnerable": false, "response": "", "text": ""}
+	if not is_instance_valid(target) or not (target is Combatant):
+		return answer
+	answer["immune"] = damage_type in target.get_immunities()
+	answer["resistant"] = damage_type in target.get_resistances()
+	answer["vulnerable"] = damage_type in target.get_vulnerabilities()
+	if answer.immune:
+		answer["response"] = RESPONSE_IMMUNE
+		answer["text"] = "Immune to %s: no damage" % damage_type
+	elif answer.resistant and not answer.vulnerable:
+		answer["response"] = RESPONSE_RESISTED
+		answer["text"] = "Resists %s: half damage" % damage_type
+	elif answer.vulnerable and not answer.resistant:
+		answer["response"] = RESPONSE_VULNERABLE
+		answer["text"] = "Vulnerable to %s: double damage" % damage_type
+	return answer
 
-	var still_alive = target.stats.take_damage(amount)
+func deal_damage(source, target, amount: int, damage_type: String = "physical", context: Dictionary = {}) -> Dictionary:
+	"""The one way hit points are taken away: a weapon hit, a spell, a status
+	effect's tick, a trap. source is the combatant behind it, or null. context
+	says what it came from: kind ("weapon", "spell", "effect"; "other" when
+	left out), is_critical, and weapon, weapon_instance, spell_id or effect_id.
+	Runs the steps described at the top of this file and returns the damage
+	event: amount is the hit points lost, response what the target's nature did
+	to the damage, killed whether the target died of it. {} when there was no
+	target to hurt."""
+	if not is_instance_valid(target) or not (target is Combatant) or target.stats == null:
+		push_error("CombatManager.deal_damage: no combatant to damage")
+		return {}
+	var response: Dictionary = get_damage_response(target, damage_type)
+	var event: Dictionary = {
+		"source": source if is_instance_valid(source) else null,
+		"target": target,
+		"damage_type": damage_type,
+		"amount": maxi(0, amount),
+		"rolled": maxi(0, amount),
+		"is_critical": bool(context.get("is_critical", false)),
+		"kind": str(context.get("kind", KIND_OTHER)),
+		"context": context,
+		"immune": response.immune,
+		"resistant": response.resistant,
+		"vulnerable": response.vulnerable,
+		"response": response.response,
+		"prevented": false,
+		"hp_left": 1,
+		"prevented_by": "",
+		"hp_before": target.stats.current_hp,
+		"hp_after": target.stats.current_hp,
+		"killed": false,
+	}
 
-	if attacker:
-		EventBus.damage_dealt.emit(attacker, target, amount, is_critical, damage_type)
+	# 1. Anyone may add to the damage or take from it
+	EventBus.damage_incoming.emit(event)
 
+	# 2. Immunity, resistance, vulnerability
+	var final_amount: int = maxi(0, int(event.amount))
+	if event.immune:
+		final_amount = 0
+	else:
+		if event.resistant:
+			final_amount = int(final_amount / 2.0)
+		if event.vulnerable:
+			final_amount *= 2
+
+	# 3. A last chance to stay standing
+	var hp_before: int = target.stats.current_hp
+	if final_amount >= hp_before and hp_before > 0:
+		event["amount"] = final_amount
+		EventBus.dropping_to_zero.emit(event)
+		if event.prevented:
+			final_amount = maxi(0, hp_before - clampi(int(event.hp_left), 1, hp_before))
+
+	# 4. The hit points go
+	var still_alive: bool = target.stats.take_damage(final_amount)
+	event["amount"] = final_amount
+	event["hp_before"] = hp_before
+	event["hp_after"] = target.stats.current_hp
+	event["killed"] = not still_alive
+	if event.response != "" or event.prevented:
+		print("CombatManager: %s takes %d %s damage (%s)" % [target.name, final_amount, damage_type,
+			", ".join([str(event.response), str(event.prevented_by)].filter(func(word): return word != ""))])
+	EventBus.damage_applied.emit(event)
+	if final_amount > 0:
+		EventBus.damage_dealt.emit(event.source, target, final_amount, event.is_critical, damage_type_from_string(damage_type))
+
+	# 5. Death
 	if not still_alive:
 		handle_death(target)
-
-	return still_alive
+	return event
 
 func handle_death(target: Node):
 	"""Handle character/enemy death"""

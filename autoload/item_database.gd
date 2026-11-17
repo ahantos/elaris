@@ -791,7 +791,7 @@ func _apply_elixir(item_id: String, user: Node, power: int):
 	"""
 	Route elixir consumables to StatusEffectManager (10-turn buffs).
 	elixir_strength / elixir_fortitude -> blessed, elixir_agility -> hasted,
-	elixir_resist_fire -> shielded; elixir_mana heals `power` HP instead
+	elixir_resist_fire -> fire_resistance; elixir_mana heals `power` HP instead
 	(no mana resource exists yet).
 	"""
 	if user == null or not is_instance_valid(user):
@@ -810,7 +810,7 @@ func _apply_elixir(item_id: String, user: Node, power: int):
 		"elixir_strength":    "blessed",
 		"elixir_fortitude":   "blessed",
 		"elixir_agility":     "hasted",
-		"elixir_resist_fire": "shielded",
+		"elixir_resist_fire": "fire_resistance",
 	}
 	var effect_id: String = effect_map.get(item_id, "")
 	if effect_id == "":

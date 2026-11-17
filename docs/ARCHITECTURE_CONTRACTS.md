@@ -263,15 +263,70 @@ Dexterity.
 - `armor_class` is a stored field, recalculated by `recalculate_derived_stats()`.
   An enemy has no equipment: 10 + its Dexterity modifier, until the bestiary.
 
-### 2.4 Damage types
-Data uses strings: `physical, slashing, piercing, bludgeoning, fire, cold, lightning,
-acid, poison, necrotic, radiant, force, psychic`.
-`CombatManager.damage_type_from_string(name)` maps to the `DamageType` enum (unknown
-becomes PHYSICAL). Damage is applied with its type: a weapon attack with the
-weapon's, an unarmed strike as bludgeoning, a spell or a status tick with its own.
-`EventBus.damage_dealt(attacker, target, amount, is_critical, damage_type)` carries
-it. Nothing reads the type yet: resistance and vulnerability come with the damage
-pipeline (Phase 2 step 4).
+### 2.4 Damage
+Damage types are strings: `physical, slashing, piercing, bludgeoning, fire, cold,
+lightning, acid, poison, necrotic, radiant, force, psychic`
+(`CombatManager.is_damage_type`). A weapon attack deals its weapon's type, an unarmed
+strike bludgeoning, a spell or a status tick its own.
+
+**One pipeline.** Every loss of hit points goes through
+`CombatManager.deal_damage(source, target, amount, damage_type, context)`: weapon
+hits, spells, status ticks, and `Combatant.take_damage()` for damage with nobody
+behind it. Nothing else calls `CharacterStats.take_damage`. `context` says what the
+damage came from: `kind` (`weapon`, `spell`, `effect`; `other` when left out),
+`is_critical`, and `weapon`, `weapon_instance`, `spell_id` or `effect_id`. It returns
+the damage event. The steps, in order:
+
+1. `EventBus.damage_incoming(event)`: `event.amount` is what was rolled, and a
+   listener may change it.
+2. The target's immunity (no damage), resistance (half, rounded down) and
+   vulnerability (double) to the type, as in 5e. Both together: halved, then doubled.
+3. If that would leave the target on 0: `EventBus.dropping_to_zero(event)`. A listener
+   may set `event.prevented = true` (with `event.hp_left`, 1 by default, and
+   `event.prevented_by`, a name to show).
+4. The hit points go. `EventBus.damage_applied(event)`: `event.amount` is now the hit
+   points lost (0 for an immune target). `EventBus.damage_dealt(attacker, target,
+   amount, is_critical, damage_type)` follows when any were lost; it is the short
+   form for listeners that only need to know someone was hurt, and carries the type
+   as the `CombatManager.DamageType` enum.
+5. Death, when the target is on 0.
+
+The event is one Dictionary through all the steps: `source, target, damage_type,
+amount, rolled, is_critical, kind, context, immune, resistant, vulnerable, response
+("" | "immune" | "resisted" | "vulnerable"), prevented, hp_left, prevented_by,
+hp_before, hp_after, killed`.
+
+**An attack roll is announced** with `EventBus.attack_resolved(event)` once it is
+made and its damage applied, hit or miss, by `make_attack` (weapons) and
+`make_spell_attack` (spells): `attacker, target, kind ("weapon" | "unarmed" |
+"spell"), roll (the natural d20), hit, is_crit, is_fumble, outcome ("critical" |
+"hit" | "miss" | "natural_1"), weapon (ItemData or null), weapon_instance (the item
+instance in the attacker's hand, or {}), natural_weapon (no item instance behind a
+weapon attack: an unarmed strike, a creature's own attack), weapon_name, damage_type,
+is_ranged, two_handed, two_handed_grip, damage, damage_response, spell_id, result`.
+Durability (step 5) listens here.
+
+**Who resists what.** `Combatant.get_resistances()`, `get_vulnerabilities()` and
+`get_immunities()` gather damage types from: the body's own lists
+(`damage_resistances`, `damage_vulnerabilities`, `damage_immunities`; an enemy gets
+them from `resistances`, `vulnerabilities`, `immunities` in its row of
+`World.ENEMY_TYPE_DEFS`), the race (`RaceData.resistance_types`,
+`vulnerability_types`, `immunity_types`), the class (`ClassData.damage_resistances`,
+...), every equipped item (`ItemData.damage_resistances`, ...) and active status
+effects (`modifiers.resistances`, ...). Only real damage types count: an elf's
+resistance to charm is not one. `CombatManager.get_damage_response(target, type)`
+says what would happen without dealing anything; the attack readout shows it.
+In the game now: skeletons are vulnerable to bludgeoning, dwarves resist poison, and
+the Elixir of Fire Resistance gives the `fire_resistance` effect.
+
+**Features** that act through the hooks live in `FeatureManager`
+(`autoload/feature_manager.gd`), which also keeps what each character has used since
+its last long rest. The first: Relentless Endurance (`relentless_endurance` in a
+half-orc's racial traits) answers `dropping_to_zero` once between long rests.
+
+**Showing it.** The floating number, the combat log and the attack readout say when
+damage was resisted, doubled or negated (`DamagePopup.response`,
+`ui/combat_log.gd`, `preview_attack().damage_response`).
 
 ### 2.5 Skills (canonical ids)
 `athletics; acrobatics, sleight_of_hand, stealth; arcana, history, investigation,
@@ -292,7 +347,7 @@ intimidation, performance, persuasion`.
 ## 3. Data schemas (Dictionaries)
 
 **Status effect:**
-`{effect_id, display_name, kind: "buff"|"debuff", tick: {timing: "turn_start"|"turn_end", damage_dice: "1d4", damage_type: String, heal_dice: String} (optional), modifiers: {ac: int, speed_tiles: int, attack_advantage: bool, attack_disadvantage: bool, grants_advantage_to_attackers: bool, incapacitated: bool, no_reactions: bool} (all optional), save_to_end: {stat: String, dc: int} (optional), default_duration: int, description}`
+`{effect_id, display_name, kind: "buff"|"debuff", tick: {timing: "turn_start"|"turn_end", damage_dice: "1d4", damage_type: String, heal_dice: String} (optional), modifiers: {ac: int, speed_tiles: int, attack_advantage: bool, attack_disadvantage: bool, grants_advantage_to_attackers: bool, incapacitated: bool, no_reactions: bool, resistances: [damage type], vulnerabilities: [damage type], immunities: [damage type]} (all optional), save_to_end: {stat: String, dc: int} (optional), default_duration: int, description}`
 
 **Spell:**
 `{spell_id, display_name, level: 0-9 (0 = cantrip), school, classes: ["wizard","cleric",...], casting_time: "action"|"bonus_action"|"reaction", range_tiles: int (0 = self), target_type: "enemy"|"ally"|"self"|"point", area_radius_tiles: int (0 = single target), attack_roll: bool, save: {stat, half_on_save: bool} (optional), damage_dice, damage_type, heal_dice, applies_effect: {effect_id, duration} (optional), concentration: bool, duration_turns, description}`
@@ -406,16 +461,20 @@ crisis `{crisis_id, display_name, phases: [{phase: int, name, description}]}`.
   - `scripts/initiativetracker.gd`, `scripts/turn_ui.gd` and the action bar only
     draw what the controller says.
 - **CombatManager** rolls every die of a fight. It owns `get_attack_profile`,
-  `get_attack_modifiers`, `get_hit_chance`, `make_attack`, `roll_attack`,
-  `roll_damage`, `apply_damage`, `make_saving_throw`, `roll_initiative`,
+  `get_attack_modifiers`, `get_hit_chance`, `make_attack`, `make_spell_attack`,
+  `roll_attack`, `roll_damage`, `deal_damage` (the damage pipeline, section 2.4),
+  `get_damage_response`, `make_saving_throw`, `roll_initiative`,
   `trigger_opportunity_attack`. It reads StatusEffectManager for advantage, AC
   modifiers and incapacitation, and `scripts/combat_grid.gd` for
   `has_line_of_sight`, `get_cover_ac_bonus`, `is_flanking` and `get_distance_tiles`
   (Chebyshev). It rolls and applies; it does not know whose turn it is.
   - `get_attack_profile(combatant, target)` is how the combatant attacks that
-    target, by 5e rules, as numbers: `{weapon, weapon_name, damage_dice,
-    flat_damage, damage_type, ability, ability_modifier, proficient, attack_bonus,
-    two_handed_grip, is_ranged, range_normal, range_max, usable, reason}`. The
+    target, by 5e rules, as numbers: `{weapon, weapon_instance, weapon_name,
+    damage_dice, flat_damage, damage_bonus, damage_type, ability, ability_modifier,
+    proficient, attack_bonus, two_handed_grip, is_ranged, range_normal, range_max,
+    usable, reason}`. The piece in hand adds its own bonus, read from the item
+    instance (`Combatant.get_weapon_instance`): the higher of its craftsmanship and
+    magic bonus to the attack roll, its magic bonus to the damage. The
     weapon follows the target (melee in reach, ranged beyond it; see the `attack`
     request above); without a target it is the weapon in hand.
     `get_melee_profile(combatant)` and `get_ranged_profile(combatant)` (`{}` with no
@@ -448,7 +507,10 @@ crisis `{crisis_id, display_name, phases: [{phase: int, name, description}]}`.
     shown is what is rolled. Interface code shows this; it never rolls.
   - `make_attack(attacker, target, profile)` is the one weapon attack, melee or
     ranged: profile, d20, damage (dice doubled on a critical hit, plus the same
-    ability modifier), applied with the weapon's damage type. The Attack action
+    ability modifier), put through `deal_damage` with the weapon's damage type. In
+    its result `damage` is the hit points lost, `damage_rolled` what the dice gave,
+    `damage_response` what the target's nature did to it. `make_spell_attack(caster,
+    target, spell)` is the same for a spell with an attack roll. The Attack action
     and opportunity attacks of the player, companions and enemies all come through
     it. `roll_attack(attacker, target, profile)` rolls without applying. Neither
     judges reach, range or sight: that is the controller's check. An opportunity
@@ -458,7 +520,9 @@ crisis `{crisis_id, display_name, phases: [{phase: int, name, description}]}`.
   - Reactions: an opportunity attack spends the reactor's `reaction_used`, which
     comes back at the start of the reactor's own turn. A combatant that has
     disengaged provokes none.
-- **SpellManager** resolves casts through CombatManager and StatusEffectManager, reads
+- **SpellManager** resolves casts through CombatManager, which rolls every die of a
+  spell (attack rolls, damage, saves) and applies its damage, and through
+  StatusEffectManager. It reads
   slot tables from `ClassDatabase.get_class_data(class_id).get_spell_slots(character_level, spell_level)`,
   restores slots on `rest_taken("long")`, and grants class spells when a caster is first
   asked for its list and again on `player_leveled_up`. A spell aimed at a point takes

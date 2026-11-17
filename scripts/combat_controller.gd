@@ -462,7 +462,8 @@ func preview_attack(combatant, target) -> Dictionary:
 	{target, profile (the weapon that would be used, see
 	CombatManager.build_attack_profile), weapon_name, damage_text, distance,
 	hit_chance (CombatManager.get_hit_chance: chance, percent, advantage,
-	disadvantage, reasons, cover_bonus, ...)}."""
+	disadvantage, reasons, cover_bonus, ...), damage_response (what the target's
+	nature would do to the damage: CombatManager.get_damage_response)}."""
 	var preview: Dictionary = check_action(combatant, ACTION_ATTACK, {"target": target})
 	if not _is_fit(combatant) or not _is_fit(target):
 		return preview
@@ -473,6 +474,7 @@ func preview_attack(combatant, target) -> Dictionary:
 	preview["damage_text"] = CombatManager.get_damage_text(profile)
 	preview["distance"] = CombatGrid.get_distance_tiles(combatant.get_grid_position(), target.get_grid_position())
 	preview["hit_chance"] = CombatManager.get_hit_chance(combatant, target, profile)
+	preview["damage_response"] = CombatManager.get_damage_response(target, str(profile.damage_type))
 	return preview
 
 # --- checks ---
@@ -750,8 +752,9 @@ func _present_attack(attacker, target, attack: Dictionary):
 	if world == null or not is_instance_valid(attacker) or not is_instance_valid(target):
 		return
 	if attack.hit:
-		print("%s %s %s with %s for %d %s damage" % [attacker.name, "CRITS" if attack.is_crit else "hits",
-			target.name, attack.weapon_name, attack.damage, attack.damage_type])
+		var response: String = str(attack.get("damage_response", ""))
+		print("%s %s %s with %s for %d %s damage%s" % [attacker.name, "CRITS" if attack.is_crit else "hits",
+			target.name, attack.weapon_name, attack.damage, attack.damage_type, (" (%s)" % response) if response != "" else ""])
 	else:
 		print("%s misses %s with %s (rolled %d vs AC %d)" % [attacker.name, target.name, attack.weapon_name,
 			attack.total, attack.target_ac])
@@ -769,7 +772,7 @@ func _show_attack_outcome(popup_pos: Vector2, attack: Dictionary):
 	if world == null or not is_instance_valid(world):
 		return
 	if attack.hit:
-		DamagePopup.spawn_damage_popup_at(world, popup_pos, attack.damage, attack.is_crit)
+		DamagePopup.spawn_damage_popup_at(world, popup_pos, attack.damage, attack.is_crit, str(attack.get("damage_response", "")))
 	else:
 		DamagePopup.spawn_miss_popup_at(world, popup_pos)
 
@@ -784,8 +787,9 @@ func _present_cast(cast: Dictionary):
 		var popup_pos: Vector2 = target.global_position + Vector2(0, -ArtLibrary.TILE_SIZE * 0.8)
 		var damage: int = int(entry.get("damage", 0))
 		var healed: int = int(entry.get("healed", 0))
-		if damage > 0:
-			DamagePopup.spawn_damage_popup_at(world, popup_pos, damage, bool(entry.get("is_crit", false)))
+		var response: String = str(entry.get("response", ""))
+		if damage > 0 or response != "":
+			DamagePopup.spawn_damage_popup_at(world, popup_pos, damage, bool(entry.get("is_crit", false)), response)
 		elif healed > 0:
 			DamagePopup.spawn_heal_popup_at(world, popup_pos, healed)
 		elif not entry.get("hit", true):

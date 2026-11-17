@@ -37,7 +37,7 @@ func _ready():
 	
 	# Connect to EventBus
 	if EventBus:
-		EventBus.damage_dealt.connect(_on_damage_dealt)
+		EventBus.damage_applied.connect(_on_damage_applied)
 		EventBus.turn_started.connect(_on_turn_started)
 		EventBus.turn_ended.connect(_on_turn_ended)
 		EventBus.character_died.connect(_on_character_died)
@@ -104,14 +104,36 @@ func _on_turn_ended(character: Node):
 	var char_name = _escape_bbcode(character.name) if character else "Unknown"
 	add_message("[color=gray]◀ %s ended turn[/color]" % char_name)
 
-func _on_damage_dealt(attacker: Node, target: Node, damage: int, is_crit: bool, _damage_type: int):
-	var attacker_name = _escape_bbcode(attacker.name) if attacker else "Unknown"
-	var target_name = _escape_bbcode(target.name) if target else "Unknown"
+func _on_damage_applied(event: Dictionary):
+	"""One line for every time damage is applied (CombatManager.deal_damage):
+	who did it, how much of what kind, and whether the target resisted it, was
+	vulnerable or immune to it, or was kept on its feet by something"""
+	var attacker = event.get("source")
+	var target = event.get("target")
+	var damage: int = int(event.get("amount", 0))
+	var damage_type: String = str(event.get("damage_type", ""))
+	var response: String = str(event.get("response", ""))
+	var target_name = _escape_bbcode(target.name) if is_instance_valid(target) else "Unknown"
+	var what: String = "%d damage" % damage
+	if damage_type != "" and damage_type != "physical":
+		what = "%d %s damage" % [damage, damage_type]
+	if response == "resisted":
+		what += " (resisted: halved)"
+	elif response == "vulnerable":
+		what += " (vulnerable: doubled)"
 
-	if is_crit:
-		add_message("[color=red]💥 CRITICAL HIT! %s hit %s for %d damage![/color]" % [attacker_name, target_name, damage])
+	if response == "immune":
+		add_message("[color=gray]🛡 %s is immune to %s: no damage[/color]" % [target_name, damage_type])
+	elif damage <= 0:
+		return
+	elif not is_instance_valid(attacker):
+		add_message("[color=orange]⚔️ %s takes %s[/color]" % [target_name, what])
+	elif event.get("is_critical", false):
+		add_message("[color=red]💥 CRITICAL HIT! %s hit %s for %s![/color]" % [_escape_bbcode(attacker.name), target_name, what])
 	else:
-		add_message("[color=orange]⚔️ %s hit %s for %d damage[/color]" % [attacker_name, target_name, damage])
+		add_message("[color=orange]⚔️ %s hit %s for %s[/color]" % [_escape_bbcode(attacker.name), target_name, what])
+	if event.get("prevented", false):
+		add_message("[color=yellow]   %s: %s stays on its feet[/color]" % [_escape_bbcode(str(event.get("prevented_by", ""))), target_name])
 
 	if target and target.has_method("get_hp") and target.has_method("get_max_hp"):
 		var hp = target.get_hp()

@@ -39,6 +39,14 @@ var disengaged: bool = false
 # Dodge: lasts until the start of its next turn (ask is_dodging())
 var dodging: bool = false
 
+# What this body is, by its own nature, to each type of damage (the contract
+# strings: "fire", "poison", "bludgeoning"). An enemy gets these from its type
+# definition. What a character's race, class, gear and status effects add is
+# gathered by get_resistances(), get_vulnerabilities() and get_immunities().
+var damage_resistances: Array[String] = []
+var damage_vulnerabilities: Array[String] = []
+var damage_immunities: Array[String] = []
+
 # Death guard (prevents double death handling)
 var is_dying: bool = false
 
@@ -247,6 +255,19 @@ func _equipped_weapon(slot: String) -> ItemData:
 	var item_data = InventoryManager.get_equipped_item(stats, slot).get("item_data")
 	return item_data if item_data is ItemData and item_data.is_weapon else null
 
+func get_weapon_instance(weapon: ItemData) -> Dictionary:
+	"""The piece this combatant holds of a weapon: the item instance, which
+	carries its own craftsmanship and magic bonus. {} when no item of the
+	combatant's is behind the weapon (an unarmed strike, a creature's own
+	attack)."""
+	if weapon == null or stats == null:
+		return {}
+	for slot in ["main_hand", "ranged"]:
+		var instance: Dictionary = InventoryManager.get_equipped_item(stats, slot)
+		if instance.get("item_data") == weapon:
+			return instance
+	return {}
+
 func is_off_hand_free() -> bool:
 	"""True when nothing is held in the off hand, so a versatile weapon can be
 	swung with both"""
@@ -256,6 +277,56 @@ func get_flank_partners() -> Array:
 	"""Tiles of the allies that can give this combatant's attacks flanking
 	advantage"""
 	return get_ally_positions()
+
+# ============================================================================
+# WHAT DAMAGE DOES TO THIS COMBATANT
+# ============================================================================
+
+# Where each list of damage types is kept, by where it comes from
+const _DAMAGE_TRAIT_SOURCES: Dictionary = {
+	"resistances": {"own": "damage_resistances", "race": "resistance_types", "class": "damage_resistances", "item": "damage_resistances"},
+	"vulnerabilities": {"own": "damage_vulnerabilities", "race": "vulnerability_types", "class": "damage_vulnerabilities", "item": "damage_vulnerabilities"},
+	"immunities": {"own": "damage_immunities", "race": "immunity_types", "class": "damage_immunities", "item": "damage_immunities"},
+}
+
+func get_resistances() -> Array[String]:
+	"""The damage types this combatant takes half damage from"""
+	return _gather_damage_traits("resistances")
+
+func get_vulnerabilities() -> Array[String]:
+	"""The damage types this combatant takes double damage from"""
+	return _gather_damage_traits("vulnerabilities")
+
+func get_immunities() -> Array[String]:
+	"""The damage types this combatant takes no damage from"""
+	return _gather_damage_traits("immunities")
+
+func _gather_damage_traits(which: String) -> Array[String]:
+	"""Every damage type on one of the three lists, from everything that can
+	put one there: the body's own nature (an enemy's type definition), the
+	character's race and class, the gear worn and held, and status effects. Only
+	real damage types count: a race's resistance to charm is not one."""
+	var fields: Dictionary = _DAMAGE_TRAIT_SOURCES[which]
+	var lists: Array = [get(fields["own"])]
+	if stats != null:
+		var race_data = RaceDatabase.get_race_data(stats.race_id) if stats.race_id != "" else null
+		if race_data != null:
+			lists.append(race_data.get(fields["race"]))
+		var class_data = ClassDatabase.get_class_data(stats.class_id) if stats.class_id != "" else null
+		if class_data != null:
+			lists.append(class_data.get(fields["class"]))
+		for instance in InventoryManager.get_all_equipped_items(stats):
+			var item_data = instance.get("item_data") if instance is Dictionary else null
+			if item_data is ItemData:
+				lists.append(item_data.get(fields["item"]))
+	lists.append(StatusEffectManager.get_damage_traits(self, which))
+
+	var found: Array[String] = []
+	for list in lists:
+		for damage_type in list:
+			if CombatManager.is_damage_type(str(damage_type)) and not found.has(str(damage_type)):
+				found.append(str(damage_type))
+	return found
 
 # ============================================================================
 # OTHER COMBATANTS
@@ -469,21 +540,12 @@ func get_max_hp() -> int:
 	"""Get max HP"""
 	return stats.max_hp if stats else 0
 
-func take_damage(amount: int):
-	"""Apply direct damage with visual effects (e.g. traps, hazards).
-	NOTE: attacks should go through CombatManager.apply_damage instead."""
+func take_damage(amount: int, damage_type: String = "physical"):
+	"""Damage with nobody behind it (a trap, a hazard). It goes through the
+	damage pipeline like all damage, so resistances and the rest apply."""
 	if not stats:
 		return
-
-	var still_alive = stats.take_damage(amount)
-	print("%s took %d damage! HP: %d/%d" % [name, amount, stats.current_hp, stats.max_hp])
-
-	flash_damage()
-	queue_redraw()
-
-	if not still_alive:
-		# Route through CombatManager so death events stay consistent
-		CombatManager.handle_death(self)
+	CombatManager.deal_damage(null, self, amount, damage_type)
 
 func _on_damage_dealt_event(_attacker, target, _amount, _is_critical, _damage_type):
 	"""Flash when CombatManager applies damage to this combatant"""

@@ -526,7 +526,10 @@ func _item_tooltip(item_instance: Dictionary) -> String:
 			lines.append(", ".join(traits))
 	lines.append_array(_armor_lines(item_data))
 	var item_bonus: int = ItemDatabase.get_instance_bonus(item_instance)
-	if item_bonus > 0 and (item_data.is_body_armor() or item_data.is_shield()):
+	if item_bonus > 0 and item_data.is_weapon:
+		var magic_bonus: int = ItemDatabase.get_instance_magic_bonus(item_instance)
+		lines.append("+%d to attack rolls%s" % [item_bonus, (", +%d damage" % magic_bonus) if magic_bonus > 0 else ""])
+	elif item_bonus > 0 and (item_data.is_body_armor() or item_data.is_shield()):
 		lines.append("+%d armour class" % item_bonus)
 	if item_data.equip_slot != "":
 		lines.append("Slot: " + item_data.equip_slot.replace("_", " "))

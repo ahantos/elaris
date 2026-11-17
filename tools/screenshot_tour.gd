@@ -348,7 +348,7 @@ func _run():
 
 	# Death
 	if is_instance_valid(player):
-		root.get_node("CombatManager").apply_damage(player, 9999)
+		root.get_node("CombatManager").deal_damage(null, player, 9999)
 		await _wait(0.6)
 		await _shot("game_over")
 

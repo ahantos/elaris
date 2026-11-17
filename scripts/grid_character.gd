@@ -885,20 +885,6 @@ func get_turn_number() -> int:
 # COMBAT SYSTEM (REFACTORED TO USE CHARACTERSTATS)
 # ============================================================================
 
-func take_damage(amount: int):
-	"""Direct damage (traps, hazards) also shows a number and updates the HUD.
-	NOTE: attacks should go through CombatManager.apply_damage instead."""
-	if not stats:
-		return
-
-	var world = get_parent()
-	if world:
-		var popup_pos = global_position + Vector2(0, -tile_size * 0.8)
-		DamagePopup.spawn_damage_popup_at(world, popup_pos, amount, false)
-
-	super.take_damage(amount)
-	EventBus.player_hp_changed.emit(stats.current_hp, stats.max_hp)
-
 func _on_damage_dealt_event(attacker, target, amount, is_critical, damage_type):
 	"""Keep the HP signal in sync when CombatManager applies damage to stats"""
 	super._on_damage_dealt_event(attacker, target, amount, is_critical, damage_type)

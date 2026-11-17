@@ -10,6 +10,9 @@ extends SceneTree
 #   - attacks use the weapon in hand by 5e rules,
 #   - a material sets how an item wears and what it costs and nothing else,
 #     and ids written with the old materials still resolve,
+#   - all damage goes through one pipeline: resistance, vulnerability and
+#     immunity apply to weapons, spells and status effects alike, and its
+#     hooks can change the outcome (Relentless Endurance),
 #   - armour class follows 5e: body armour, Dexterity as it allows, shield,
 #     bonuses, and nothing from any other slot,
 #   - a ranged attack follows range, line of sight, cover and free hands, and
@@ -171,6 +174,7 @@ func _run():
 	_check_weapons(world)
 	_check_materials(world)
 	await _check_armor_class(world)
+	await _check_damage(world)
 	await _check_art(world)
 	_check_crafting(world)
 	await _check_companions(world)
@@ -860,6 +864,27 @@ func _check_weapons(world):
 	check(crit_range[0] >= 4 and crit_range[1] > 10 and crit_range[1] <= 18, "a critical hit rolls the weapon's die twice", str(crit_range))
 	check(not profile.two_handed_grip, "a versatile weapon held beside a shield uses its one-handed die")
 
+	# --- the piece's own bonus: the higher of craftsmanship and magic to hit, magic to damage ---
+	var honed: Array = []
+	for pair in [[1, 0], [0, 1], [1, 2], [3, 1]]:
+		longsword["quality_modifier"] = pair[0]
+		longsword["magic_modifier"] = pair[1]
+		var bonus_profile: Dictionary = combat.get_attack_profile(player)
+		honed.append("%s: +%d, %s, %s" % [bonus_profile.weapon_name, bonus_profile.attack_bonus, combat.get_damage_text(bonus_profile),
+			str(_damage_range(combat, bonus_profile))])
+	longsword["quality_modifier"] = 0
+	longsword["magic_modifier"] = 0
+	longsword.item_data.magic_modifier = 3
+	longsword.item_data.quality_modifier = 3
+	var template_profile: Dictionary = combat.get_attack_profile(player)
+	longsword.item_data.magic_modifier = 0
+	longsword.item_data.quality_modifier = 0
+	check(honed == ["Wrought Iron Longsword +1: +5, 1d8+2 slashing, [3, 10]", "Wrought Iron Longsword +1: +5, 1d8+3 slashing, [4, 11]",
+		"Wrought Iron Longsword +2: +6, 1d8+4 slashing, [5, 12]", "Wrought Iron Longsword +3: +7, 1d8+3 slashing, [4, 11]"]
+		and template_profile.attack_bonus == 4 and template_profile.weapon_name == "Wrought Iron Longsword",
+		"a weapon adds the higher of its own craftsmanship and magic bonus to the attack roll and its magic bonus to the damage, read from the piece",
+		str(honed))
+
 	# --- versatile: the larger die with the off hand empty ---
 	inv.unequip_item(stats, "off_hand")
 	profile = combat.get_attack_profile(player)
@@ -1356,6 +1381,363 @@ func _check_armor_class(world):
 		"test teardown: the fighter is back in its kit, armour class 18")
 
 # ---------------------------------------------------------------------------
+#  Damage: one pipeline, with resistance, vulnerability, immunity and hooks
+# ---------------------------------------------------------------------------
+
+func _spawn_far(world, enemy_type: String, hp: int, place_seed: int):
+	"""A staged enemy well away from the player, so that no fight starts, at a
+	place that depends only on the seed"""
+	var rng := RandomNumberGenerator.new()
+	rng.seed = place_seed
+	return world._spawn_enemy(enemy_type, 1, hp, world.find_enemy_spawn_position(rng))
+
+func _hit(combat, attacker, target, profile: Dictionary = {}, wanted: String = "hit") -> Dictionary:
+	"""Make weapon attacks until one comes out as wanted: "hit" (any hit),
+	"critical", "miss" or "natural_1". {} when none does in 600 tries."""
+	for attempt in range(600):
+		var attack: Dictionary = combat.make_attack(attacker, target, profile)
+		if attack.is_empty():
+			return {}
+		var outcome: String = combat._attack_outcome(attack)
+		if outcome == wanted or (wanted == "hit" and attack.hit):
+			return attack
+	return {}
+
+func _set_nature(combatant, resistances: Array, vulnerabilities: Array, immunities: Array):
+	"""Test setup: what a combatant's own nature makes it to each damage type"""
+	combatant.damage_resistances.assign(resistances)
+	combatant.damage_vulnerabilities.assign(vulnerabilities)
+	combatant.damage_immunities.assign(immunities)
+
+func _newest_popup(world):
+	"""The floating number added to the world last, or null"""
+	var popup_script = load("res://scripts/damage_popup.gd")
+	var newest = null
+	for child in world.get_children():
+		if is_instance_of(child, popup_script) and not child.is_queued_for_deletion():
+			newest = child
+	return newest
+
+func _check_damage(world):
+	"""Outside any fight: the default fighter and staged enemies far away from
+	it. Fixed amounts where the arithmetic is checked, so no die decides a
+	result; where a d20 is needed the attack is repeated until it lands."""
+	var combat = _mgr("CombatManager")
+	var effects = _mgr("StatusEffectManager")
+	var spells = _mgr("SpellManager")
+	var features = _mgr("FeatureManager")
+	var items = _mgr("ItemDatabase")
+	var inv = _mgr("InventoryManager")
+	var game = _mgr("GameManager")
+	var bus = _mgr("EventBus")
+	var builder = load("res://data/stats/character_builder.gd")
+	var player = world.player
+	var stats = player.stats
+	var combat_log = world.get_node("UI/CombatLog")
+	var longsword: Dictionary = inv.get_equipped_item(stats, "main_hand")
+	var shield: Dictionary = inv.get_equipped_item(stats, "off_hand")
+	var sword: Dictionary = combat.build_attack_profile(player, longsword.item_data)
+	var xp_before: int = stats.experience
+
+	var goblin = _spawn_far(world, "goblin", 500, 101)
+	var skeleton = _spawn_far(world, "skeleton", 500, 102)
+	goblin.stats.armor_class = -100
+	skeleton.stats.armor_class = -100
+	check(not world.in_combat and goblin.get_resistances().is_empty() and goblin.get_vulnerabilities().is_empty()
+		and goblin.get_immunities().is_empty(), "test setup: staged enemies far from the player, and a goblin with no resistances")
+
+	var incoming: Array = []
+	var applied: Array = []
+	var dropping: Array = []
+	var attacks: Array = []
+	var on_incoming = func(event): incoming.append(event.duplicate())
+	var on_applied = func(event): applied.append(event.duplicate())
+	var on_dropping = func(event): dropping.append(event.duplicate())
+	var on_attack = func(event): attacks.append(event.duplicate())
+	bus.damage_incoming.connect(on_incoming)
+	bus.damage_applied.connect(on_applied)
+	bus.dropping_to_zero.connect(on_dropping)
+	bus.attack_resolved.connect(on_attack)
+
+	# --- the arithmetic: none, half rounded down, double ---
+	var amounts: Array = []
+	var responses: Array = []
+	for nature in [[[], [], []], [["fire"], [], []], [[], ["fire"], []], [[], [], ["fire"]], [["fire"], ["fire"], []], [["cold", "charm"], ["cold"], ["cold"]]]:
+		_set_nature(goblin, nature[0], nature[1], nature[2])
+		var hp_before: int = goblin.stats.current_hp
+		var dealt: Dictionary = combat.deal_damage(player, goblin, 7, "fire")
+		amounts.append(hp_before - goblin.stats.current_hp)
+		responses.append("%d %s" % [int(dealt.amount), str(dealt.response)])
+	check(amounts == [7, 3, 14, 0, 6, 7] and responses == ["7 ", "3 resisted", "14 vulnerable", "0 immune", "6 ", "7 "],
+		"resistance halves damage of its type, rounded down, vulnerability doubles it, immunity negates it, and other types are untouched",
+		"%s %s" % [str(amounts), str(responses)])
+	_set_nature(goblin, ["charm", "sleep", "poison"], [], [])
+	check(goblin.get_resistances() == ["poison"], "only real damage types count as resistances", str(goblin.get_resistances()))
+
+	# --- the same three, for a weapon hit, a spell and a status effect's tick ---
+	var strike: Dictionary = combat.get_unarmed_profile(player)
+	strike["flat_damage"] = 7
+	strike["ability_modifier"] = 0
+	strike["damage_type"] = "fire"
+	var bolt := {"spell_id": "smoke_bolt", "display_name": "Smoke Bolt", "attack_roll": true, "damage_dice": "7", "damage_type": "fire",
+		"target_type": "enemy", "range_tiles": 12}
+	var burst := {"spell_id": "smoke_burst", "display_name": "Smoke Burst", "damage_dice": "7", "damage_type": "fire", "target_type": "enemy"}
+	effects.effect_definitions["smoke_scald"] = {"effect_id": "smoke_scald", "display_name": "Scalded", "kind": "debuff",
+		"tick": {"timing": "turn_start", "damage_dice": "7", "damage_type": "fire"}, "default_duration": 9}
+	combat_log.clear_log()
+	var by_weapon: Array = []
+	var by_spell: Array = []
+	var by_tick: Array = []
+	var shown: Array = []
+	for nature in [[["fire"], [], []], [[], ["fire"], []], [[], [], ["fire"]]]:
+		_set_nature(goblin, nature[0], nature[1], nature[2])
+		var hp_before: int = goblin.stats.current_hp
+		var swing: Dictionary = _hit(combat, player, goblin, strike)
+		by_weapon.append("%d of %d %s, hp -%d" % [int(swing.get("damage", -1)), int(swing.get("damage_rolled", -1)),
+			str(swing.get("damage_response", "?")), hp_before - goblin.stats.current_hp])
+
+		hp_before = goblin.stats.current_hp
+		var cast: Dictionary = spells._resolve_cast(player, burst, goblin, [], spells._blank_result("smoke_burst"))
+		var ray: Dictionary = {}
+		for attempt in range(60):
+			ray = combat.make_spell_attack(player, goblin, bolt)
+			if ray.hit and not ray.is_crit:
+				break
+		by_spell.append("%d %s, total %d; attack %d of %d %s" % [int(cast.hits[0].damage), str(cast.hits[0].response), int(cast.total_damage),
+			int(ray.damage), int(ray.damage_rolled), str(ray.damage_response)])
+
+		hp_before = goblin.stats.current_hp
+		applied.clear()
+		effects.apply_effect(goblin, "smoke_scald", 9, player)
+		effects.process_turn_start(goblin)
+		effects.clear_effects(goblin)
+		var tick: Dictionary = applied[0] if applied.size() == 1 else {}
+		var popup = _newest_popup(world)
+		by_tick.append("%d of %d %s %s, hp -%d" % [int(tick.get("amount", -1)), int(tick.get("rolled", -1)), str(tick.get("response", "?")),
+			str(tick.get("kind", "?")), hp_before - goblin.stats.current_hp])
+		shown.append("%d %s" % [popup.damage, popup.response] if popup != null else "no number")
+	effects.effect_definitions.erase("smoke_scald")
+	check(by_weapon == ["3 of 7 resisted, hp -3", "14 of 7 vulnerable, hp -14", "0 of 7 immune, hp -0"],
+		"a weapon hit is halved by resistance, doubled by vulnerability and negated by immunity", str(by_weapon))
+	check(by_spell == ["3 resisted, total 3; attack 3 of 7 resisted", "14 vulnerable, total 14; attack 14 of 7 vulnerable",
+		"0 immune, total 0; attack 0 of 7 immune"],
+		"a spell's damage, with an attack roll or without, is halved, doubled and negated the same way", str(by_spell))
+	check(by_tick == ["3 of 7 resisted effect, hp -3", "14 of 7 vulnerable effect, hp -14", "0 of 7 immune effect, hp -0"],
+		"a status effect's tick is halved, doubled and negated the same way", str(by_tick))
+	check(shown == ["3 resisted", "14 vulnerable", "0 immune"],
+		"the floating number of a tick says when the damage was resisted, doubled or negated", str(shown))
+	var log_now: String = combat_log.log_text.get_parsed_text()
+	check("for 3 fire damage (resisted: halved)" in log_now and "for 14 fire damage (vulnerable: doubled)" in log_now
+		and "is immune to fire: no damage" in log_now,
+		"the combat log says when damage was resisted, doubled or negated")
+	_set_nature(goblin, [], [], [])
+
+	# --- damage with nobody behind it goes the same way ---
+	applied.clear()
+	_set_nature(goblin, ["acid"], [], [])
+	var hp_before_trap: int = goblin.stats.current_hp
+	goblin.take_damage(9, "acid")
+	check(hp_before_trap - goblin.stats.current_hp == 4 and applied.size() == 1 and applied[0].kind == "other" and applied[0].source == null,
+		"damage with nobody behind it (a trap) goes through the same pipeline", "%d lost" % (hp_before_trap - goblin.stats.current_hp))
+	_set_nature(goblin, [], [], [])
+
+	# --- the skeleton: vulnerable to bludgeoning ---
+	var bone_hits: Array = []
+	for damage_type in ["bludgeoning", "slashing", "piercing"]:
+		var hp_before: int = skeleton.stats.current_hp
+		combat.deal_damage(player, skeleton, 10, damage_type)
+		bone_hits.append(hp_before - skeleton.stats.current_hp)
+	var mace_hit: Dictionary = _hit(combat, player, skeleton, combat.build_attack_profile(player, items.get_item("mace")))
+	var sword_hit: Dictionary = _hit(combat, player, skeleton, combat.build_attack_profile(player, items.get_item("longsword")))
+	var goblin_mace: Dictionary = _hit(combat, player, goblin, combat.build_attack_profile(player, items.get_item("mace")))
+	check(skeleton.get_vulnerabilities() == ["bludgeoning"] and bone_hits == [20, 10, 10]
+		and not mace_hit.is_empty() and mace_hit.damage == mace_hit.damage_rolled * 2 and mace_hit.damage_response == "vulnerable"
+		and sword_hit.damage == sword_hit.damage_rolled and sword_hit.damage_response == ""
+		and goblin_mace.damage == goblin_mace.damage_rolled,
+		"a skeleton takes double damage from bludgeoning weapons, and only from those",
+		"%s, mace %s of %s" % [str(bone_hits), str(mace_hit.get("damage", "?")), str(mace_hit.get("damage_rolled", "?"))])
+
+	# --- a dwarf resists poison ---
+	var dwarf = builder.build("fighter", "dwarf", {"str": 15, "dex": 12, "con": 14, "int": 10, "wis": 10, "cha": 8}, "Smoke Dwarf")
+	var elf = builder.build("fighter", "elf", {"str": 15, "dex": 12, "con": 14, "int": 10, "wis": 10, "cha": 8}, "Smoke Elf")
+	player.stats = elf
+	var elf_resists: Array = player.get_resistances()
+	player.stats = dwarf
+	dwarf.max_hp = 100  # no blow of this check may fell the body the player wears
+	dwarf.current_hp = 100
+	var dwarf_hp: int = dwarf.current_hp
+	var venom: Dictionary = combat.deal_damage(goblin, player, 7, "poison")
+	var blade: Dictionary = combat.deal_damage(goblin, player, 2, "slashing")
+	applied.clear()
+	effects.apply_effect(player, "poisoned", 3, goblin)
+	effects.process_turn_start(player)
+	effects.clear_effects(player)
+	var poison_tick: Dictionary = applied[0] if applied.size() == 1 else {}
+	check(player.get_resistances() == ["poison"] and elf_resists.is_empty() and int(venom.amount) == 3 and venom.response == "resisted"
+		and int(blade.amount) == 2 and blade.response == "" and poison_tick.get("response", "") == "resisted"
+		and int(poison_tick.get("amount", -1)) == int(int(poison_tick.get("rolled", 0)) / 2.0)
+		and dwarf_hp - dwarf.current_hp == 3 + 2 + int(poison_tick.get("amount", 0)),
+		"a dwarf takes half damage from poison, struck or poisoned, and full damage from a blade",
+		"resists %s, poison %s, tick %s of %s" % [str(player.get_resistances()), str(venom.get("amount", "?")),
+			str(poison_tick.get("amount", "?")), str(poison_tick.get("rolled", "?"))])
+	player.stats = stats
+
+	# --- a status effect and a worn item can grant resistance too ---
+	effects.apply_effect(goblin, "fire_resistance", 5)
+	var warded: Dictionary = combat.deal_damage(player, goblin, 9, "fire")
+	effects.clear_effects(goblin)
+	var charm = load("res://data/items/item_data.gd").new()
+	charm.item_id = "smoke_charm"
+	charm.item_name = "Test Charm"
+	charm.equip_slot = "neck"
+	charm.damage_resistances.assign(["cold"])
+	charm.damage_immunities.assign(["psychic"])
+	charm.damage_vulnerabilities.assign(["radiant"])
+	_put_on(inv, stats, "neck", {"item_data": charm})
+	var worn: Array = [player.get_resistances(), player.get_immunities(), player.get_vulnerabilities()]
+	_put_on(inv, stats, "neck", {})
+	check(int(warded.amount) == 4 and warded.response == "resisted" and worn == [["cold"], ["psychic"], ["radiant"]]
+		and player.get_resistances().is_empty(),
+		"a status effect and a worn item give their resistances, immunities and vulnerabilities to the one who has them", str(worn))
+
+	# --- Relentless Endurance: a half-orc drops to 1 instead of 0, once between long rests ---
+	var orc = _spawn_far(world, "bandit", 30, 103)
+	orc.stats = builder.build("fighter", "half_orc", {"str": 15, "dex": 12, "con": 14, "int": 10, "wis": 10, "cha": 8}, "Smoke Half-Orc")
+	orc.stats.character_uid = "smoke_half_orc"
+	var orc_max: int = orc.stats.max_hp
+	dropping.clear()
+	var first_blow: Dictionary = combat.deal_damage(player, orc, 9999, "slashing")
+	var after_first: int = orc.stats.current_hp
+	var alive_after_first: bool = orc.is_alive()
+	orc.stats.current_hp = orc_max
+	var second_blow: Dictionary = combat.deal_damage(player, orc, 9999, "slashing")
+	check(features.has_feature(orc.stats, "relentless_endurance") and first_blow.prevented and first_blow.prevented_by == "Relentless Endurance"
+		and after_first == 1 and alive_after_first and int(first_blow.amount) == orc_max - 1 and not first_blow.killed,
+		"Relentless Endurance leaves a half-orc on 1 hit point when damage would drop it to 0", "hp %d" % after_first)
+	check(not second_blow.prevented and second_blow.killed and not orc.is_alive() and dropping.size() == 2
+		and features.is_used(orc.stats, "relentless_endurance"),
+		"Relentless Endurance works once: the next such blow before a long rest kills", "hp %d" % orc.stats.current_hp)
+	var orc_two = _spawn_far(world, "bandit", 30, 104)
+	orc_two.stats = builder.build("fighter", "half_orc", {"str": 15, "dex": 12, "con": 14, "int": 10, "wis": 10, "cha": 8}, "Smoke Half-Orc II")
+	orc_two.stats.character_uid = "smoke_half_orc_2"
+	orc_two.stats.armor_class = -100
+	var struck: Dictionary = _hit(combat, player, orc_two, sword)
+	for attempt in range(40):
+		if struck.get("prevented_by", "") != "":
+			break
+		struck = _hit(combat, player, orc_two, sword)
+	var used_before_rest: bool = features.is_used(orc_two.stats, "relentless_endurance")
+	game.take_long_rest()
+	var back_after_rest: bool = features.is_available(orc_two.stats, "relentless_endurance")
+	var after_rest: Dictionary = combat.deal_damage(player, orc_two, 9999, "slashing")
+	check(struck.get("prevented_by", "") == "Relentless Endurance" and used_before_rest and back_after_rest and after_rest.prevented
+		and orc_two.stats.current_hp == 1 and orc_two.is_alive(),
+		"a weapon's blow is turned the same way, and a long rest gives Relentless Endurance back", "hp %d" % orc_two.stats.current_hp)
+	var human_dies: Dictionary = combat.deal_damage(player, _spawn_far(world, "wolf", 5, 105), 9999, "slashing")
+	check(human_dies.killed and not human_dies.prevented, "a creature without the trait drops as before")
+
+	# --- the hooks: an attack was resolved ---
+	attacks.clear()
+	var landed: Dictionary = _hit(combat, player, goblin, sword)
+	var hit_event: Dictionary = attacks[-1]
+	check(hit_event.attacker == player and hit_event.target == goblin and hit_event.kind == "weapon" and hit_event.hit
+		and hit_event.roll == landed.roll and hit_event.roll >= 2 and hit_event.roll <= 20 and hit_event.outcome in ["hit", "critical"]
+		and hit_event.weapon == longsword.item_data and hit_event.weapon_instance == longsword and not hit_event.natural_weapon
+		and hit_event.weapon_name == "Wrought Iron Longsword" and hit_event.damage_type == "slashing" and not hit_event.is_ranged
+		and not hit_event.two_handed and not hit_event.two_handed_grip and hit_event.damage == landed.damage and hit_event.result == landed,
+		"a resolved attack is announced with the attacker, the target, the natural d20, the outcome, the weapon's item instance and its damage type",
+		str(hit_event.get("outcome", "?")))
+	goblin.stats.armor_class = 100
+	var missed: Dictionary = _hit(combat, player, goblin, sword, "miss")
+	var miss_event: Dictionary = attacks[-1]
+	var fumbled: Dictionary = _hit(combat, player, goblin, sword, "natural_1")
+	var fumble_event: Dictionary = attacks[-1]
+	var crit: Dictionary = _hit(combat, player, goblin, sword, "critical")
+	var crit_event: Dictionary = attacks[-1]
+	goblin.stats.armor_class = -100
+	check(not missed.is_empty() and miss_event.outcome == "miss" and not miss_event.hit and miss_event.damage == 0 and miss_event.roll >= 2
+		and not fumbled.is_empty() and fumble_event.outcome == "natural_1" and fumble_event.roll == 1 and fumble_event.is_fumble and not fumble_event.hit
+		and not crit.is_empty() and crit_event.outcome == "critical" and crit_event.roll == 20 and crit_event.is_crit and crit_event.hit,
+		"a miss, a natural 1 and a critical hit are each announced as what they are",
+		"%s / %s / %s" % [str(miss_event.get("outcome", "?")), str(fumble_event.get("outcome", "?")), str(crit_event.get("outcome", "?"))])
+	_put_on(inv, stats, "off_hand", {})
+	_hit(combat, player, goblin, combat.build_attack_profile(player, items.get_item("greatsword")))
+	var greatsword_event: Dictionary = attacks[-1]
+	_hit(combat, player, goblin, combat.build_attack_profile(player, longsword.item_data))
+	var both_hands_event: Dictionary = attacks[-1]
+	_put_on(inv, stats, "off_hand", shield)
+	_hit(combat, player, goblin, combat.get_unarmed_profile(player))
+	var fist_event: Dictionary = attacks[-1]
+	_hit(combat, goblin, skeleton, {})
+	var claw_event: Dictionary = attacks[-1]
+	var ray_result: Dictionary = combat.make_spell_attack(player, goblin, bolt)
+	var ray_event: Dictionary = attacks[-1]
+	check(greatsword_event.two_handed and greatsword_event.two_handed_grip
+		and not both_hands_event.two_handed and both_hands_event.two_handed_grip
+		and fist_event.kind == "unarmed" and fist_event.weapon == null and fist_event.natural_weapon and fist_event.damage_type == "bludgeoning"
+		and claw_event.attacker == goblin and claw_event.kind == "weapon" and claw_event.natural_weapon and claw_event.weapon_instance.is_empty()
+		and ray_event.kind == "spell" and ray_event.spell_id == "smoke_bolt" and ray_event.roll == ray_result.roll
+		and ray_event.weapon == null and not ray_event.natural_weapon and ray_event.damage_type == "fire",
+		"the announcement says whether the weapon is two-handed, a natural weapon or a spell")
+
+	# --- the hooks: damage about to be applied, and applied ---
+	var doubler = func(event):
+		if event.target == goblin and event.damage_type == "cold":
+			event["amount"] = int(event.amount) + 13
+	bus.damage_incoming.connect(doubler)
+	incoming.clear()
+	applied.clear()
+	var hp_before_cold: int = goblin.stats.current_hp
+	var plain_cold: Dictionary = combat.deal_damage(player, goblin, 7, "cold", {"kind": "spell", "spell_id": "smoke_frost", "is_critical": true})
+	_set_nature(goblin, ["cold"], [], [])
+	var resisted_cold: Dictionary = combat.deal_damage(player, goblin, 7, "cold")
+	_set_nature(goblin, [], [], [])
+	bus.damage_incoming.disconnect(doubler)
+	check(int(plain_cold.amount) == 20 and int(resisted_cold.amount) == 10 and hp_before_cold - goblin.stats.current_hp == 30
+		and incoming.size() == 2 and incoming[0].amount == 7 and incoming[0].rolled == 7 and incoming[1].resistant,
+		"a listener of the incoming-damage hook can change the amount, before resistance is applied",
+		"%s then %s" % [str(plain_cold.get("amount", "?")), str(resisted_cold.get("amount", "?"))])
+	var report: Dictionary = applied[0] if applied.size() == 2 else {}
+	check(report.get("source") == player and report.get("target") == goblin and report.get("amount", 0) == 20 and report.get("rolled", 0) == 7
+		and report.get("damage_type", "") == "cold" and report.get("kind", "") == "spell" and report.get("is_critical", false)
+		and report.get("context", {}).get("spell_id", "") == "smoke_frost" and report.get("hp_before", 0) == hp_before_cold
+		and report.get("hp_after", 0) == hp_before_cold - 20 and not report.get("killed", true),
+		"applied damage is announced with its source, target, amount, type, kind and the hit points before and after")
+
+	# --- the hooks: a combatant would drop to 0 hit points ---
+	dropping.clear()
+	combat.deal_damage(player, goblin, 5, "slashing")
+	var ward = func(event):
+		if event.target == goblin:
+			event["prevented"] = true
+			event["hp_left"] = 3
+			event["prevented_by"] = "Smoke Ward"
+	bus.dropping_to_zero.connect(ward)
+	var hp_before_doom: int = goblin.stats.current_hp
+	var doom: Dictionary = combat.deal_damage(player, goblin, 9999, "slashing")
+	bus.dropping_to_zero.disconnect(ward)
+	check(dropping.size() == 1 and dropping[0].target == goblin and dropping[0].amount == 9999 and not dropping[0].prevented
+		and doom.prevented and doom.prevented_by == "Smoke Ward" and goblin.stats.current_hp == 3 and goblin.is_alive()
+		and int(doom.amount) == hp_before_doom - 3 and not doom.killed,
+		"a listener of the drop-to-zero hook can keep the combatant standing; damage that leaves it standing does not raise the hook",
+		"%d raised, hp %d" % [dropping.size(), goblin.stats.current_hp])
+
+	bus.damage_incoming.disconnect(on_incoming)
+	bus.damage_applied.disconnect(on_applied)
+	bus.dropping_to_zero.disconnect(on_dropping)
+	bus.attack_resolved.disconnect(on_attack)
+	for staged in [goblin, skeleton, orc_two]:
+		_remove_enemy(world, staged)
+	for node in world.ground_items_node.get_children():
+		node.queue_free()
+	var level_now: int = stats.level
+	stats.experience = xp_before  # the two staged deaths gave experience; the checks after this one count their own
+	stats.current_hp = stats.max_hp
+	await _frames(2)
+	check(player.stats == stats and not world.in_combat and stats.is_alive() and level_now == 1 and stats.armor_class == 18,
+		"test teardown: the staged enemies are gone, no fight started and the fighter is as it was")
+
+# ---------------------------------------------------------------------------
 #  Turn resources and actions: everything done in a turn is a request
 # ---------------------------------------------------------------------------
 
@@ -1715,7 +2097,7 @@ func _check_actions(world):
 			"a companion with nothing equipped attacks through the same request, with an unarmed strike")
 
 	# --- the fight ends; outside one nothing is spent ---
-	combat_mgr.apply_damage(goblin, 9999, combat_mgr.DamageType.PHYSICAL, player, false)
+	combat_mgr.deal_damage(player, goblin, 9999)
 	await _until(func(): return not world.in_combat, 5.0)
 	Engine.time_scale = 1.0
 	check(not world.in_combat and not player.action_used and player.movement_left == 0, "test setup: the staged fight is over")
@@ -1997,6 +2379,17 @@ func _check_ranged(world):
 	check(controller.get_order().has(near) and controller.is_turn_of(player),
 		"a hostile that is attacked from outside the fight joins it, without taking the turn", "%d in the order" % controller.get_order().size())
 
+	# --- what the target is to the damage shows on the number over its head ---
+	_set_nature(near, [], ["slashing"], [])
+	var doubled: Dictionary = _attack_until_hit(controller, player, near, blows)
+	var doubled_popup = _newest_popup(world)
+	_set_nature(near, [], [], [])
+	check(not doubled.is_empty() and doubled.damage == doubled.damage_rolled * 2 and doubled.damage_response == "vulnerable"
+		and doubled.hp_lost == doubled.damage and blows.size() == 1 and blows[0][2] == doubled.damage
+		and doubled_popup != null and doubled_popup.response == "vulnerable" and doubled_popup.damage == doubled.damage,
+		"the Attack action on a vulnerable enemy does double damage, and the number over its head says so",
+		"%s of %s" % [str(doubled.get("damage", "?")), str(doubled.get("damage_rolled", "?"))])
+
 	far.stats.armor_class = 13
 	var crowded: Dictionary = combat_mgr.get_hit_chance(player, far)
 	player.action_used = false
@@ -2025,6 +2418,19 @@ func _check_ranged(world):
 		"resting the pointer on an enemy asks the controller what attacking it would be: weapon, chance, damage, and why", str(aimed.get("reason", "")))
 	check(lines == ["Goblin", "Oak Light Crossbow", "30% to hit", "1d8+1 piercing damage", "Disadvantage: enemy adjacent"],
 		"the readout beside the enemy shows the weapon, the chance to hit, the damage and the reason for disadvantage", str(lines))
+	var answers: Array = []
+	for nature in [[["piercing"], [], []], [[], ["piercing"], []], [[], [], ["piercing"]], [["slashing"], ["fire"], ["cold"]]]:
+		_set_nature(far, nature[0], nature[1], nature[2])
+		player._update_aim(far.grid_position)
+		readout.refresh()
+		answers.append(" | ".join(readout.get_lines().slice(4)))
+	_set_nature(far, [], [], [])
+	player._update_aim(far.grid_position)
+	readout.refresh()
+	check(answers == ["Resists piercing: half damage | Disadvantage: enemy adjacent", "Vulnerable to piercing: double damage | Disadvantage: enemy adjacent",
+		"Immune to piercing: no damage | Disadvantage: enemy adjacent", "Disadvantage: enemy adjacent"]
+		and readout.get_lines() == lines,
+		"before the player commits, the readout says when the enemy resists the weapon's damage, is vulnerable to it or immune", str(answers))
 	var screen := Rect2(Vector2.ZERO, root.get_visible_rect().size)
 	check(readout.is_showing() and screen.encloses(readout_rect) and readout_rect.end.y <= world.bottom_ui.get_global_rect().position.y,
 		"the readout is on the screen and clear of the bottom bar", str(readout_rect))
@@ -2238,7 +2644,7 @@ func _check_ranged(world):
 	await _until(func(): return controller.is_turn_of(player) or not world.in_combat)
 
 	# --- the fight ends; the starting kit goes back on ---
-	combat_mgr.apply_damage(far, 9999, combat_mgr.DamageType.PHYSICAL, player, false)
+	combat_mgr.deal_damage(player, far, 9999)
 	await _until(func(): return not world.in_combat, 5.0)
 	Engine.time_scale = 1.0
 	inv.equip_item(shield, stats, "off_hand")
@@ -2432,7 +2838,7 @@ func _check_turn_authority(world):
 
 	# The second goblin sits before the player in the order: taking it out moves
 	# every later index, and must not move the turn
-	combat_mgr.apply_damage(second, 9999, combat_mgr.DamageType.PHYSICAL, player, false)
+	combat_mgr.deal_damage(player, second, 9999)
 	check(controller.is_turn_of(player) and not controller.get_order().has(second),
 		"removing a dead combatant from the order does not change whose turn it is")
 
@@ -2501,7 +2907,7 @@ func _check_turn_authority(world):
 	check(world.in_combat and endings.is_empty(), "the fight goes on while a hostile combatant is alive")
 	for combatant in controller.get_order():
 		if combatant.team == hostile_team:
-			combat_mgr.apply_damage(combatant, 9999, combat_mgr.DamageType.PHYSICAL, player, false)
+			combat_mgr.deal_damage(player, combatant, 9999)
 	waited = 0.0
 	while endings.is_empty() and waited < 5.0:
 		await _wait(0.02)
@@ -2695,7 +3101,7 @@ func _check_game_flow():
 		"saving is refused during combat")
 
 	# --- death leads to a screen with a way back ---
-	combat.apply_damage(world.player, 9999, combat.DamageType.PHYSICAL, enemy, false)
+	combat.deal_damage(enemy, world.player, 9999)
 	await _frames(4)
 	check(game.is_game_over and is_instance_valid(world.player) and not world.in_combat,
 		"death ends the fight and keeps the world intact")
