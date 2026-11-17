@@ -64,7 +64,7 @@ static func get_event_definitions() -> Dictionary:
 		"effects": {
 			"gold": 25,
 			"items": [
-				{"item_id": "material_iron", "count": 2},
+				{"item_id": "material_wrought_iron", "count": 2},
 				{"item_id": "potion_healing", "count": 1},
 			],
 			"notify_type": "success",

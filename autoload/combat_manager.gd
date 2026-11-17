@@ -28,6 +28,7 @@ const UNARMED_DAMAGE_TYPE: String = "bludgeoning"
 const REASON_LONG_RANGE: String = "long range"
 const REASON_ENEMY_ADJACENT: String = "enemy adjacent"
 const REASON_ENCUMBERED: String = "encumbered"
+const REASON_UNTRAINED_ARMOR: String = "armour without proficiency"
 const REASON_TARGET_DODGING: String = "target dodging"
 const REASON_FLANKING: String = "flanking"
 const REASON_HALF_COVER: String = "half cover"
@@ -234,6 +235,8 @@ func get_attack_modifiers(attacker: Combatant, target: Combatant, profile: Dicti
 	  cursed change the attack bonus; the target's AC takes its effects.
 	- A target that is dodging gives disadvantage.
 	- A heavily laden party member attacks at disadvantage.
+	- An attacker in body armour or with a shield its class is not proficient
+	  with attacks at disadvantage.
 	- Melee: an ally of the attacker on the far side of the target (flanking)
 	  gives advantage; the attacker says who its flank partners are.
 	- Ranged: beyond the weapon's normal range, disadvantage; a hostile next to
@@ -259,6 +262,8 @@ func get_attack_modifiers(attacker: Combatant, target: Combatant, profile: Dicti
 	# Encumbrance - only for whoever is carrying the party's load
 	if InventoryManager.is_party_member(attacker.stats) and InventoryManager.has_disadvantage_on_physical_rolls():
 		disadvantage_reasons.append(REASON_ENCUMBERED)
+	if attacker.stats.wears_untrained_armor():
+		disadvantage_reasons.append(REASON_UNTRAINED_ARMOR)
 
 	# Status effects on both sides
 	var sources: Dictionary = StatusEffectManager.get_attack_advantage_sources(attacker, target)

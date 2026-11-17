@@ -42,24 +42,26 @@ static func find_issues(root: Node) -> Array:
 		if not str(recipe.get("station", "")) in STATIONS:
 			issues.append("recipe %s: unknown station '%s'" % [rid, str(recipe.get("station", ""))])
 		for input in recipe.get("inputs", []):
-			if items.get_item(str(input.get("item_id", ""))) == null:
-				issues.append("recipe %s: input item '%s' does not exist" % [rid, str(input.get("item_id", ""))])
+			_check_item(issues, "recipe %s: input item" % rid, items, str(input.get("item_id", "")))
 		if not recipe.get("is_enchant", false):
-			if items.get_item(str(recipe.get("output_item_id", ""))) == null:
-				issues.append("recipe %s: output item '%s' does not exist" % [rid, str(recipe.get("output_item_id", ""))])
+			_check_item(issues, "recipe %s: output item" % rid, items, str(recipe.get("output_item_id", "")))
 
 	# --- loot tables ---
 	for table_id in loot.loot_tables:
 		for entry in loot.loot_tables[table_id].get("entries", []):
-			if entry.has("item_id") and items.get_item(str(entry.item_id)) == null:
-				issues.append("loot table %s: item '%s' does not exist" % [table_id, str(entry.item_id)])
+			if entry.has("item_id"):
+				_check_item(issues, "loot table %s: item" % table_id, items, str(entry.item_id))
+	for category in ["weapon", "armor", "material", "consumable"]:
+		for item in items.get_loot_candidates(category):
+			if item.material != null and not item.material.is_obtainable():
+				issues.append("loot category %s: item '%s' is made of %s, which cannot be obtained yet" % [
+					category, item.item_id, item.material.material_id])
 
 	# --- class starting kits ---
 	for class_id in classes.get_all_class_ids():
 		var class_data = classes.get_class_data(class_id)
 		for item_id in class_data.starting_equipment_list:
-			if items.get_item(str(item_id)) == null:
-				issues.append("class %s: starting item '%s' does not exist" % [class_id, str(item_id)])
+			_check_item(issues, "class %s: starting item" % class_id, items, str(item_id))
 
 	# --- quests ---
 	for quest_id in quests.quest_definitions:
@@ -75,8 +77,7 @@ static func find_issues(root: Node) -> Array:
 					if not dialogues.dialogues.has(target):
 						issues.append("quest %s: talk target '%s' has no dialogue" % [quest_id, target])
 				"collect":
-					if items.get_item(target) == null:
-						issues.append("quest %s: collect item '%s' does not exist" % [quest_id, target])
+					_check_item(issues, "quest %s: collect item" % quest_id, items, target)
 				"reach":
 					if not zones.zones.has(target):
 						issues.append("quest %s: reach target '%s' is not a zone" % [quest_id, target])
@@ -84,8 +85,7 @@ static func find_issues(root: Node) -> Array:
 					issues.append("quest %s: unknown objective type '%s'" % [quest_id, kind])
 		var rewards: Dictionary = quest.get("rewards", {})
 		for entry in rewards.get("items", []):
-			if items.get_item(str(entry.get("item_id", ""))) == null:
-				issues.append("quest %s: reward item '%s' does not exist" % [quest_id, str(entry.get("item_id", ""))])
+			_check_item(issues, "quest %s: reward item" % quest_id, items, str(entry.get("item_id", "")))
 		for faction_id in rewards.get("reputation", {}):
 			if not factions.factions.has(faction_id):
 				issues.append("quest %s: reward faction '%s' does not exist" % [quest_id, str(faction_id)])
@@ -136,8 +136,7 @@ static func find_issues(root: Node) -> Array:
 				var gift := str(token)
 				if gift.begins_with("type:") or gift.begins_with("material_"):
 					continue  # category tokens / prefixes, not single item ids
-				if items.get_item(gift) == null:
-					issues.append("companion %s: %s item '%s' does not exist" % [companion_id, list_key, gift])
+				_check_item(issues, "companion %s: %s item" % [companion_id, list_key], items, gift)
 
 	# --- zones ---
 	for zone_id in zones.zones:
@@ -161,8 +160,7 @@ static func find_issues(root: Node) -> Array:
 	for event_id in events.random_events:
 		var event_effects: Dictionary = events.random_events[event_id].get("effects", {})
 		for entry in event_effects.get("items", []):
-			if items.get_item(str(entry.get("item_id", ""))) == null:
-				issues.append("world event %s: item '%s' does not exist" % [event_id, str(entry.get("item_id", ""))])
+			_check_item(issues, "world event %s: item" % event_id, items, str(entry.get("item_id", "")))
 		var status: Dictionary = event_effects.get("status_effect", {})
 		if not status.is_empty() and not str(status.get("effect_id", "")) in effect_ids:
 			issues.append("world event %s: unknown status effect '%s'" % [event_id, str(status.get("effect_id", ""))])
@@ -174,9 +172,23 @@ static func _check_reference(issues: Array, where: String, entry: Dictionary, it
 	"""Shared id checks for dialogue conditions and effects."""
 	if entry.has("quest_id") and not quests.quest_definitions.has(str(entry.quest_id)):
 		issues.append("%s: quest '%s' does not exist" % [where, str(entry.quest_id)])
-	if entry.has("item_id") and items.get_item(str(entry.item_id)) == null:
-		issues.append("%s: item '%s' does not exist" % [where, str(entry.item_id)])
+	if entry.has("item_id"):
+		_check_item(issues, "%s: item" % where, items, str(entry.item_id))
 	if entry.has("faction_id") and str(entry.faction_id) != "random" and not factions.factions.has(str(entry.faction_id)):
 		issues.append("%s: faction '%s' does not exist" % [where, str(entry.faction_id)])
 	if entry.has("companion_id") and not companions.companion_definitions.has(str(entry.companion_id)):
 		issues.append("%s: companion '%s' does not exist" % [where, str(entry.companion_id)])
+
+static func _check_item(issues: Array, where: String, items, item_id: String):
+	"""An item id content refers to must name an item, by the id the database
+	knows it by (not one written with a renamed material: comparisons by id
+	would never match), and the item must be made of a material that can be
+	obtained."""
+	var item = items.get_item(item_id)
+	if item == null:
+		issues.append("%s '%s' does not exist" % [where, item_id])
+		return
+	if item.item_id != item_id:
+		issues.append("%s '%s' is a retired id: write '%s'" % [where, item_id, item.item_id])
+	if item.material != null and not item.material.is_obtainable():
+		issues.append("%s '%s' is made of %s, which cannot be obtained yet" % [where, item_id, item.material.material_id])

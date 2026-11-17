@@ -343,7 +343,7 @@ static func get_definitions() -> Dictionary:
 					{
 						"text": "I carry good iron, as it happens.",
 						"next": "iron_talk",
-						"condition": {"type": "has_item", "item_id": "material_iron"},
+						"condition": {"type": "has_item", "item_id": "material_wrought_iron"},
 					},
 					{"text": "Good day, Guildmaster.", "next": ""},
 				],

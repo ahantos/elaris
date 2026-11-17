@@ -250,7 +250,8 @@ func _on_rest_taken(rest_type: String):
 
 func can_cast(caster: Node, spell_id: String) -> Dictionary:
 	"""Returns {ok: bool, reason: String}. Checks: valid caster node with stats,
-	known spell, spellcasting class, not incapacitated, and a free slot (cantrips skip)."""
+	known spell, spellcasting class, no body armour or shield worn without the
+	proficiency for it, not incapacitated, and a free slot (cantrips skip)."""
 	if caster == null or not is_instance_valid(caster) or caster.get("stats") == null:
 		return {"ok": false, "reason": "Invalid caster"}
 	var stats = caster.stats
@@ -264,6 +265,8 @@ func can_cast(caster: Node, spell_id: String) -> Dictionary:
 		return {"ok": false, "reason": "%s is not a spellcasting class" % stats.class_id.capitalize()}
 	if not knows_spell(stats, spell_id):
 		return {"ok": false, "reason": "Spell not known"}
+	if stats.wears_untrained_armor():
+		return {"ok": false, "reason": "Cannot cast in %s: no proficiency with it" % " and ".join(stats.untrained_armor)}
 	if StatusEffectManager.has_method("is_incapacitated") and StatusEffectManager.is_incapacitated(caster):
 		return {"ok": false, "reason": "Incapacitated"}
 	var level = int(spell.get("level", 0))

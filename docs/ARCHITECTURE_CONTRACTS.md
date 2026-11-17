@@ -162,10 +162,12 @@ plus multi-slots `rings`, `trinkets` (InventoryManager stores Arrays for those t
 off hand holds something, and anything in the off hand beside a two-handed weapon.
 
 ### 2.3 Item id scheme
-- Material variants: `"{material_id}_{base_id}"`, for example `iron_longsword`,
-  `leather_jerkin`, `steel_helmet`.
+- Material variants: `"{material_id}_{base_id}"`, for example `steel_longsword`,
+  `cowhide_jerkin`, `wrought_iron_helmet`. Every base exists in every material of
+  its kind (a metal base in every metal).
 - Plain-base aliases: `"{base_id}"` (`longsword`, `chain_mail`) registered as the
-  default-material version, because class starting kits use plain ids.
+  default-material version, because class starting kits use plain ids. The defaults
+  (`ItemDatabase.DEFAULT_MATERIALS`): wrought iron, oak, cowhide, fine linen.
 - Weapon bases: dagger, shortsword, longsword, greatsword, handaxe, battleaxe,
   greataxe, mace, warhammer, spear, rapier, quarterstaff, club, shortbow, longbow,
   light_crossbow, heavy_crossbow. They follow the 5e SRD weapon table
@@ -179,10 +181,11 @@ off hand holds something, and anything in the off hand beside a two-handed weapo
   four ranged bases are two-handed and go in the `ranged` slot.
   `CharacterStats.is_proficient_with_weapon(weapon)` reads proficiency from the class
   data and the character's own list, by category or by base id.
-- Armour bases (slot): helmet (head), chain_mail (chest), chestplate (chest),
-  gauntlets (hands), greaves (legs), plate_boots (feet), shield (off_hand); leather:
-  leather_cap (head), jerkin (chest), gloves (hands), leggings (legs), boots (feet);
-  cloth: hood (head), robe (chest), wraps (hands), pants (legs), slippers (feet).
+- Armour bases (slot), `ItemDatabase.ARMOR_BASES`: metal: helmet (head), chestplate,
+  chain_mail, scale_mail (chest), gauntlets (hands), greaves (legs), plate_boots
+  (feet), shield (off_hand); leather: leather_cap (head), jerkin (chest), gloves
+  (hands), leggings (legs), boots (feet); cloth: hood (head), robe (chest), wraps
+  (hands), pants (legs), slippers (feet). What they do for armour class is in 2.3b.
 - Accessories: `ring_*`, `amulet_*`, `cloak_*`, `belt_*`, `trinket_*`.
 - Consumables: `potion_healing_minor`, `potion_healing`, `potion_healing_greater`,
   `antidote`, food ids (`bread`, `cooked_meat`, ...).
@@ -191,6 +194,74 @@ off hand holds something, and anything in the off hand beside a two-handed weapo
   `wand_{spell_id}`.
 - `ItemDatabase.get_item(item_id)` re-creates any generatable id on demand, so saves
   and recipes never dangle. Generation is deterministic per id.
+- **Renamed materials.** `ItemDatabase.MATERIAL_ALIASES` maps the material ids of the
+  old list to what they became (iron to wrought_iron, mithril to mythril, adamantine
+  to adamantite, hide to pigskin, leather to cowhide, linen to fine_linen).
+  `get_material()` and `get_item()` follow it, so `iron_longsword` in an old save is
+  the wrought iron longsword, and it is saved under its new id from then on. No save
+  migration is involved. `canonical_item_id(id)` gives the id the database knows an
+  item by. Content must use that id: gift lists, quest targets and dialogue
+  conditions compare ids as text, and the content validator fails on a retired one.
+- An item instance carries its own `quality_modifier` (craftsmanship) and
+  `magic_modifier`. Rules read them from the instance, never from the `ItemData`
+  template: `ItemDatabase.get_instance_bonus(instance)` is the higher of the two.
+
+### 2.3a Materials
+A material (`MaterialData`, registered in `ItemDatabase.load_materials()`) sets how an
+item wears, what it costs and one trait. It never changes damage, armour class,
+weight or any other number of the item.
+
+| Field | Meaning |
+|---|---|
+| `category` / `get_kind()` | `metal`, `wood`, `leather`, `cloth` |
+| `durability_score` | the score in Ákos's material tables |
+| `notches` | `durability_score` / 8, rounded half up, at least 2 (`MaterialData.notches_for`) |
+| `hardness` | one scale for all four kinds |
+| `price_multiplier` | an item's `base_value` is its base type's price times this |
+| `trait_id` | `rusts_easily`, `silvered`, `warm`, ... or `""`. Data only: no trait has an effect yet. (`trait` is a reserved word in GDScript.) |
+| `stage` | 1: can drop, be bought and be crafted (`is_obtainable()`). 0: defined, and an item made of it loads and works, but nothing hands it out |
+
+Stage one is 24 materials, six of each kind. Mythril and adamantite are defined at
+stage 0, as are the eight materials of the old list that have no equivalent yet.
+Loot categories pick only obtainable materials, a dearer one less often (weight 1 /
+price multiplier); the content validator fails on a loot entry, recipe, starting kit
+or reward that names an item of a material that cannot be obtained. Nothing wears
+yet: notches and hardness are shown on the tooltip and used from step 5.
+
+### 2.3b Armour class
+5e rules, worked out in `CharacterStats.apply_equipment_bonuses()` from what is worn
+and stored in `CharacterStats.armor_class`:
+
+**AC = body armour base + Dexterity modifier as the armour allows + shield + the
+armour's and the shield's own bonus + magic that grants AC.** Unarmoured: 10 +
+Dexterity.
+
+| Chest base | 5e armour | `armor_type` | `armor_base` | Dexterity | Strength | Stealth |
+|---|---|---|---|---|---|---|
+| `robe` | clothes | `""` | 0 (unarmoured, 10) | full | | |
+| `jerkin` | leather | `light` | 11 | full | | |
+| `scale_mail` | scale mail | `medium` | 14 | at most +2 | | disadvantage |
+| `chain_mail` | chain mail | `heavy` | 16 | none | 13 | disadvantage |
+| `chestplate` | plate | `heavy` | 18 | none | 15 | disadvantage |
+
+- A shield (`armor_type` `shield`, `armor_class_bonus` 2) adds 2.
+- **No other slot gives armour class**: head, shoulder, back, wrist, hands, waist,
+  legs, feet. Helmets, gauntlets, greaves and boots have `armor_type` `""`, no base
+  and no bonus. They stay in the game; their job comes in a later phase.
+- Body armour and a shield add the higher of their own craftsmanship and magic bonus.
+- Magic that grants AC says so in `ItemData.stat_bonuses` (`{"ac": 1}`: the ring and
+  the cloak of protection) and counts from any slot.
+- A wearer below the body armour's Strength requirement is 10 feet slower
+  (`CharacterStats.is_slowed_by_armor()`, applied in `get_modified_speed_feet()`).
+- Body armour needs the class's proficiency for its category and a shield needs
+  `shields` (`CharacterStats.is_proficient_with_armor`; SRD: fighter all, cleric
+  light, medium and shields, rogue light, wizard none). Without it
+  (`wears_untrained_armor()`): disadvantage on attack rolls and no spellcasting
+  (`SpellManager.can_cast` refuses). Clothes and the other slots need no proficiency.
+- `get_armor_class_breakdown()` gives the parts as `[{label, value}]`; the character
+  sheet shows them. Status effects and cover are added at the moment of an attack.
+- `armor_class` is a stored field, recalculated by `recalculate_derived_stats()`.
+  An enemy has no equipment: 10 + its Dexterity modifier, until the bestiary.
 
 ### 2.4 Damage types
 Data uses strings: `physical, slashing, piercing, bludgeoning, fire, cold, lightning,

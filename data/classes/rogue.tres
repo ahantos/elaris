@@ -9,6 +9,7 @@ display_name = "Rogue"
 description = "A cunning warrior who uses stealth, precision, and tricks to gain the upper hand. Rogues excel at dealing massive burst damage with sneak attacks."
 hit_die = "1d8"
 hp_per_level = 5
+armor_proficiencies = Array[String](["light"])
 weapon_proficiencies = Array[String](["simple", "hand_crossbow", "longsword", "rapier", "shortsword"])
 saving_throw_proficiencies = Array[String](["dex", "int"])
 skill_proficiency_count = 4

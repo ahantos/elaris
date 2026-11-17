@@ -8,6 +8,10 @@ extends SceneTree
 #   - the fixed defects stay fixed (gifting, crafting level, loot pickup, ...),
 #   - a scripted fight runs to its end,
 #   - attacks use the weapon in hand by 5e rules,
+#   - a material sets how an item wears and what it costs and nothing else,
+#     and ids written with the old materials still resolve,
+#   - armour class follows 5e: body armour, Dexterity as it allows, shield,
+#     bonuses, and nothing from any other slot,
 #   - a ranged attack follows range, line of sight, cover and free hands, and
 #     the chance to hit that is shown is the exact one,
 #   - a turn has movement, an action, a bonus action and a reaction, and every
@@ -165,6 +169,8 @@ func _run():
 	_check_starting_character(world)
 	_check_encumbrance(world)
 	_check_weapons(world)
+	_check_materials(world)
+	await _check_armor_class(world)
 	await _check_art(world)
 	_check_crafting(world)
 	await _check_companions(world)
@@ -375,7 +381,8 @@ func _check_starting_character(world):
 	check(stats.class_id == "fighter", "default character is a fighter")
 	check(not inv.get_equipped_item(stats, "chest").is_empty(), "starting armour is worn")
 	check(not inv.get_equipped_item(stats, "main_hand").is_empty(), "starting weapon is wielded")
-	check(stats.armor_class >= 16, "equipped starting kit raises AC", "AC %d" % stats.armor_class)
+	check(stats.armor_class == 18 and stats.armor_name == "Wrought Iron Chain Mail" and stats.shield_name == "Wrought Iron Shield",
+		"the starting kit gives the fighter chain mail and a shield: armour class 18", "AC %d" % stats.armor_class)
 	check(stats.movement_speed == 30 and stats.get_modified_movement_speed() == 6,
 		"speed is stored in feet and converts to 6 tiles",
 		"%d ft / %d tiles" % [stats.movement_speed, stats.get_modified_movement_speed()])
@@ -422,7 +429,7 @@ func _check_companions(world):
 			"a companion stands on the 32px grid and occupies its tile")
 		_check_hostility(world, kaelen)
 
-	var sword: Dictionary = items.create_item_instance("iron_longsword")
+	var sword: Dictionary = items.create_item_instance("wrought_iron_longsword")
 	inv.add_item(sword)
 	var before: int = comp.get_relationship("kaelen")
 	check(comp.give_gift("kaelen", sword), "gifting an item works")
@@ -437,7 +444,7 @@ func _check_companions(world):
 	comp.recruit("lyra")
 	check(not potion.is_empty() and comp.give_gift("lyra", potion) and comp.get_relationship("lyra") == before + comp.GIFT_DELTA_LIKED,
 		"a consumable matches the 'type:consumable' gift preference")
-	check(not comp.give_gift("lyra", items.create_item_instance("iron_dagger")) and comp.get_relationship("lyra") == before + comp.GIFT_DELTA_LIKED,
+	check(not comp.give_gift("lyra", items.create_item_instance("wrought_iron_dagger")) and comp.get_relationship("lyra") == before + comp.GIFT_DELTA_LIKED,
 		"an item that is not in the bag cannot be gifted")
 
 	comp.dismiss("kaelen")
@@ -478,13 +485,13 @@ func _check_loot_safety(world):
 	inv.gold += 12000  # over the weight limit: the bag refuses new items
 
 	var drop = ground_script.spawn(world.ground_items_node, world.player.grid_position + Vector2i(1, 0), world.player.tile_size,
-		[items.create_item_instance("iron_longsword")], 0)
+		[items.create_item_instance("wrought_iron_longsword")], 0)
 	drop.pickup()
 	check(is_instance_valid(drop) and not drop.is_queued_for_deletion() and drop.item_instances.size() == 1,
 		"loot the bag refuses stays on the ground")
 
 	var children_before: int = world.ground_items_node.get_child_count()
-	var went_in: bool = inv.add_item_or_drop(items.create_item_instance("iron_dagger"))
+	var went_in: bool = inv.add_item_or_drop(items.create_item_instance("wrought_iron_dagger"))
 	check(not went_in and world.ground_items_node.get_child_count() == children_before + 1,
 		"an item the game hands over is dropped at the player's feet when the bag is full")
 
@@ -651,7 +658,7 @@ func _check_art(world):
 	# Loot on the floor
 	var ground_script = load("res://scripts/ground_item.gd")
 	var bag = ground_script.spawn(world.ground_items_node, player.grid_position + Vector2i(2, 0), player.tile_size,
-		[items.create_item_instance("iron_dagger")], 5)
+		[items.create_item_instance("wrought_iron_dagger")], 5)
 	var coins = ground_script.spawn(world.ground_items_node, player.grid_position + Vector2i(3, 0), player.tile_size, [], 5)
 	var bag_sprite: Sprite2D = bag.get_node_or_null("Sprite2D")
 	var coin_sprite: Sprite2D = coins.get_node_or_null("Sprite2D")
@@ -671,7 +678,7 @@ func _check_art(world):
 	check(icon_gaps.is_empty(), "every item in ItemDatabase has an icon (%d items)" % items.items.size(),
 		"%d without: %s" % [icon_gaps.size(), str(icon_gaps.slice(0, 12))])
 	check(items.items["steel_longsword"].icon == items.items["longsword"].icon
-		and items.items["iron_plate_boots"].icon != items.items["hide_boots"].icon,
+		and items.items["wrought_iron_plate_boots"].icon != items.items["pigskin_boots"].icon,
 		"material variants share the icon of their base type")
 
 	# The character sheet shows the icon instead of the name, and keeps count and tooltip
@@ -841,7 +848,7 @@ func _check_weapons(world):
 
 	# --- the equipped weapon's die and damage type; versatile with a shield ---
 	var profile: Dictionary = combat.get_attack_profile(player)
-	check(profile.weapon == longsword.item_data and profile.weapon_name == "Iron Longsword" and profile.damage_dice == "1d8"
+	check(profile.weapon == longsword.item_data and profile.weapon_name == "Wrought Iron Longsword" and profile.damage_dice == "1d8"
 		and profile.damage_type == "slashing" and profile.usable,
 		"an attack uses the weapon in the main hand: its die and its damage type",
 		"%s %s %s" % [profile.weapon_name, profile.damage_dice, profile.damage_type])
@@ -887,7 +894,7 @@ func _check_weapons(world):
 	inv.add_item(rapier)
 	inv.equip_item(rapier, stats, "main_hand")
 	profile = combat.get_attack_profile(player)
-	check(profile.weapon_name == "Iron Rapier" and profile.ability == "str" and profile.ability_modifier == 2,
+	check(profile.weapon_name == "Wrought Iron Rapier" and profile.ability == "str" and profile.ability_modifier == 2,
 		"a finesse weapon uses Strength when that is the higher modifier", "%s %+d" % [profile.ability, profile.ability_modifier])
 	stats.dexterity = 18
 	profile = combat.get_attack_profile(player)
@@ -927,7 +934,7 @@ func _check_weapons(world):
 	for item_id in ["shortbow", "longbow", "light_crossbow", "heavy_crossbow"]:
 		var reach: Dictionary = combat.get_weapon_range(items.get_item(item_id))
 		ranges.append("%s %d/%d" % [item_id, reach.normal, reach.max])
-	check(ranges == ["shortbow 16/64", "longbow 24/96", "light_crossbow 16/64", "heavy_crossbow 20/80"]
+	check(ranges == ["shortbow 16/64", "longbow 30/120", "light_crossbow 16/64", "heavy_crossbow 20/80"]
 		and combat.get_weapon_range(longsword.item_data) == {"normal": 0, "max": 0},
 		"ranged weapons say how far they shoot, in tiles: a normal range and a maximum", str(ranges))
 	inv.equipped_items[stats]["off_hand"] = shield
@@ -950,6 +957,403 @@ func _check_weapons(world):
 	stats.current_hp = stats.max_hp
 	check(inv.get_equipped_item(stats, "main_hand") == longsword and inv.get_equipped_item(stats, "off_hand") == shield
 		and inv.get_equipped_item(stats, "ranged") == crossbow, "test teardown: the starting kit is back in place")
+
+# ---------------------------------------------------------------------------
+#  Materials: durability data, a price and a trait - and nothing else
+# ---------------------------------------------------------------------------
+
+# Stage one, as agreed with Ákos:
+# [id, kind, durability score, hardness, notches, price multiplier, trait]
+const STAGE_ONE_MATERIALS := [
+	["copper", "metal", 13, 3, 2, 0.5, ""],
+	["wrought_iron", "metal", 18, 3, 2, 0.7, "rusts_easily"],
+	["bronze", "metal", 22, 4, 3, 0.8, "resists_corrosion"],
+	["steel", "metal", 30, 5, 4, 1.0, ""],
+	["silver", "metal", 22, 4, 3, 2.0, "silvered"],
+	["damascus_steel", "metal", 38, 6, 5, 3.0, "counts_as_magical"],
+	["pine", "wood", 15, 2, 2, 0.4, ""],
+	["oak", "wood", 19, 3, 2, 0.7, ""],
+	["ash", "wood", 19, 3, 2, 0.7, "resists_cracking"],
+	["maple", "wood", 18, 2, 2, 0.6, ""],
+	["hickory", "wood", 20, 4, 3, 0.8, "resists_cracking"],
+	["ironwood", "wood", 30, 5, 4, 5.0, ""],
+	["pigskin", "leather", 10, 2, 2, 0.3, ""],
+	["deerskin", "leather", 14, 2, 2, 0.5, "quiet"],
+	["cowhide", "leather", 15, 3, 2, 1.0, ""],
+	["boiled_leather", "leather", 16, 3, 2, 0.7, ""],
+	["wolfhide", "leather", 15, 3, 2, 0.8, "warm"],
+	["bearhide", "leather", 18, 3, 2, 0.9, "warm"],
+	["burlap", "cloth", 6, 1, 2, 0.16, "noisy"],
+	["roughspun_wool", "cloth", 8, 1, 2, 0.48, "warm"],
+	["cotton", "cloth", 9, 1, 2, 0.6, "soaks_water"],
+	["wool", "cloth", 11, 2, 2, 0.95, "warm"],
+	["fine_linen", "cloth", 12, 2, 2, 1.0, ""],
+	["silk", "cloth", 15, 2, 2, 12.74, ""],
+]
+
+# Item ids as saves and content wrote them before the material list changed,
+# and the id each must resolve to: one for every material of the old list
+const OLD_ITEM_IDS := [
+	["iron_longsword", "wrought_iron_longsword"], ["mithril_dagger", "mythril_dagger"],
+	["adamantine_helmet", "adamantite_helmet"], ["hide_boots", "pigskin_boots"],
+	["leather_jerkin", "cowhide_jerkin"], ["leather_leather_cap", "cowhide_leather_cap"],
+	["linen_robe", "fine_linen_robe"],
+	["material_iron", "material_wrought_iron"], ["material_mithril", "material_mythril"],
+	["material_adamantine", "material_adamantite"], ["material_hide", "material_pigskin"],
+	["material_leather", "material_cowhide"], ["material_linen", "material_fine_linen"],
+	["bronze_mace", "bronze_mace"], ["steel_longsword", "steel_longsword"],
+	["oak_club", "oak_club"], ["ash_quarterstaff", "ash_quarterstaff"], ["yew_shortbow", "yew_shortbow"],
+	["ebony_club", "ebony_club"], ["starwood_longbow", "starwood_longbow"],
+	["scaled_leather_gloves", "scaled_leather_gloves"], ["wyvern_leather_boots", "wyvern_leather_boots"],
+	["dragon_leather_jerkin", "dragon_leather_jerkin"], ["cotton_pants", "cotton_pants"],
+	["silk_slippers", "silk_slippers"], ["spidersilk_hood", "spidersilk_hood"],
+	["celestial_cloth_robe", "celestial_cloth_robe"],
+	["longsword", "longsword"], ["leather_cap", "leather_cap"], ["leather_armor", "leather_armor"],
+]
+
+func _check_materials(world):
+	var items = _mgr("ItemDatabase")
+	var inv = _mgr("InventoryManager")
+	var combat = _mgr("CombatManager")
+	var loot = _mgr("LootManager")
+	var recipes = _mgr("RecipeDatabase")
+	var classes = _mgr("ClassDatabase")
+	var material_script = load("res://data/materials/material_data.gd")
+	var player = world.player
+
+	# --- the agreed table ---
+	var wrong: Array = []
+	for row in STAGE_ONE_MATERIALS:
+		var mat = items.get_material(row[0])
+		if mat == null:
+			wrong.append("%s is missing" % row[0])
+			continue
+		var found: Array = [mat.material_id, mat.get_kind(), mat.durability_score, mat.hardness, mat.notches, mat.price_multiplier, mat.trait_id]
+		if found != row or not mat.is_obtainable():
+			wrong.append(str(found))
+	check(wrong.is_empty() and items.get_obtainable_materials().size() == STAGE_ONE_MATERIALS.size(),
+		"every stage-one material has the agreed durability score, hardness, notches, price and trait (%d materials)" % STAGE_ONE_MATERIALS.size(),
+		"%d obtainable; wrong: %s" % [items.get_obtainable_materials().size(), str(wrong)])
+	var notch_samples: Array = []
+	for score in [3, 12, 19, 20, 28, 59, 60]:
+		notch_samples.append(material_script.notches_for(score))
+	check(notch_samples == [2, 2, 2, 3, 4, 7, 8], "notches are the durability score over 8, rounded half up, never fewer than 2", str(notch_samples))
+	var mythril = items.get_material("mythril")
+	var adamantite = items.get_material("adamantite")
+	check(mythril != null and adamantite != null and not mythril.is_obtainable() and not adamantite.is_obtainable()
+		and [mythril.durability_score, mythril.hardness, mythril.notches, mythril.price_multiplier, mythril.trait_id] == [50, 6, 6, 10.0, "rustproof"]
+		and [adamantite.durability_score, adamantite.hardness, adamantite.notches, adamantite.price_multiplier, adamantite.trait_id] == [60, 10, 8, 10.0, "ignores_resistance"],
+		"mythril and adamantite are defined, with their data, and cannot be obtained")
+
+	# --- old ids ---
+	var unresolved: Array = []
+	for pair in OLD_ITEM_IDS:
+		var item = items.get_item(pair[0])
+		if item == null or item.item_id != pair[1] or items.canonical_item_id(pair[0]) != pair[1] or _art_is_missing(item):
+			unresolved.append(pair[0])
+	check(unresolved.is_empty() and items.get_item("iron_no_such_thing") == null and items.canonical_item_id("no_such_item") == "",
+		"an item id written with a material of the old list still resolves to an item (%d ids)" % OLD_ITEM_IDS.size(), str(unresolved))
+	var old_save: Dictionary = inv._instance_from_primitive({"item_id": "leather_jerkin", "quality_modifier": 1, "magic_modifier": 0,
+		"current_durability": 12, "stack_count": 1})
+	check(not old_save.is_empty() and old_save.item_data.item_id == "cowhide_jerkin" and old_save.item_data.material.material_id == "cowhide"
+		and int(old_save.quality_modifier) == 1 and inv._instance_to_primitive(old_save).item_id == "cowhide_jerkin",
+		"an item saved under an old material id loads as the item it became, and is saved under its new id")
+
+	# --- a material changes nothing an item does ---
+	var differing: Array = []
+	var variants := 0
+	for base in items.WEAPON_BASES:
+		var seen: Dictionary = {}
+		for item in items.items.values():
+			if item.is_weapon and item.material != null and item.item_id == item.material.material_id + "_" + str(base.id):
+				var profile: Dictionary = combat.build_attack_profile(player, item)
+				seen["%s|%s|%s|%d|%d|%d|%s" % [profile.damage_dice, item.versatile_dice, profile.damage_type, profile.attack_bonus,
+					item.range_normal, item.range_max, str(item.weight)]] = true
+				variants += 1
+		if seen.size() != 1:
+			differing.append("%s: %s" % [str(base.id), str(seen.keys())])
+	for base in items.ARMOR_BASES:
+		var seen: Dictionary = {}
+		for item in items.items.values():
+			if item.is_armor and item.material != null and item.item_id == item.material.material_id + "_" + str(base.id):
+				seen["%d|%d|%s|%d|%d|%s" % [item.armor_base, item.armor_class_bonus, item.armor_type, item.dex_bonus_limit,
+					item.strength_requirement, str(item.weight)]] = true
+				variants += 1
+		if seen.size() != 1:
+			differing.append("%s: %s" % [str(base.id), str(seen.keys())])
+	var steel = items.get_material("steel")
+	check(differing.is_empty() and variants >= 250 and not ("damage_bonus" in steel) and not ("armor_bonus" in steel),
+		"a material adds no damage and no armour class: every material of a base has the same dice, attack bonus, range and armour (%d items)" % variants,
+		str(differing))
+	var prices: Array = []
+	for item_id in ["steel_longsword", "copper_longsword", "damascus_steel_longsword", "silk_robe", "burlap_robe", "material_steel", "material_silver"]:
+		prices.append(items.get_item(item_id).base_value)
+	check(prices == [60, 30, 180, 382, 5, 5, 10], "a material sets the price: the base type's price times its multiplier", str(prices))
+
+	# --- nothing hands out, or asks for, a material outside stage one ---
+	var outside: Array = []
+	var sizes: Array = []
+	for category in ["weapon", "armor", "material"]:
+		var candidates: Array = items.get_loot_candidates(category)
+		sizes.append(candidates.size())
+		for item in candidates:
+			if not item.material.is_obtainable() or items.alias_ids.has(item.item_id):
+				outside.append("loot category %s: %s" % [category, item.item_id])
+	var drops := 0
+	for table_id in loot.loot_tables:
+		for level in [1, 5, 20]:
+			for i in range(150):
+				for drop in loot.roll_loot(table_id, level):
+					drops += 1
+					var mat = drop.item_data.material
+					if mat != null and not mat.is_obtainable():
+						outside.append("loot table %s: %s" % [table_id, drop.item_data.item_id])
+	for recipe in recipes.get_all_recipes():
+		var ids: Array = []
+		if not recipe.get("is_enchant", false):
+			ids.append(str(recipe.get("output_item_id", "")))
+		for input in recipe.get("inputs", []):
+			ids.append(str(input.get("item_id", "")))
+		for item_id in ids:
+			var item = items.get_item(item_id)
+			if item == null or (item.material != null and not item.material.is_obtainable()):
+				outside.append("recipe %s: %s" % [str(recipe.recipe_id), item_id])
+	for class_id in classes.get_all_class_ids():
+		for instance in items.get_starting_kit(class_id):
+			var mat = instance.item_data.material
+			if mat != null and not mat.is_obtainable():
+				outside.append("starting kit %s: %s" % [class_id, instance.item_data.item_id])
+	check(outside.is_empty() and sizes == [102, 108, 24] and drops >= 1000,
+		"no loot table, loot category, recipe or starting kit hands out or asks for a material outside stage one (%d drops rolled)" % drops,
+		"%s %s" % [str(sizes), str(outside.slice(0, 6))])
+	var cheap := 0
+	var dear := 0
+	for i in range(3000):
+		var rolled = items.get_random_item_by_type("weapon")
+		if rolled.material.material_id == "copper":
+			cheap += 1
+		elif rolled.material.material_id == "damascus_steel":
+			dear += 1
+	check(dear > 0 and cheap > dear * 3, "a dearer material turns up less often in loot", "copper %d, Damascus steel %d" % [cheap, dear])
+	seed(20261116)  # back to the run's seed: the rolls above used the generator
+
+	# --- the tooltip names the material, its notches and its hardness ---
+	var sheet = world.character_screen
+	var steel_tip: String = sheet._item_tooltip(items.create_item_instance("steel_longsword"))
+	var iron_tip: String = sheet._item_tooltip(items.create_item_instance("wrought_iron_chain_mail"))
+	var potion_tip: String = sheet._item_tooltip(items.create_item_instance("potion_healing"))
+	check("Material: Steel (metal)" in steel_tip and "Notches: 4   Hardness: 5" in steel_tip and not "Trait" in steel_tip
+		and "Material: Wrought Iron (metal)" in iron_tip and "Notches: 2   Hardness: 3" in iron_tip and "Trait: Rusts Easily" in iron_tip
+		and not "Material" in potion_tip and not "Notches" in potion_tip,
+		"an item's tooltip names its material, its notches, its hardness and its trait", steel_tip.replace("\n", " / "))
+
+func _art_is_missing(item) -> bool:
+	"""True when an item resolved but got the missing-art texture"""
+	return load("res://scripts/art_library.gd").is_fallback(item.icon)
+
+# ---------------------------------------------------------------------------
+#  Armour class by 5e rules: body armour, Dexterity as it allows, shield, bonuses
+# ---------------------------------------------------------------------------
+
+func _put_on(inv, stats, slot: String, instance: Dictionary):
+	"""Test setup: place an item in an equipment slot directly ({} empties it)
+	and work the character's numbers out again"""
+	if not inv.equipped_items.has(stats):
+		inv.equipped_items[stats] = {}
+	if instance.is_empty():
+		inv.equipped_items[stats].erase(slot)
+	else:
+		inv.equipped_items[stats][slot] = instance
+	inv.recalculate_character_stats(stats)
+
+func _armor_class_in(inv, items, stats, chest_id: String, quality: int = 0, magic: int = 0) -> int:
+	"""The armour class with one body armour on (or none, for "")"""
+	_put_on(inv, stats, "chest", items.create_item_instance(chest_id, quality, magic) if chest_id != "" else {})
+	return stats.armor_class
+
+func _check_armor_class(world):
+	"""The default fighter (STR 14, DEX 12) with its kit: chain mail and a shield"""
+	var items = _mgr("ItemDatabase")
+	var inv = _mgr("InventoryManager")
+	var combat = _mgr("CombatManager")
+	var spells = _mgr("SpellManager")
+	var builder = load("res://data/stats/character_builder.gd")
+	var controller = world.combat
+	var player = world.player
+	var stats = player.stats
+	var enemy = world.enemies[0]
+	var sheet = world.character_screen
+	var kit: Dictionary = inv.equipped_items[stats].duplicate()
+	var shield: Dictionary = inv.get_equipped_item(stats, "off_hand")
+	var dex_was: int = stats.dexterity
+	var str_was: int = stats.strength
+	var body_armor: Array = ["", "robe", "jerkin", "scale_mail", "chain_mail", "chestplate"]
+	check(stats.class_id == "fighter" and dex_was == 12 and str_was == 14 and not shield.is_empty() and stats.armor_class == 18,
+		"test setup: the fighter in chain mail with a shield, armour class 18", "AC %d" % stats.armor_class)
+
+	# --- the base and the Dexterity it lets through ---
+	_put_on(inv, stats, "off_hand", {})
+	var by_dexterity: Array = []
+	for dexterity in [18, 12, 6]:
+		stats.dexterity = dexterity
+		var row: Array = []
+		for chest_id in body_armor:
+			row.append(_armor_class_in(inv, items, stats, chest_id))
+		by_dexterity.append(row)
+	check(by_dexterity[0] == [14, 14, 15, 16, 16, 18], "armour class with Dexterity +4: 10 unarmoured or in a robe, leather 11, each plus the modifier; scale mail 14 plus at most 2; chain mail 16 and plate 18 with none",
+		str(by_dexterity[0]))
+	check(by_dexterity[1] == [11, 11, 12, 15, 16, 18] and by_dexterity[2] == [8, 8, 9, 12, 16, 18],
+		"a lower Dexterity modifier counts in full under light and medium armour, and not at all under heavy armour",
+		"%s / %s" % [str(by_dexterity[1]), str(by_dexterity[2])])
+
+	# --- the shield ---
+	stats.dexterity = 18
+	var with_shield: Array = []
+	for chest_id in body_armor:
+		_put_on(inv, stats, "off_hand", shield)
+		var armed: int = _armor_class_in(inv, items, stats, chest_id)
+		_put_on(inv, stats, "off_hand", {})
+		with_shield.append(armed - stats.armor_class)
+	check(with_shield == [2, 2, 2, 2, 2, 2], "a shield adds 2 to the armour class, whatever the body armour", str(with_shield))
+
+	# --- every other slot gives nothing ---
+	_put_on(inv, stats, "off_hand", shield)
+	var base_ac: int = _armor_class_in(inv, items, stats, "scale_mail")
+	var breakdown: Array = []
+	for part in stats.get_armor_class_breakdown():
+		breakdown.append("%s %d" % [str(part.label), int(part.value)])
+	check(base_ac == 18 and breakdown == ["Wrought Iron Scale Mail 14", "Dexterity (at most +2) 2", "Wrought Iron Shield 2"],
+		"the armour class can be read as its parts: the armour's base, the Dexterity it lets through, the shield", str(breakdown))
+	var adding: Array = []
+	for piece in [["head", "helmet"], ["head", "leather_cap"], ["head", "hood"], ["hands", "gauntlets"], ["hands", "gloves"], ["hands", "wraps"],
+			["legs", "greaves"], ["legs", "leggings"], ["legs", "pants"], ["feet", "plate_boots"], ["feet", "boots"], ["feet", "slippers"]]:
+		_put_on(inv, stats, piece[0], items.create_item_instance(piece[1], 3, 3))
+		if stats.armor_class != base_ac or stats.get_armor_class_breakdown().size() != 3:
+			adding.append(piece[1])
+	for item in items.items.values():
+		if item.is_armor and not item.equip_slot in ["chest", "off_hand"] and (item.armor_base != 0 or item.armor_class_bonus != 0 or item.armor_type != ""):
+			adding.append(item.item_id)
+	check(adding.is_empty() and stats.armor_class == base_ac,
+		"a helmet, gauntlets, greaves and boots add nothing to the armour class, in metal, leather or cloth, however well made or enchanted",
+		str(adding.slice(0, 6)))
+	for slot in ["head", "hands", "legs", "feet"]:
+		_put_on(inv, stats, slot, {})
+
+	# --- magic that grants armour class keeps doing so, from any slot ---
+	inv.equipped_items[stats]["rings"] = [items.create_item_instance("ring_protection")]
+	_put_on(inv, stats, "back", items.create_item_instance("cloak_protection"))
+	var warded: int = stats.armor_class
+	var warded_parts: Array = stats.get_armor_class_breakdown()
+	inv.equipped_items[stats].erase("rings")
+	_put_on(inv, stats, "back", {})
+	check(warded == base_ac + 2 and warded_parts[-1].label == "Magic" and warded_parts[-1].value == 2 and stats.armor_class == base_ac,
+		"a ring and a cloak of protection each add 1 to the armour class", "AC %d" % warded)
+
+	# --- the sheet shows how the armour class is made up ---
+	sheet.show_character(stats)
+	await _frames(2)
+	var ac_label: Label = sheet.stats_panel.find_child("ACLabel", true, false)
+	var parts_label: Label = sheet.stats_panel.find_child("ACBreakdownLabel", true, false)
+	var shown: Array = []
+	for line in parts_label.text.split("\n"):
+		shown.append(line.strip_edges())
+	check(ac_label.text == "AC: 18" and shown == ["Wrought Iron Scale Mail 14", "Dexterity (at most +2) +2", "Wrought Iron Shield +2"]
+		and sheet.stats_panel.get_global_rect().encloses(parts_label.get_global_rect()),
+		"the character sheet shows the armour class and what it is made up of", str(shown))
+	sheet.hide_screen()
+	paused = false
+
+	# --- each piece's own bonus: the higher of craftsmanship and magic, read from the piece ---
+	_put_on(inv, stats, "off_hand", {})
+	var bonuses: Array = []
+	for pair in [[0, 0], [1, 0], [0, 1], [1, 2], [3, 1]]:
+		bonuses.append(_armor_class_in(inv, items, stats, "chain_mail", pair[0], pair[1]))
+	_put_on(inv, stats, "off_hand", items.create_item_instance("shield", 0, 1))
+	var plus_one_shield: int = stats.armor_class
+	_put_on(inv, stats, "off_hand", {})
+	var template = items.get_item("chain_mail")
+	template.magic_modifier = 3
+	template.quality_modifier = 3
+	var from_template: int = _armor_class_in(inv, items, stats, "chain_mail")
+	template.magic_modifier = 0
+	template.quality_modifier = 0
+	check(bonuses == [16, 17, 17, 18, 19] and plus_one_shield == 19 + 3 and from_template == 16,
+		"body armour and a shield add the higher of their own craftsmanship and magic bonus, read from the piece and not from its template",
+		"%s, shield %d, template %d" % [str(bonuses), plus_one_shield, from_template])
+	var in_metal: Array = []
+	for chest_id in ["copper_chain_mail", "damascus_steel_chain_mail", "adamantine_chain_mail"]:
+		in_metal.append(_armor_class_in(inv, items, stats, chest_id))
+	check(in_metal == [16, 16, 16], "chain mail gives the same armour class in copper, Damascus steel and adamantite", str(in_metal))
+
+	# --- too weak for the armour: 10 feet slower ---
+	stats.dexterity = dex_was
+	var speeds: Array = []
+	for row in [["chain_mail", 13], ["chain_mail", 12], ["chestplate", 15], ["chestplate", 14], ["scale_mail", 8], ["jerkin", 8], ["", 8]]:
+		stats.strength = row[1]
+		_armor_class_in(inv, items, stats, row[0])
+		speeds.append(stats.get_modified_speed_feet())
+	check(speeds == [30, 20, 30, 20, 30, 30, 30] , "a wearer below a heavy armour's Strength requirement (chain mail 13, plate 15) moves 10 feet slower",
+		str(speeds))
+	stats.strength = 12
+	_armor_class_in(inv, items, stats, "chain_mail")
+	check(stats.is_slowed_by_armor() and stats.get_modified_movement_speed() == 4 and player.get_turn_speed() == 4
+		and stats.armor_stealth_disadvantage,
+		"the slower wearer has 4 tiles of movement in a turn", "%d tiles" % player.get_turn_speed())
+	stats.strength = str_was
+
+	# --- armour and shields need the class's proficiency ---
+	var trained: Array = []
+	for row in [["fighter", "chestplate", true], ["cleric", "scale_mail", true], ["cleric", "chain_mail", true], ["rogue", "jerkin", false],
+			["rogue", "scale_mail", false], ["wizard", "jerkin", false], ["wizard", "robe", false], ["wizard", "robe", true], ["wizard", "", false]]:
+		stats.class_id = row[0]
+		_put_on(inv, stats, "off_hand", shield if row[2] else {})
+		_armor_class_in(inv, items, stats, row[1])
+		var names: Array = Array(stats.untrained_armor)
+		names.sort()
+		var modifiers: Dictionary = combat.get_attack_modifiers(player, enemy, combat.get_attack_profile(player))
+		trained.append("%s %s%s: %s%s" % [row[0], row[1] if row[1] != "" else "nothing", " + shield" if row[2] else "",
+			", ".join(names) if not names.is_empty() else "fine",
+			" (disadvantage)" if modifiers.disadvantage and combat.REASON_UNTRAINED_ARMOR in modifiers.reasons else ""])
+	stats.class_id = "fighter"
+	check(trained == ["fighter chestplate + shield: fine", "cleric scale_mail + shield: fine",
+		"cleric chain_mail + shield: Wrought Iron Chain Mail (disadvantage)", "rogue jerkin: fine",
+		"rogue scale_mail: Wrought Iron Scale Mail (disadvantage)", "wizard jerkin: Cowhide Jerkin (disadvantage)", "wizard robe: fine",
+		"wizard robe + shield: Wrought Iron Shield (disadvantage)", "wizard nothing: fine"],
+		"body armour or a shield worn without the class's proficiency gives disadvantage on attack rolls; clothes need none", str(trained))
+
+	# A wizard of the test's own, for the spell
+	var wizard = builder.build("wizard", "human", {"str": 8, "dex": 14, "con": 12, "int": 16, "wis": 12, "cha": 10}, "Armoured Wizard")
+	player.stats = wizard
+	inv.set_party_members([wizard])
+	spells.get_known_spells(wizard)
+	_put_on(inv, wizard, "chest", items.create_item_instance("jerkin"))
+	var armoured_cast: Dictionary = spells.can_cast(player, "fire_bolt")
+	var armoured_request: Dictionary = controller.check_action(player, "cast", {"spell_id": "fire_bolt"})
+	_put_on(inv, wizard, "chest", items.create_item_instance("robe"))
+	var robed_cast: Dictionary = spells.can_cast(player, "fire_bolt")
+	check(not armoured_cast.ok and "no proficiency" in armoured_cast.reason and "Cowhide Jerkin" in armoured_cast.reason
+		and not armoured_request.ok and armoured_request.reason == armoured_cast.reason and robed_cast.ok
+		and controller.check_action(player, "cast", {"spell_id": "fire_bolt"}).ok,
+		"a caster in armour it is not proficient with cannot cast a spell, and is told why; in a robe it can", str(armoured_cast.reason))
+	player.stats = stats
+	inv.set_party_members([stats])
+	inv.equipped_items.erase(wizard)
+	spells.known_spells.erase(wizard)
+	spells.current_slots.erase(wizard)
+
+	# --- enemies keep the armour class they had ---
+	check(enemy.stats.armor_class == 10 and enemy.stats.get_armor_class_breakdown().size() == 2,
+		"an enemy's armour class is what it was: 10 plus its Dexterity modifier", "AC %d" % enemy.stats.armor_class)
+
+	# Back to the starting kit
+	stats.dexterity = dex_was
+	stats.strength = str_was
+	inv.equipped_items[stats] = kit
+	inv.recalculate_character_stats(stats)
+	stats.current_hp = stats.max_hp
+	await _frames(2)
+	check(stats.armor_class == 18 and stats.class_id == "fighter" and not stats.wears_untrained_armor() and player.stats == stats,
+		"test teardown: the fighter is back in its kit, armour class 18")
 
 # ---------------------------------------------------------------------------
 #  Turn resources and actions: everything done in a turn is a request
@@ -1103,7 +1507,7 @@ func _check_actions(world):
 			hit = swing
 			hp_lost = hp_before - goblin.stats.current_hp
 			break
-	check(not hit.is_empty() and hit.weapon_name == "Iron Longsword" and hit.damage_dice == "1d8" and hit.damage_type == "slashing"
+	check(not hit.is_empty() and hit.weapon_name == "Wrought Iron Longsword" and hit.damage_dice == "1d8" and hit.damage_type == "slashing"
 		and hit.damage >= (4 if hit.is_crit else 3) and hit.damage <= (18 if hit.is_crit else 10) and hp_lost == hit.damage,
 		"the Attack action hits with the equipped weapon's die and damage type", str(hit.get("damage", "no hit")))
 	check(blows.size() == 1 and blows[0][0] == player and blows[0][1] == goblin and blows[0][2] == hp_lost
@@ -1586,7 +1990,7 @@ func _check_ranged(world):
 	near.stats.movement_speed = 0
 	near.stats.armor_class = -100
 	var swing: Dictionary = _attack_until_hit(controller, player, near, blows)
-	check(not swing.is_empty() and swing.weapon_name == "Iron Longsword" and not swing.is_ranged and swing.damage_type == "slashing"
+	check(not swing.is_empty() and swing.weapon_name == "Wrought Iron Longsword" and not swing.is_ranged and swing.damage_type == "slashing"
 		and swing.attack_bonus == 4 and swing.distance == 1 and _count_nodes(world, projectile_script) == 0,
 		"an attack on an adjacent enemy is still made with the main-hand weapon when a ranged weapon is carried too",
 		str(swing.get("weapon_name", "refused")))
@@ -1647,7 +2051,7 @@ func _check_ranged(world):
 		"the readout sits beyond the enemy, away from the shooter, on whichever side that is", "%s, %s" % [beyond_first, beyond_second])
 	player._update_aim(near.grid_position)
 	readout.refresh()
-	check(player.get_aim_preview().get("weapon_name", "") == "Iron Longsword" and readout.get_lines().slice(0, 2) == ["Goblin", "Iron Longsword"],
+	check(player.get_aim_preview().get("weapon_name", "") == "Wrought Iron Longsword" and readout.get_lines().slice(0, 2) == ["Goblin", "Wrought Iron Longsword"],
 		"on an enemy in reach the readout names the melee weapon", str(readout.get_lines()))
 	# The mouse itself: the pointer moved onto the far goblin, and then onto the bottom bar
 	var camera_still: bool = await _camera_at_rest(far)
@@ -1663,7 +2067,7 @@ func _check_ranged(world):
 	check(player.attack_mode and player._pointer_tile() == Vector2i(-1, -1) and player.get_aim_preview().is_empty() and not readout.is_showing(),
 		"with the mouse pointer on the bottom bar no tile of the map is pointed at, and the readout is gone", str(player._pointer_tile()))
 	_move_pointer(Vector2.ZERO)
-	check(attack_button.button_pressed and "click a marked enemy" in bar._hint.text and "Iron Longsword on an adjacent enemy" in bar._hint.text
+	check(attack_button.button_pressed and "click a marked enemy" in bar._hint.text and "Wrought Iron Longsword on an adjacent enemy" in bar._hint.text
 		and "Oak Light Crossbow to 16 tiles (to 64 at disadvantage)" in bar._hint.text,
 		"while aiming, the bar says how far each weapon reaches", bar._hint.text)
 
@@ -2223,7 +2627,7 @@ func _check_game_flow():
 	victim.stats.current_hp = max(1, victim.stats.current_hp - 3)
 	var ground_script = load("res://scripts/ground_item.gd")
 	ground_script.spawn(world.ground_items_node, spot + Vector2i(1, 0), world.player.tile_size,
-		[items.create_item_instance("iron_dagger")], 7)
+		[items.create_item_instance("wrought_iron_dagger")], 7)
 	inv.gold += 123
 	quests.start_quest("mq_01_strange_tidings")
 	comp.recruit("kaelen")
@@ -2246,7 +2650,7 @@ func _check_game_flow():
 	world.player.teleport_to_grid(_free_floor_near(world, spot, 7))
 	victim.stats.current_hp = 1
 	effects.apply_effect(world.player, "blessed", 5)
-	inv.add_item(items.create_item_instance("iron_dagger"))
+	inv.add_item(items.create_item_instance("wrought_iron_dagger"))
 	check(game.load_game(TEST_SLOT), "the save loads")
 	await _wait(1.0)
 	world = _world()

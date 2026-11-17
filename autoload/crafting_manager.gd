@@ -5,14 +5,14 @@
 # SpellManager.enchant_item(instance, plus_level) on the player's equipped item in the
 # recipe's enchant_slot. If SpellManager doesn't have that method yet (stub era), the magic
 # modifier is set directly (capped at +3) and item_enchanted is emitted.
-# Repair requires 1× material_<item.material.material_id> + tier-scaled gold cost.
+# Repair requires 1× material_<item.material.material_id> + gold by the material's price.
 extends Node
 
 # Recipes the player has learned (Array of recipe_id Strings)
 var known_recipes: Array = []
 
-# Tier -> gold cost multiplier for repair
-const REPAIR_GOLD_BY_TIER := {0: 5, 1: 15, 2: 40, 3: 150, 4: 500}
+# What a repair costs in a material of price multiplier 1
+const REPAIR_GOLD_BASE: float = 15.0
 
 func _ready():
 	# Seed auto_known recipes after RecipeDatabase is guaranteed ready.
@@ -259,7 +259,7 @@ func _execute_enchant(recipe: Dictionary) -> Dictionary:
 # ---------------------------------------------------------------------------
 
 func repair_item(item_instance: Dictionary) -> bool:
-	"""Repair an item: requires 1× material_<item material> + tier-scaled gold.
+	"""Repair an item: requires 1× material_<item material> + gold by the material's price.
 	   Restores current_durability to max_durability.
 	   Returns true on success.
 	"""
@@ -290,8 +290,7 @@ func repair_item(item_instance: Dictionary) -> bool:
 		return false
 
 	var mat_item_id: String = "material_%s" % mat.material_id
-	var tier_int: int = int(mat.tier)
-	var gold_cost: int = REPAIR_GOLD_BY_TIER.get(tier_int, 5)
+	var gold_cost: int = maxi(1, int(round(REPAIR_GOLD_BASE * mat.price_multiplier)))
 
 	# Validate
 	if not InventoryManager.has_item(mat_item_id):

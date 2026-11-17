@@ -20,7 +20,7 @@ Companion schema:
 """
 
 # Gift matching tokens used in liked/disliked lists (CompanionManager resolves these):
-#   "material_iron"   — any item whose item_id starts with "material_iron"
+#   "material_wrought_iron"   — any item whose item_id starts with "material_wrought_iron"
 #   "material_silk"   — any item whose item_id starts with "material_silk"
 #   "type:weapon"     — any item whose item_type == ItemData.ItemType.WEAPON   (enum int 0)
 #   "type:armor"      — item_type ARMOR   (1)
@@ -48,11 +48,11 @@ static func get_all() -> Dictionary:
 		"recruit_dialogue_id":"recruit_kaelen",
 		"romanceable":        true,
 		"gift_loved": [
-			"iron_longsword",
+			"wrought_iron_longsword",
 			"steel_longsword",
 		],
 		"gift_liked": [
-			"material_iron",   # any material_iron* item
+			"material_wrought_iron",   # any material_wrought_iron* item
 			"type:weapon",     # any weapon
 		],
 		"gift_disliked": [
@@ -114,7 +114,7 @@ static func get_all() -> Dictionary:
 			"cooked_meat",
 			"bread",
 			"warhammer",
-			"iron_warhammer",
+			"wrought_iron_warhammer",
 			"steel_warhammer",
 		],
 		"gift_liked": [
@@ -144,7 +144,7 @@ static func get_all() -> Dictionary:
 		"romanceable":        false,
 		"gift_loved": [
 			"dagger",
-			"iron_dagger",
+			"wrought_iron_dagger",
 			"steel_dagger",
 			"thieves_tools",
 			"trinket_luck",

@@ -320,6 +320,13 @@ func create_stats_panel() -> Panel:
 		label.text = stat + ": --"
 		label.add_theme_font_size_override("font_size", 16)
 		derived_vbox.add_child(label)
+		if stat == "AC":
+			# What the armour class is made up of, a part to a line
+			var breakdown = Label.new()
+			breakdown.name = "ACBreakdownLabel"
+			breakdown.add_theme_font_size_override("font_size", 13)
+			breakdown.add_theme_color_override("font_color", Color(0.68, 0.7, 0.78))
+			derived_vbox.add_child(breakdown)
 	
 	content.add_child(derived_vbox)
 	
@@ -517,13 +524,20 @@ func _item_tooltip(item_instance: Dictionary) -> String:
 			traits.append(property)
 		if not traits.is_empty():
 			lines.append(", ".join(traits))
-	if item_data.armor_class_bonus > 0:
-		lines.append("Armour: +%d AC" % item_data.armor_class_bonus)
+	lines.append_array(_armor_lines(item_data))
+	var item_bonus: int = ItemDatabase.get_instance_bonus(item_instance)
+	if item_bonus > 0 and (item_data.is_body_armor() or item_data.is_shield()):
+		lines.append("+%d armour class" % item_bonus)
 	if item_data.equip_slot != "":
 		lines.append("Slot: " + item_data.equip_slot.replace("_", " "))
-	var max_durability: int = int(item_instance.get("max_durability", 0))
-	if max_durability > 0:
-		lines.append("Condition: %d / %d" % [int(item_instance.get("current_durability", 0)), max_durability])
+	var material: MaterialData = item_data.material
+	if material != null and (item_data.is_weapon or item_data.is_armor):
+		lines.append("Material: %s (%s)" % [material.material_name, material.get_kind()])
+		lines.append("Notches: %d   Hardness: %d" % [material.notches, material.hardness])
+		if material.trait_id != "":
+			lines.append("Trait: %s" % material.get_trait_name())
+	elif int(item_instance.get("max_durability", 0)) > 0:
+		lines.append("Charges: %d / %d" % [int(item_instance.get("current_durability", 0)), int(item_instance.get("max_durability", 0))])
 	lines.append("Weight: %s lb   Value: %d gp" % [str(snappedf(item_data.weight, 0.1)), item_data.base_value])
 	if item_data.description != "":
 		lines.append("")
@@ -532,6 +546,31 @@ func _item_tooltip(item_instance: Dictionary) -> String:
 		lines.append("")
 		lines.append("Right-click to use")
 	return "\n".join(lines)
+
+func _armor_lines(item_data: ItemData) -> Array[String]:
+	"""What a piece of armour does for the armour class, by 5e rules: body
+	armour sets a base and says how much Dexterity it lets through, a shield
+	adds to it, and every other piece adds nothing."""
+	var lines: Array[String] = []
+	if not item_data.is_armor:
+		return lines
+	if item_data.is_body_armor():
+		var dexterity: String = " + Dexterity"
+		if item_data.dex_bonus_limit == 0:
+			dexterity = ", no Dexterity"
+		elif item_data.dex_bonus_limit > 0:
+			dexterity = " + Dexterity (at most +%d)" % item_data.dex_bonus_limit
+		lines.append("Armour class %d%s" % [item_data.armor_base, dexterity])
+		lines.append("%s armour" % item_data.armor_type.capitalize())
+		if item_data.strength_requirement > 0:
+			lines.append("Needs Strength %d, or 10 ft slower" % item_data.strength_requirement)
+		if item_data.stealth_disadvantage:
+			lines.append("Disadvantage on Stealth")
+	elif item_data.is_shield():
+		lines.append("Shield: +%d armour class" % item_data.armor_class_bonus)
+	else:
+		lines.append("Adds no armour class")
+	return lines
 
 func create_tooltip():
 	"""Create tooltip for item hover"""
@@ -632,6 +671,9 @@ func refresh_stats():
 	var ac_label = stats_panel.find_child("ACLabel", true, false)
 	if ac_label:
 		ac_label.text = "AC: %d" % current_character.armor_class
+	var breakdown_label = stats_panel.find_child("ACBreakdownLabel", true, false)
+	if breakdown_label:
+		breakdown_label.text = "\n".join(_armor_class_lines(current_character))
 	
 	var init_label = stats_panel.find_child("InitiativeLabel", true, false)
 	if init_label:
@@ -648,11 +690,28 @@ func refresh_stats():
 		speed_label.text = "Speed: %d ft (%d tiles)" % [
 			current_character.get_modified_speed_feet(),
 			current_character.get_modified_movement_speed()]
+		if current_character.is_slowed_by_armor():
+			speed_label.text += "\n   armour needs Strength %d: 10 ft slower" % current_character.armor_strength_requirement
 	
 	# Encumbrance
 	var enc_label = stats_panel.find_child("EncumbranceLabel", true, false)
 	if enc_label:
 		enc_label.text = "Encumbrance: " + InventoryManager.get_encumbrance_text()
+
+func _armor_class_lines(character: CharacterStats) -> Array[String]:
+	"""The parts of the armour class as lines for the sheet: '   Chain Mail 16',
+	'   Dexterity +2', '   Iron Shield +2'. The first part is the base and is
+	shown as it is; the rest are shown as what they add. A line after them
+	names armour worn without proficiency."""
+	var lines: Array[String] = []
+	var parts: Array = character.get_armor_class_breakdown()
+	for i in range(parts.size()):
+		var value: int = int(parts[i].value)
+		lines.append("   %s %s" % [str(parts[i].label), str(value) if i == 0 else "%+d" % value])
+	if character.wears_untrained_armor():
+		lines.append("   No proficiency with %s:" % " or ".join(character.untrained_armor))
+		lines.append("   attacks at disadvantage, no spells")
+	return lines
 
 func refresh_equipment():
 	"""Update equipment slots"""
