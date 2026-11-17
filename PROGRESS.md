@@ -27,7 +27,8 @@ called `CURRENT_WORK.md` until Phase 1. The plan it tracks is in section 7 of
 2. **His durability system.** Direction is set (erosion, special attention to crits,
    scaled by material rarity and magic level), but the rules will be based on the
    system he designed for his homebrew D&D campaign, which also has passive
-   degradation by combat length. He will bring it and has a lot of input to add. The
+   degradation by combat length, and notch counts that rise with magic bonus and
+   with the material itself. He will bring it and has a lot of input to add. The
    rules in section 8 of the plan are a provisional sketch, not the design.
 3. **Go for Phase 2.** Everything in it except the durability rules can be built
    without that input; the damage pipeline gets the hooks durability needs.

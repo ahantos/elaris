@@ -481,6 +481,19 @@ Until his system is in this document, nothing below is settled. Phase 2 builds t
 damage pipeline with the hooks durability needs and leaves the rules themselves for
 his input.
 
+#### What Ákos has specified so far
+
+These are his and are fixed points for whatever the final rules become:
+
+- Erosion (shape B), with special attention to critical hits: they cause extra
+  durability loss or a special effect.
+- Passive degradation as well, based on how long a fight lasts.
+- How many notches a piece has depends on more than rarity. A magic item has more
+  than a plain one (+1 more than +0, and so on), and an item of a better material
+  has more than one of a poorer material, material by material rather than by
+  rarity band.
+- The rest comes from the system he designed for his homebrew D&D campaign.
+
 #### Provisional sketch (to be replaced by the homebrew system)
 
 Written before Ákos mentioned his own system. Keep what fits it; drop the rest.
@@ -498,6 +511,9 @@ durability value.
 | Legendary | 7 |
 
 Each level of craftsmanship quality adds one notch.
+(Superseded by Ákos's input above: the count must also rise with the magic bonus, and
+with the material itself rather than only its rarity tier. The sketch gave magic a
+chance to resist a loss instead of extra notches.)
 
 **What wears gear: the extremes of the die.** Ordinary hits and misses never wear
 anything. Wear comes from natural 20s, natural 1s, and attacks aimed at gear.
