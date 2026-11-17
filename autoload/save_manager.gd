@@ -34,7 +34,12 @@ const AUTOSAVE_SLOT: int = 100
 #   4: + two weapon sets (the item of the old "ranged" slot is in set two's main
 #        hand; systems.inventory.weapon_sets says which set is in hand)
 #      + systems.features (what has been used since the last long rest)
-const SAVE_FORMAT_VERSION: int = 4
+#   5: durability. An item instance that wears carries its condition (notches,
+#        notches_max, notches_max_original, marks, age, debuffs, buffs,
+#        wear_names, and what its buffs count) in place of the old
+#        current_durability points; a wand carries charges; a saved enemy
+#        carries the condition of its gear
+const SAVE_FORMAT_VERSION: int = 5
 
 # from_dict() application order. ORDER MATTERS:
 # - factions/zones/world_events/quests/crafting/companions are independent
@@ -201,6 +206,8 @@ func _migrate(save_data: Dictionary) -> Dictionary:
 		data = _migrate_v2_to_v3(data)
 	if version < 4:
 		data = _migrate_v3_to_v4(data)
+	if version < 5:
+		data = _migrate_v4_to_v5(data)
 	data["version"] = SAVE_FORMAT_VERSION
 	data["migrated_from"] = version
 	return data
@@ -253,6 +260,54 @@ func _migrate_v3_to_v4(data: Dictionary) -> Dictionary:
 	if not systems.has("features"):
 		systems["features"] = {"used": {}}
 	return data
+
+func _migrate_v4_to_v5(data: Dictionary) -> Dictionary:
+	"""v5 replaced the durability points of an item instance with notches. Every
+	saved instance - in the pack, equipped, lying on the ground - is converted:
+	a weapon, a shield or a piece of armour gets as large a share of its notches
+	as it had of its points (a whole piece stays whole) and the new fields,
+	empty; a wand keeps its points as charges; anything else just loses the
+	key. Saved enemies have no gear entry: their gear is whole."""
+	var systems = data.get("systems")
+	var inventory = systems.get("inventory") if systems is Dictionary else null
+	if inventory is Dictionary:
+		if inventory.get("items") is Array:
+			for entry in inventory["items"]:
+				_migrate_item_v4_to_v5(entry)
+		if inventory.get("equipped_items") is Dictionary:
+			for uid in inventory["equipped_items"]:
+				var slots = inventory["equipped_items"][uid]
+				if not (slots is Dictionary):
+					continue
+				for slot in slots:
+					if slots[slot] is Array:
+						for entry in slots[slot]:
+							_migrate_item_v4_to_v5(entry)
+					else:
+						_migrate_item_v4_to_v5(slots[slot])
+	var world = data.get("world")
+	if world is Dictionary and world.get("ground_items") is Array:
+		for drop in world["ground_items"]:
+			if drop is Dictionary and drop.get("items") is Array:
+				for entry in drop["items"]:
+					_migrate_item_v4_to_v5(entry)
+	return data
+
+func _migrate_item_v4_to_v5(entry):
+	"""One saved item instance, from durability points to notches or charges"""
+	if not (entry is Dictionary) or not entry.has("current_durability"):
+		return
+	var points: int = int(entry["current_durability"])
+	entry.erase("current_durability")
+	var item_id: String = str(entry.get("item_id", ""))
+	var item_data: ItemData = ItemDatabase.get_item(item_id)
+	if item_data == null:
+		return
+	if item_data.max_charges > 0:
+		entry["charges"] = clampi(points, 0, item_data.max_charges)
+		return
+	entry.merge(DurabilityManager.points_to_notches(item_id, int(entry.get("quality_modifier", 0)),
+		int(entry.get("magic_modifier", 0)), points))
 
 # === SLOT MANAGEMENT ===
 

@@ -106,6 +106,13 @@ var armor_stealth_disadvantage: bool = false
 var shield_name: String = ""  # the shield held; "" for none
 var shield_bonus: int = 0  # what the shield adds
 var shield_item_bonus: int = 0  # the craftsmanship or magic bonus of the shield itself
+# Wear (DurabilityManager): what the body armour's lost notches would take from
+# the armour class, and how many it has lost; a broken body armour or shield is
+# still worn or held but gives nothing
+var armor_notch_penalty: int = 0
+var armor_lost_notches: int = 0
+var armor_broken_name: String = ""
+var shield_broken_name: String = ""
 # Body armour and shield worn without the proficiency for them, by name
 var untrained_armor: Array[String] = []
 
@@ -173,13 +180,18 @@ func get_modified_speed_feet() -> int:
 	"""Speed in FEET with the penalties applied. movement_speed is always stored
 	in feet (30 = 6 tiles). Encumbrance takes 10 or 20 feet from characters who
 	carry the party inventory; body armour takes 10 from a wearer below its
-	Strength requirement."""
+	Strength requirement; dented armour or a dented shield takes a tile."""
 	var feet = movement_speed
 	if InventoryManager.is_party_member(self):
 		feet += InventoryManager.get_encumbrance_speed_penalty()
 	if is_slowed_by_armor():
 		feet -= ARMOR_STRENGTH_SPEED_PENALTY
+	feet -= get_dented_speed_penalty_feet()
 	return max(0, feet)
+
+func get_dented_speed_penalty_feet() -> int:
+	"""Feet of speed lost to dented gear in use (the Dented debuff)"""
+	return DurabilityManager.get_speed_penalty_tiles(InventoryManager.get_active_equipped_items(self)) * FEET_PER_TILE
 
 func get_modified_movement_speed() -> int:
 	"""Movement per turn in TILES (5 ft per tile), encumbrance included"""
@@ -236,28 +248,53 @@ func get_spellcasting_ability() -> String:
 
 func get_armor_class_breakdown() -> Array:
 	"""How the armour class is made up, in the order it is added: [{label,
-	value}]. The base the body armour sets (10 unarmoured), the Dexterity
-	modifier as far as the armour lets it through (no entry under heavy armour),
-	the craftsmanship or magic bonus of the armour, the shield and its bonus,
-	and magic worn elsewhere. Status effects and cover are added at the moment
-	of an attack, not here."""
-	var parts: Array = [{"label": armor_name if armor_name != "" else "Unarmoured", "value": armor_base}]
+	value}]. The base the body armour sets (10 unarmoured, also under a broken
+	armour), the Dexterity modifier as far as the armour lets it through (no
+	entry under heavy armour), the craftsmanship or magic bonus of the armour,
+	what the armour's lost notches take, the shield and its bonus (a broken
+	shield is named, and adds nothing), and magic worn elsewhere. Status effects
+	and cover are added at the moment of an attack, not here."""
+	var base_label: String = armor_name if armor_name != "" else "Unarmoured"
+	if armor_name == "" and armor_broken_name != "":
+		base_label = "Unarmoured: %s is broken" % armor_broken_name
+	var parts: Array = [{"label": base_label, "value": armor_base}]
 	if armor_dex_limit != 0:
-		var dexterity: int = get_dex_modifier()
 		var label: String = "Dexterity"
 		if armor_dex_limit > 0:
 			label = "Dexterity (at most +%d)" % armor_dex_limit
-			dexterity = mini(dexterity, armor_dex_limit)
-		parts.append({"label": label, "value": dexterity})
+		parts.append({"label": label, "value": _dexterity_under_armor()})
 	if armor_item_bonus > 0:
 		parts.append({"label": "Armour bonus", "value": armor_item_bonus})
+	var wear_penalty: int = get_armor_wear_penalty()
+	if wear_penalty > 0:
+		parts.append({"label": "Worn armour, %d notches lost" % armor_lost_notches, "value": -wear_penalty})
 	if shield_name != "":
 		parts.append({"label": shield_name, "value": shield_bonus})
 		if shield_item_bonus > 0:
 			parts.append({"label": "Shield bonus", "value": shield_item_bonus})
+	elif shield_broken_name != "":
+		parts.append({"label": "%s, broken" % shield_broken_name, "value": 0})
 	if equipment_ac_bonus != 0:
 		parts.append({"label": "Magic", "value": equipment_ac_bonus})
 	return parts
+
+func _dexterity_under_armor() -> int:
+	"""The Dexterity modifier as far as the body armour worn lets it through"""
+	if armor_dex_limit == 0:
+		return 0
+	var dexterity: int = get_dex_modifier()
+	return mini(dexterity, armor_dex_limit) if armor_dex_limit > 0 else dexterity
+
+func get_armor_wear_penalty() -> int:
+	"""What the lost notches of the body armour take from the armour class: 1
+	for every second one, for medium and heavy armour. The armour still gives
+	at least +1 over wearing none until it breaks, and the wearer's armour class
+	never falls below its unarmoured one."""
+	if armor_name == "" or armor_notch_penalty <= 0:
+		return 0
+	var worn: int = armor_base + _dexterity_under_armor() + armor_item_bonus
+	var unarmoured: int = UNARMORED_AC + get_dex_modifier()
+	return clampi(armor_notch_penalty, 0, maxi(0, worn - unarmoured - DurabilityDials.armor_bonus_floor))
 
 func is_slowed_by_armor() -> bool:
 	"""True when the body armour worn asks for more Strength than the wearer has"""
@@ -293,7 +330,9 @@ func apply_equipment_bonuses(equipped_items: Array):
 	of the armour class. equipped_items is everything worn and the weapon set in
 	hand (InventoryManager.recalculate_character_stats). Only the body armour and
 	the shield give armour class, besides magic that says so in its stat_bonuses;
-	each of the two adds the higher of its craftsmanship and its magic bonus."""
+	each of the two adds the higher of its craftsmanship and its magic bonus.
+	Wear counts: a body armour's lost notches lower what it gives, and a broken
+	piece - no notch left - gives nothing at all, though it is still worn."""
 	# Reset equipment bonuses
 	equipment_str_bonus = 0
 	equipment_dex_bonus = 0
@@ -311,6 +350,10 @@ func apply_equipment_bonuses(equipped_items: Array):
 	shield_name = ""
 	shield_bonus = 0
 	shield_item_bonus = 0
+	armor_notch_penalty = 0
+	armor_lost_notches = 0
+	armor_broken_name = ""
+	shield_broken_name = ""
 	untrained_armor.clear()
 
 	# Sum up bonuses from all equipped items
@@ -335,22 +378,37 @@ func apply_equipment_bonuses(equipped_items: Array):
 		if item_instance is Dictionary:
 			item_bonus = maxi(0, maxi(int(item_instance.get("quality_modifier", 0)), int(item_instance.get("magic_modifier", 0))))
 
+		var broken: bool = item_instance is Dictionary and DurabilityManager.is_broken(item_instance)
+
 		if item_data is ItemData and item_data.is_body_armor():
+			if broken:
+				# Still on the body, with its weight and its noise, but it protects no more
+				armor_broken_name = item_data.item_name
+				armor_strength_requirement = maxi(armor_strength_requirement, item_data.strength_requirement)
+				armor_stealth_disadvantage = armor_stealth_disadvantage or item_data.stealth_disadvantage
 			# One body armour is worn; should two ever be passed, the better counts
-			if armor_name == "" or item_data.armor_base + item_bonus > armor_base + armor_item_bonus:
+			elif armor_name == "" or item_data.armor_base + item_bonus > armor_base + armor_item_bonus:
 				armor_name = item_data.item_name
 				armor_base = item_data.armor_base
 				armor_dex_limit = item_data.dex_bonus_limit
 				armor_item_bonus = item_bonus
 				armor_strength_requirement = item_data.strength_requirement
 				armor_stealth_disadvantage = item_data.stealth_disadvantage
+				armor_notch_penalty = DurabilityManager.get_armor_penalty(item_instance) if item_instance is Dictionary else 0
+				armor_lost_notches = DurabilityManager.get_lost_notches(item_instance) if item_instance is Dictionary else 0
 		elif item_data is ItemData and item_data.is_shield():
-			if shield_name == "" or item_data.armor_class_bonus + item_bonus > shield_bonus + shield_item_bonus:
+			if broken:
+				shield_broken_name = item_data.item_name
+			elif shield_name == "" or item_data.armor_class_bonus + item_bonus > shield_bonus + shield_item_bonus:
 				shield_name = item_data.item_name
 				shield_bonus = item_data.armor_class_bonus
 				shield_item_bonus = item_bonus
 		if item_data is ItemData and not is_proficient_with_armor(item_data):
 			untrained_armor.append(item_data.item_name)
+
+		# A broken piece gives no bonus of any kind
+		if broken:
+			continue
 
 		# Stat bonuses from magic items (ItemData always declares stat_bonuses; default {})
 		if "stat_bonuses" in item_data:

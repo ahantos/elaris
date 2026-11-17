@@ -567,8 +567,8 @@ func _item_tooltip(item_instance: Dictionary) -> String:
 		lines.append("Notches: %d   Hardness: %d" % [material.notches, material.hardness])
 		if material.trait_id != "":
 			lines.append("Trait: %s" % material.get_trait_name())
-	elif int(item_instance.get("max_durability", 0)) > 0:
-		lines.append("Charges: %d / %d" % [int(item_instance.get("current_durability", 0)), int(item_instance.get("max_durability", 0))])
+	elif int(item_instance.get("max_charges", 0)) > 0:
+		lines.append("Charges: %d / %d" % [int(item_instance.get("charges", 0)), int(item_instance.get("max_charges", 0))])
 	lines.append("Weight: %s lb   Value: %d gp" % [str(snappedf(item_data.weight, 0.1)), item_data.base_value])
 	if item_data.description != "":
 		lines.append("")

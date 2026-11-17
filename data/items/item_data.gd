@@ -35,11 +35,10 @@ enum ItemType {
 @export var quality_modifier: int = 0  # +0, +1, +2, +3 (craftsmanship)
 @export var magic_modifier: int = 0  # +0, +1, +2, +3 (enchantment)
 
-# Durability (only for equipment)
-@export var has_durability: bool = false
-@export var max_durability: int = 0  # Calculated from material + quality
-@export var durability_loss_per_damage: int = 20  # Weapons: 1 dur per X damage dealt
-@export var can_break_permanently: bool = true
+# Charges a wand holds when new; 0 for anything that has none. How a weapon or
+# a piece of armour wears is not kept here: it follows from the material, and
+# each piece carries its own notches (DurabilityManager).
+@export var max_charges: int = 0
 
 # Physical properties
 @export var weight: float = 1.0  # Weight in pounds
@@ -174,18 +173,6 @@ func get_calculated_value() -> int:
 		value = int(value * pow(10, magic_modifier))
 	return value
 
-func get_calculated_durability() -> int:
-	"""Get final max durability"""
-	if not has_durability:
-		return 0
-
-	var durability = max_durability
-	if quality_modifier > 0:
-		durability = int(durability * (1.0 + quality_modifier * 0.15))
-	if magic_modifier > 0:
-		durability = int(durability * (1.0 + magic_modifier * 0.25))
-	return durability
-
 func get_tooltip_text() -> String:
 	"""Generate tooltip text for UI"""
 	var tooltip = "[b]" + get_full_name() + "[/b]\n"
@@ -207,10 +194,6 @@ func get_tooltip_text() -> String:
 	# Armor stats
 	if is_armor and armor_class_bonus > 0:
 		tooltip += "Armor Class: +" + str(armor_class_bonus) + "\n"
-	
-	# Durability
-	if has_durability:
-		tooltip += "Durability: " + str(get_calculated_durability()) + "\n"
 	
 	# Weight
 	tooltip += "Weight: " + str(weight) + " lb\n"

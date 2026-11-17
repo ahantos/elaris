@@ -291,6 +291,13 @@ const ITEM_ICONS: Dictionary = {
 	"material_leather": ["material_leather.png", "item/armour/animal_skin1.png"],
 	"material_cloth":   ["material_cloth.png",   "item/armour/artefact/urand_starlight.png"],
 
+	# Field repair: the kit, and scrap, one icon per material category
+	"repair_kit":    ["repair_kit.png",    "item/misc/misc_box.png"],
+	"scrap_metal":   ["scrap_metal.png",   "item/misc/misc_stone_inert.png"],
+	"scrap_wood":    ["scrap_wood.png",    "item/weapon/giant_club2.png"],
+	"scrap_leather": ["scrap_leather.png", "item/armour/animal_skin2.png"],
+	"scrap_cloth":   ["scrap_cloth.png",   "item/armour/robe2.png"],
+
 	# Spell items (registered by SpellDatabase)
 	"scroll": ["scroll.png", "item/scroll/scroll.png"],
 	"wand":   ["wand.png",   "item/wand/gem_silver.png"],
@@ -343,6 +350,45 @@ const ITEM_ICON_ALIASES: Dictionary = {
 	"material_silk":            "material_cloth",
 	"material_spidersilk":      "material_cloth",
 	"material_celestial_cloth": "material_cloth",
+
+	# Scrap (ItemDatabase: scrap_<material id>), by kind
+	"scrap_copper":         "scrap_metal",
+	"scrap_wrought_iron":   "scrap_metal",
+	"scrap_bronze":         "scrap_metal",
+	"scrap_steel":          "scrap_metal",
+	"scrap_silver":         "scrap_metal",
+	"scrap_damascus_steel": "scrap_metal",
+	"scrap_mythril":        "scrap_metal",
+	"scrap_adamantite":     "scrap_metal",
+
+	"scrap_pine":     "scrap_wood",
+	"scrap_oak":      "scrap_wood",
+	"scrap_ash":      "scrap_wood",
+	"scrap_maple":    "scrap_wood",
+	"scrap_hickory":  "scrap_wood",
+	"scrap_ironwood": "scrap_wood",
+	"scrap_yew":      "scrap_wood",
+	"scrap_ebony":    "scrap_wood",
+	"scrap_starwood": "scrap_wood",
+
+	"scrap_pigskin":        "scrap_leather",
+	"scrap_deerskin":       "scrap_leather",
+	"scrap_cowhide":        "scrap_leather",
+	"scrap_boiled_leather": "scrap_leather",
+	"scrap_wolfhide":       "scrap_leather",
+	"scrap_bearhide":       "scrap_leather",
+	"scrap_scaled_leather": "scrap_leather",
+	"scrap_wyvern_leather": "scrap_leather",
+	"scrap_dragon_leather": "scrap_leather",
+
+	"scrap_burlap":          "scrap_cloth",
+	"scrap_roughspun_wool":  "scrap_cloth",
+	"scrap_cotton":          "scrap_cloth",
+	"scrap_wool":            "scrap_cloth",
+	"scrap_fine_linen":      "scrap_cloth",
+	"scrap_silk":            "scrap_cloth",
+	"scrap_spidersilk":      "scrap_cloth",
+	"scrap_celestial_cloth": "scrap_cloth",
 }
 
 # Families of item ids that share one icon:  id prefix -> icon name

@@ -39,7 +39,7 @@ const SCENE_WORLD: String = "res://scenes/world.tscn"
 # which may advance a quest - that has to happen before the quest state is wiped.
 const STATEFUL_MANAGERS: Array = [
 	"UIManager", "DialogueManager", "StatusEffectManager",
-	"SpellManager", "FeatureManager", "InventoryManager", "CraftingManager", "QuestManager",
+	"SpellManager", "FeatureManager", "DurabilityManager", "InventoryManager", "CraftingManager", "QuestManager",
 	"FactionManager", "WorldEventManager", "ZoneManager", "CompanionManager",
 ]
 

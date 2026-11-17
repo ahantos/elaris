@@ -716,7 +716,7 @@ func use_scroll(item_instance: Dictionary, caster: Node, target = null) -> Dicti
 
 
 func use_wand(item_instance: Dictionary, caster: Node, target = null) -> Dictionary:
-	"""Cast a wand_<spell_id> item's spell, spending one charge (current_durability).
+	"""Cast a wand_<spell_id> item's spell, spending one of the instance's charges.
 	A spent wand fizzles with a ui_notification instead of casting."""
 	var spell = _spell_from_item(item_instance, "wand_")
 	var result = _blank_result(str(spell.get("spell_id", "")))
@@ -730,14 +730,14 @@ func use_wand(item_instance: Dictionary, caster: Node, target = null) -> Diction
 		result["reason"] = "Incapacitated"
 		return result
 
-	var charges = int(item_instance.get("current_durability", 0))
+	var charges = int(item_instance.get("charges", 0))
 	if charges <= 0:
 		result["reason"] = "The wand is out of charges"
 		EventBus.ui_notification.emit("The wand fizzles - no charges remain.", "warning")
 		return result
 
-	item_instance["current_durability"] = charges - 1
-	EventBus.item_durability_changed.emit(item_instance, charges - 1, int(item_instance.get("max_durability", SpellDatabase.WAND_CHARGES)))
+	item_instance["charges"] = charges - 1
+	EventBus.item_charges_changed.emit(item_instance, charges - 1, int(item_instance.get("max_charges", SpellDatabase.WAND_CHARGES)))
 	print("SpellManager: wand discharge (%d charge(s) left)" % (charges - 1))
 	return _resolve_cast(caster, spell, target, [], result)
 

@@ -253,15 +253,21 @@ func get_weapon(set_index: int = 0) -> ItemData:
 	var item_data = get_hand_instance("main_hand", set_index).get("item_data")
 	return item_data if item_data is ItemData and item_data.is_weapon else null
 
-func get_weapon_instance(weapon: ItemData) -> Dictionary:
+func get_weapon_instance(weapon: ItemData, set_index: int = 0) -> Dictionary:
 	"""The piece this combatant holds of a weapon: the item instance, which
-	carries its own craftsmanship and magic bonus. {} when no item of the
-	combatant's is behind the weapon (an unarmed strike, a creature's own
-	attack)."""
+	carries its own craftsmanship and magic bonus and its own wear. The weapon
+	set named is looked in first (0: the set in hand), so that of two weapons
+	of one make each answers for itself. {} when no item of the combatant's is
+	behind the weapon (an unarmed strike, a creature's own attack)."""
 	if weapon == null or stats == null:
 		return {}
-	for set_index in range(1, get_weapon_set_count() + 1):
-		var instance: Dictionary = get_hand_instance("main_hand", set_index)
+	var first: int = set_index if set_index > 0 else get_weapon_set()
+	var order: Array = [first]
+	for other in range(1, get_weapon_set_count() + 1):
+		if other != first:
+			order.append(other)
+	for candidate in order:
+		var instance: Dictionary = get_hand_instance("main_hand", candidate)
 		if instance.get("item_data") == weapon:
 			return instance
 	return {}
@@ -284,6 +290,38 @@ func get_flank_partners() -> Array:
 	"""Tiles of the allies that can give this combatant's attacks flanking
 	advantage"""
 	return get_ally_positions()
+
+# ============================================================================
+# GEAR THAT WEARS
+# ============================================================================
+# The durability rules (DurabilityManager) ask a combatant what it has in use
+# and how hard it is to notch. A party member's gear is equipment; an enemy
+# answers for its own.
+
+func get_wear_pieces() -> Array:
+	"""The wearing pieces this combatant has in use, as item instances: what it
+	wears, and the weapon set in hand. The other weapon set is carried, not used."""
+	var pieces: Array = []
+	if stats == null:
+		return pieces
+	for instance in InventoryManager.get_active_equipped_items(stats):
+		if DurabilityManager.wears(instance):
+			pieces.append(instance)
+	return pieces
+
+func get_hide_hardness() -> int:
+	"""How hard this combatant's own body is to a weapon that meets it: flesh"""
+	return DurabilityDials.flesh_hardness
+
+func get_natural_weapon_hardness() -> int:
+	"""How hard what this combatant strikes with is when no item is behind the
+	blow: a fist"""
+	return DurabilityDials.flesh_hardness
+
+func get_gear_armor_class_loss() -> int:
+	"""Armour class this combatant has lost with worn-down gear that its stats
+	do not already count. A party member's stats count all of it."""
+	return 0
 
 # ============================================================================
 # WHAT DAMAGE DOES TO THIS COMBATANT
@@ -311,9 +349,9 @@ func get_immunities() -> Array[String]:
 func _gather_damage_traits(which: String) -> Array[String]:
 	"""Every damage type on one of the three lists, from everything that can
 	put one there: the body's own nature (an enemy's type definition), the
-	character's race and class, the gear worn and the weapon set in hand, and
-	status effects. Only
-	real damage types count: a race's resistance to charm is not one."""
+	character's race and class, the gear worn and the weapon set in hand
+	(unless it is broken), and status effects. Only real damage types count: a
+	race's resistance to charm is not one."""
 	var fields: Dictionary = _DAMAGE_TRAIT_SOURCES[which]
 	var lists: Array = [get(fields["own"])]
 	if stats != null:
@@ -325,7 +363,8 @@ func _gather_damage_traits(which: String) -> Array[String]:
 			lists.append(class_data.get(fields["class"]))
 		for instance in InventoryManager.get_active_equipped_items(stats):
 			var item_data = instance.get("item_data") if instance is Dictionary else null
-			if item_data is ItemData:
+			# A broken piece gives nothing
+			if item_data is ItemData and DurabilityManager.gives_bonus(instance):
 				lists.append(item_data.get(fields["item"]))
 	lists.append(StatusEffectManager.get_damage_traits(self, which))
 

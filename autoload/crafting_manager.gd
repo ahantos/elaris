@@ -1,18 +1,16 @@
 # crafting_manager.gd
-# AutoLoad singleton - crafting operations (craft, repair, enchant) against RecipeDatabase,
+# AutoLoad singleton - crafting operations (craft, enchant) against RecipeDatabase,
 # consuming/producing items through InventoryManager and ItemDatabase.
 # Enchant recipes are SPECIAL: instead of creating a new item they call
 # SpellManager.enchant_item(instance, plus_level) on the player's equipped item in the
 # recipe's enchant_slot. If SpellManager doesn't have that method yet (stub era), the magic
 # modifier is set directly (capped at +3) and item_enchanted is emitted.
-# Repair requires 1× material_<item.material.material_id> + gold by the material's price.
+# Mending worn gear is not crafting: repair kits, scrap and salvage are the
+# durability rules' (DurabilityManager), asked for through the CombatController.
 extends Node
 
 # Recipes the player has learned (Array of recipe_id Strings)
 var known_recipes: Array = []
-
-# What a repair costs in a material of price multiplier 1
-const REPAIR_GOLD_BASE: float = 15.0
 
 func _ready():
 	# Seed auto_known recipes after RecipeDatabase is guaranteed ready.
@@ -253,77 +251,6 @@ func _execute_enchant(recipe: Dictionary) -> Dictionary:
 	)
 	print("Crafting: enchanted item in '%s' slot via recipe '%s'" % [slot, recipe_id])
 	return equipped
-
-# ---------------------------------------------------------------------------
-#  REPAIR
-# ---------------------------------------------------------------------------
-
-func repair_item(item_instance: Dictionary) -> bool:
-	"""Repair an item: requires 1× material_<item material> + gold by the material's price.
-	   Restores current_durability to max_durability.
-	   Returns true on success.
-	"""
-	if item_instance.is_empty():
-		push_error("Crafting: repair_item — empty instance")
-		return false
-
-	var idata = item_instance.get("item_data", null)
-	if idata == null:
-		push_error("Crafting: repair_item — instance has no item_data")
-		return false
-
-	# Already fully repaired?
-	var cur_dur: int = item_instance.get("current_durability", 0)
-	var max_dur: int = item_instance.get("max_durability", 0)
-	if cur_dur >= max_dur:
-		EventBus.ui_notification.emit("Item is already in full repair.", "info")
-		return false
-
-	# Determine material requirement
-	var mat: MaterialData = null
-	if idata is Dictionary:
-		mat = idata.get("material", null)
-	elif idata != null:
-		mat = idata.material
-	if mat == null:
-		push_error("Crafting: repair_item — item has no material; cannot determine repair cost")
-		return false
-
-	var mat_item_id: String = "material_%s" % mat.material_id
-	var gold_cost: int = maxi(1, int(round(REPAIR_GOLD_BASE * mat.price_multiplier)))
-
-	# Validate
-	if not InventoryManager.has_item(mat_item_id):
-		EventBus.ui_notification.emit(
-			"Repair requires 1× %s (material_%s)" % [mat.material_name, mat.material_id], "warning"
-		)
-		return false
-	if not InventoryManager.has_gold(gold_cost):
-		EventBus.ui_notification.emit(
-			"Repair costs %d gold (you have %d)" % [gold_cost, InventoryManager.gold], "warning"
-		)
-		return false
-
-	# Consume material (find first matching stack and remove one unit)
-	var mat_instance: Dictionary = _find_first_item_instance(mat_item_id)
-	if mat_instance.is_empty():
-		push_error("Crafting: repair_item — could not locate material instance despite has_item=true")
-		return false
-	InventoryManager.remove_item(mat_instance.instance_id)
-	InventoryManager.remove_gold(gold_cost)
-
-	# Restore durability
-	item_instance["current_durability"] = max_dur
-	EventBus.item_repaired.emit(item_instance)
-	EventBus.item_durability_changed.emit(item_instance, max_dur, max_dur)
-	EventBus.ui_notification.emit("Item repaired!", "success")
-	var repaired_id: String = "?"
-	if idata is Resource:
-		repaired_id = idata.item_id
-	elif idata is Dictionary:
-		repaired_id = str(idata.get("item_id", "?"))
-	print("Crafting: repaired item '%s' (cost: 1× %s + %d gold)" % [repaired_id, mat_item_id, gold_cost])
-	return true
 
 # ---------------------------------------------------------------------------
 #  PRIVATE HELPERS

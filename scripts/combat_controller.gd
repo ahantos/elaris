@@ -7,7 +7,9 @@
 # wants to do - attack, move, dash, cast, use an item, end its turn - it asks
 # for through request_action(); the controller checks the turn and the
 # resources, applies the action and reports the result. That includes what it
-# holds: swapping weapon sets, and equipping and unequipping outside a fight.
+# holds: swapping weapon sets, and equipping and unequipping outside a fight;
+# and mending it: repairing with a kit and salvaging, outside a fight.
+# It also tells the durability rules when a fight starts and how long it was.
 # Player input, enemy AI and companion AI all come in that way. The HUD (turn
 # banner, initiative bar, action bar) only shows what the controller says.
 extends Node
@@ -33,14 +35,18 @@ const ACTION_END_TURN := "end_turn"
 const ACTION_MOVE := "move"
 const ACTION_EQUIP := "equip"
 const ACTION_UNEQUIP := "unequip"
+const ACTION_REPAIR := "repair"
+const ACTION_REPAIR_ALL := "repair_all"
+const ACTION_SALVAGE := "salvage"
 
 # The action bar, in the order of its buttons and number keys (1 to 8)
 const ACTION_BAR: Array[String] = [
 	ACTION_ATTACK, ACTION_CAST, ACTION_USE_ITEM, ACTION_DASH, ACTION_DISENGAGE, ACTION_DODGE, ACTION_SWAP_WEAPONS, ACTION_END_TURN,
 ]
 
-# Why gear cannot be changed in a fight
+# Why gear cannot be changed in a fight, nor mended
 const REASON_GEAR_IN_FIGHT := "Gear cannot be changed in a fight - swap weapon sets instead"
+const REASON_REPAIR_IN_FIGHT := "Gear cannot be repaired or salvaged in a fight"
 
 # Tiles, straight line. A fight starts when a hostile is within detection_range
 # of the player; hostiles within activation_range are pulled into it.
@@ -146,6 +152,7 @@ func start_combat(participants: Array) -> bool:
 	_cursor = 0
 	_current = null
 	_participants = _order.duplicate()
+	DurabilityManager.begin_fight()
 
 	print("⚔️ COMBAT INITIATED!")
 	print("=== INITIATIVE ORDER ===")
@@ -179,6 +186,9 @@ func end_combat():
 	_order.clear()
 	_rolls.clear()
 	_participants.clear()
+
+	# What was used in the fight wears by how long it lasted
+	DurabilityManager.end_fight(round_number)
 
 	for combatant in took_part:
 		if is_instance_valid(combatant):
@@ -380,13 +390,24 @@ func _remove_at(index: int):
 #                                       Refused in a fight.
 #   unequip    {slot} (+ item)          back to the pack; item names which ring
 #                                       or trinket. Refused in a fight.
+#   repair     {item: instance}         mend one notch of a piece the combatant
+#                                       has equipped or the pack holds, with a
+#                                       repair kit and a unit of scrap from the
+#                                       pack. Refused in a fight.
+#   repair_all {}                       the same for everything the combatant
+#                                       has equipped, the worst piece first,
+#                                       while kits and scrap last. Refused in a
+#                                       fight.
+#   salvage    {item: instance}         turn a weapon or a piece of armour from
+#                                       the pack into scrap. Refused in a fight.
 #
 # In a fight a request is approved only on the combatant's own turn, and the
 # action, bonus action and movement it costs must still be there. Outside a
 # fight nothing is spent and there is no turn to wait for; Attack, Dash,
 # Disengage and Dodge are then refused, as there is no turn to take them in.
 # Gear is the other way round: in a fight the only way to change what is in
-# hand is swap_weapons, and equip and unequip are refused.
+# hand is swap_weapons, and equip, unequip, repair, repair_all and salvage are
+# refused.
 
 func check_action(combatant, action_id: String, params: Dictionary = {}) -> Dictionary:
 	"""Would request_action() be approved right now? Returns {ok, reason} and
@@ -396,6 +417,8 @@ func check_action(combatant, action_id: String, params: Dictionary = {}) -> Dict
 		return _refuse("Cannot act")
 	if active and action_id in [ACTION_EQUIP, ACTION_UNEQUIP]:
 		return _refuse(REASON_GEAR_IN_FIGHT, true)
+	if active and action_id in [ACTION_REPAIR, ACTION_REPAIR_ALL, ACTION_SALVAGE]:
+		return _refuse(REASON_REPAIR_IN_FIGHT, true)
 	if active and not is_turn_of(combatant):
 		return _refuse("Not your turn")
 	match action_id:
@@ -407,6 +430,12 @@ func check_action(combatant, action_id: String, params: Dictionary = {}) -> Dict
 			return _check_equip(combatant, params)
 		ACTION_UNEQUIP:
 			return _check_unequip(combatant, params)
+		ACTION_REPAIR:
+			return _check_repair(combatant, params)
+		ACTION_REPAIR_ALL:
+			return _check_gear_answer(DurabilityManager.get_repair_all_refusal(combatant.stats))
+		ACTION_SALVAGE:
+			return _check_salvage(params)
 		ACTION_DASH, ACTION_DISENGAGE, ACTION_DODGE:
 			return _check_fight_action(combatant)
 		ACTION_CAST:
@@ -458,6 +487,12 @@ func request_action(combatant, action_id: String, params: Dictionary = {}) -> Di
 			_apply_equip(combatant, params, result)
 		ACTION_UNEQUIP:
 			_apply_unequip(combatant, params, result)
+		ACTION_REPAIR:
+			_apply_gear_result(result, DurabilityManager.repair_with_kit(params["item"], combatant))
+		ACTION_REPAIR_ALL:
+			_apply_gear_result(result, DurabilityManager.repair_all(combatant.stats, combatant))
+		ACTION_SALVAGE:
+			_apply_gear_result(result, DurabilityManager.salvage(params["item"], combatant))
 		ACTION_CAST:
 			_apply_cast(combatant, params, result)
 		ACTION_USE_ITEM:
@@ -497,7 +532,10 @@ func preview_attack(combatant, target) -> Dictionary:
 	CombatManager.build_attack_profile), weapon_name, damage_text, distance,
 	hit_chance (CombatManager.get_hit_chance: chance, percent, advantage,
 	disadvantage, reasons, cover_bonus, ...), damage_response (what the target's
-	nature would do to the damage: CombatManager.get_damage_response)}."""
+	nature would do to the damage: CombatManager.get_damage_response),
+	wear_notes (what the weapon's lost notches, debuffs and buffs and the
+	target's torn or breached gear do to the attack, as lines to show:
+	DurabilityManager.get_attack_notes)}."""
 	var preview: Dictionary = check_action(combatant, ACTION_ATTACK, {"target": target})
 	if not _is_fit(combatant) or not _is_fit(target):
 		return preview
@@ -509,6 +547,7 @@ func preview_attack(combatant, target) -> Dictionary:
 	preview["distance"] = CombatGrid.get_distance_tiles(combatant.get_grid_position(), target.get_grid_position())
 	preview["hit_chance"] = CombatManager.get_hit_chance(combatant, target, profile)
 	preview["damage_response"] = CombatManager.get_damage_response(target, str(profile.damage_type))
+	preview["wear_notes"] = DurabilityManager.get_attack_notes(profile.weapon_instance, target)
 	return preview
 
 # --- checks ---
@@ -547,9 +586,10 @@ func _check_attack(combatant, params: Dictionary) -> Dictionary:
 	if not get_attack_targets(combatant).is_empty():
 		return _approve()
 	var profile: Dictionary = CombatManager.get_attack_profile(combatant)
-	if not profile.usable:
-		return _refuse(str(profile.reason))
 	var nobody: String = "No enemy in range and in sight" if profile.is_ranged else "No enemy in reach"
+	if not profile.usable:
+		# A two-handed weapon beside a full off hand, or a broken weapon
+		nobody = str(profile.reason)
 	for hostile in combatant.get_hostiles():
 		var swap: String = _swap_advice(combatant, hostile)
 		if swap != "":
@@ -595,12 +635,16 @@ func _check_attack_with(combatant, target, profile: Dictionary) -> Dictionary:
 
 func _swap_advice(combatant, target) -> String:
 	"""'swap to the Oak Light Crossbow' when the combatant's other weapon set
-	could attack the target from here; "" when it could not, or there is none"""
+	could attack the target from here; "" when it could not, or there is none.
+	Empty hands are worth a swap only when the weapon in hand is broken."""
 	if combatant.get_weapon_set_count() < 2:
 		return ""
 	var other: Dictionary = CombatManager.get_set_profile(combatant, combatant.get_other_weapon_set())
-	if other.weapon == null or not _check_attack_with(combatant, target, other).ok:
+	if not _check_attack_with(combatant, target, other).ok:
 		return ""
+	if other.weapon == null:
+		var in_hand: Dictionary = CombatManager.get_attack_profile(combatant)
+		return "swap to your empty hands" if DurabilityManager.is_broken(in_hand.weapon_instance) else ""
 	return "swap to the %s" % str(other.weapon_name)
 
 func _check_swap(combatant) -> Dictionary:
@@ -641,6 +685,31 @@ func _check_unequip(combatant, params: Dictionary) -> Dictionary:
 	if held == null or (held is Array and not held.has(params.get("item"))):
 		return _refuse("Nothing is equipped there", true)
 	return _approve()
+
+func _check_repair(combatant, params: Dictionary) -> Dictionary:
+	"""Outside a fight: is the piece the combatant's to mend - equipped by it or
+	in the party's pack - and can a kit mend it now?"""
+	var item = params.get("item")
+	if not (item is Dictionary) or not (item.get("item_data") is ItemData):
+		return _refuse("Nothing to repair", true)
+	var held: bool = false
+	for equipped in InventoryManager.get_all_equipped_items(combatant.stats):
+		if is_same(equipped, item):
+			held = true
+	if not held and InventoryManager.get_item(str(item.get("instance_id", ""))).is_empty():
+		return _refuse("That is not yours to repair", true)
+	return _check_gear_answer(DurabilityManager.get_repair_refusal(item))
+
+func _check_salvage(params: Dictionary) -> Dictionary:
+	"""Outside a fight: is it a weapon or a piece of armour from the pack?"""
+	var item = params.get("item")
+	if not (item is Dictionary) or not (item.get("item_data") is ItemData):
+		return _refuse("Nothing to salvage", true)
+	return _check_gear_answer(DurabilityManager.get_salvage_refusal(item))
+
+func _check_gear_answer(refusal: String) -> Dictionary:
+	"""Approve, or refuse with what the durability rules say stands in the way"""
+	return _approve() if refusal == "" else _refuse(refusal, true)
 
 func _check_cast(combatant, params: Dictionary) -> Dictionary:
 	if combatant.is_moving:
@@ -801,6 +870,10 @@ func _apply_unequip(combatant, params: Dictionary, result: Dictionary):
 	if taken.is_empty():
 		result["ok"] = false
 		result["reason"] = "There is no room in the pack"
+
+func _apply_gear_result(result: Dictionary, outcome: Dictionary):
+	"""Put what a repair or a salvage did into the request's result"""
+	result.merge(outcome, true)
 
 func _apply_cast(combatant, params: Dictionary, result: Dictionary):
 	"""Cast the spell through SpellManager and spend what its casting time costs"""

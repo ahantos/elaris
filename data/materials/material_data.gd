@@ -9,10 +9,6 @@
 extends Resource
 class_name MaterialData
 
-# What the durability score is divided by to give the notch count, and the
-# fewest notches any material has
-const NOTCH_DIVISOR: float = 8.0
-const MIN_NOTCHES: int = 2
 
 # Material identity
 @export var material_id: String = ""  # "bronze", "steel", "cowhide"
@@ -30,10 +26,10 @@ enum Category {
 }
 @export var category: Category = Category.METAL
 
-# Durability data (read by the durability rules; nothing wears yet)
+# Durability data, read by the durability rules (DurabilityManager)
 @export var durability_score: int = 16  # the score in the material tables
 @export var hardness: int = 1  # one scale for metal, wood, leather and cloth
-@export var notches: int = 2  # durability_score / 8, rounded half up, at least 2
+@export var notches: int = 2  # what a plain piece of the material has: notches_for(durability_score)
 
 # What an item of this material costs, as a multiple of its base type's price
 @export var price_multiplier: float = 1.0
@@ -52,9 +48,10 @@ enum Category {
 @export var metallic: bool = false
 
 static func notches_for(score: int) -> int:
-	"""The notch count a durability score gives: the score divided by 8, rounded
-	half up, never fewer than 2"""
-	return maxi(MIN_NOTCHES, int(floor(score / NOTCH_DIVISOR + 0.5)))
+	"""The notch count a durability score gives: the score over the notch
+	divisor (8), rounded half up, never fewer than the minimum (2). The two
+	numbers are dials (DurabilityDials)."""
+	return maxi(DurabilityDials.min_notches, int(floor(score / DurabilityDials.notch_divisor + 0.5)))
 
 func is_obtainable() -> bool:
 	"""True for a material that loot, shops and recipes may hand out"""

@@ -15,6 +15,10 @@ extends SceneTree
 #     hooks can change the outcome (Relentless Endurance),
 #   - armour class follows 5e: body armour, Dexterity as it allows, shield,
 #     bonuses, and nothing from any other slot,
+#   - gear wears as designed: notches by material, making and magic; what a
+#     lost notch costs; marks by the length of a fight; critical hits and
+#     natural 1s, with hardness and magic; every debuff and buff; repair kits,
+#     scrap, salvage and ageing; worn loot; and saves that keep it all,
 #   - a character has two weapon sets and attacks with the one in hand;
 #     swapping them, equipping and unequipping are requests,
 #   - a ranged attack follows range, line of sight and cover (the 5e corner
@@ -56,8 +60,31 @@ const KNOWN_GAPS := {
 var _passed: int = 0
 var _failures: Array = []
 
+# While working on one check: run it alone, by name, on the world as it boots.
+#   <godot> --headless --path . --script res://tools/smoke_test.gd -- --only=durability,blows
+# The names are in _run_only. A run with --only is not a check of the game: it
+# says PARTIAL where a full run says PASS.
+var _only: Array = []
+
 func _initialize():
+	for arg in OS.get_cmdline_user_args():
+		if arg.begins_with("--only="):
+			_only = Array(arg.substr(7).split(",", false))
 	_run()
+
+func _run_only(world):
+	"""Run the checks named with --only, in the order given"""
+	var by_name: Dictionary = {
+		"durability": _check_durability, "blows": _check_blows, "wear_states": _check_wear_states, "repair": _check_repair,
+		"wear_in_fight": _check_wear_in_fight,
+	}
+	for check_name in _only:
+		if check_name == "game_flow":
+			await _check_game_flow()
+		elif by_name.has(check_name):
+			await by_name[check_name].call(world)
+		else:
+			check(false, "--only names a check there is: '%s'" % check_name, "known: %s, game_flow" % str(by_name.keys()))
 
 # ---------------------------------------------------------------------------
 #  Helpers
@@ -137,7 +164,10 @@ func _finish():
 	print("[SMOKE] %d passed, %d failed" % [_passed, _failures.size()])
 	for label in _failures:
 		print("[SMOKE]   failed: ", label)
-	print("[SMOKE] RESULT: ", "PASS" if _failures.is_empty() else "FAIL")
+	if _only.is_empty():
+		print("[SMOKE] RESULT: ", "PASS" if _failures.is_empty() else "FAIL")
+	else:
+		print("[SMOKE] RESULT: ", "PARTIAL (only %s), nothing failed" % ", ".join(_only) if _failures.is_empty() else "FAIL")
 	_remove_test_saves()
 	quit(0 if _failures.is_empty() else 1)
 
@@ -150,6 +180,10 @@ func _run():
 	# Saves written by this run go to a scratch folder, never the player's own
 	var saves = _mgr("SaveManager")
 	saves.use_save_directory(_save_dir)
+	# Wear has checks of its own (_check_durability and what follows it), which
+	# switch it on. Everywhere else gear does not wear, so that a critical hit
+	# or a natural 1 rolled along the way cannot change what a check measures.
+	_mgr("DurabilityManager").wear_enabled = false
 
 	# Part 1: the world scene on its own (what the editor's F6 does)
 	change_scene_to_file(WORLD_SCENE)
@@ -169,6 +203,11 @@ func _run():
 		"player stands on a floor tile")
 	_check_combatants(world)
 
+	if not _only.is_empty():
+		await _run_only(world)
+		_finish()
+		return
+
 	await _check_layout(world)
 	await _check_notifications()
 	await _check_debug_keys(world)
@@ -179,6 +218,10 @@ func _run():
 	_check_materials(world)
 	await _check_armor_class(world)
 	await _check_damage(world)
+	await _check_durability(world)
+	await _check_blows(world)
+	await _check_wear_states(world)
+	await _check_repair(world)
 	await _check_art(world)
 	_check_crafting(world)
 	await _check_companions(world)
@@ -189,6 +232,7 @@ func _run():
 	_check_content()
 	await _check_fight(world)
 	await _check_actions(world)
+	await _check_wear_in_fight(world)
 	await _check_ranged(world)
 	_check_casters(world)  # replaces the player's stats
 	await _check_turn_authority(world)  # last in part 1: fights as the wizard _check_casters leaves behind
@@ -1752,6 +1796,1407 @@ func _check_damage(world):
 	await _frames(2)
 	check(player.stats == stats and not world.in_combat and stats.is_alive() and level_now == 1 and stats.armor_class == 18,
 		"test teardown: the staged enemies are gone, no fight started and the fighter is as it was")
+
+# ---------------------------------------------------------------------------
+#  Durability: notches, what a lost notch costs, marks
+# ---------------------------------------------------------------------------
+
+func _blow(outcome: String, attacker, target, options: Dictionary = {}) -> Dictionary:
+	"""An attack as CombatManager announces it (EventBus.attack_resolved), for a
+	blow that was not rolled: outcome is "critical", "hit", "miss" or
+	"natural_1". options: weapon_instance (the piece that struck), weapon (an
+	ItemData with no piece behind it: a creature's own attack), kind, damage_type,
+	two_handed, two_handed_grip, is_ranged."""
+	var instance: Dictionary = options.get("weapon_instance", {})
+	var weapon = options.get("weapon", instance.get("item_data"))
+	var damage_type: String = "physical"
+	if weapon != null and weapon.damage_type != "":
+		damage_type = weapon.damage_type
+	return {
+		"attacker": attacker, "target": target, "kind": str(options.get("kind", "weapon")),
+		"roll": {"critical": 20, "natural_1": 1, "miss": 5}.get(outcome, 12),
+		"hit": outcome in ["critical", "hit"], "is_crit": outcome == "critical", "is_fumble": outcome == "natural_1",
+		"outcome": outcome, "weapon": weapon, "weapon_instance": instance, "natural_weapon": instance.is_empty(),
+		"weapon_name": weapon.item_name if weapon != null else "Unarmed strike",
+		"damage_type": str(options.get("damage_type", damage_type)), "is_ranged": bool(options.get("is_ranged", false)),
+		"two_handed": bool(options.get("two_handed", false)),
+		"two_handed_grip": bool(options.get("two_handed_grip", options.get("two_handed", false))),
+		"damage": 0, "damage_response": "", "result": {},
+	}
+
+func _row(dur, piece: Dictionary) -> String:
+	"""'3/4 m2': a piece's notches, the most it holds, and its marks"""
+	return "%d/%d m%d" % [dur.get_notches(piece), dur.get_max_notches(piece), dur.get_marks(piece)]
+
+func _mend(piece: Dictionary):
+	"""Test setup: a piece as good as new, by hand"""
+	piece["notches_max"] = piece["notches_max_original"]
+	piece["notches"] = piece["notches_max"]
+	piece["marks"] = 0
+	piece["age"] = 0
+	piece["debuffs"] = []
+	piece["wear_names"] = []
+
+func _test_piece(items, slot: String, material_id: String, piece_name: String = "Test Piece") -> Dictionary:
+	"""A piece for a slot the item list has nothing for yet (shoulder, wrist), or
+	one with properties of the test's own"""
+	var data = load("res://data/items/item_data.gd").new()
+	data.item_id = "smoke_%s_piece" % slot
+	data.item_name = piece_name
+	data.equip_slot = slot
+	data.is_armor = true
+	data.material = items.get_material(material_id)
+	var piece: Dictionary = {"item_data": data, "quality_modifier": 0, "magic_modifier": 0, "stack_count": 1, "instance_id": "smoke_%s" % slot}
+	_mgr("DurabilityManager").init_instance(piece)
+	return piece
+
+func _armor_classes(inv, stats, piece: Dictionary, notches: Array) -> Array:
+	"""The wearer's armour class with the piece at each of the notch counts"""
+	var classes: Array = []
+	for left in notches:
+		piece["notches"] = left
+		inv.recalculate_character_stats(stats)
+		classes.append(stats.armor_class)
+	return classes
+
+func _check_durability(world):
+	"""The default fighter (STR 14, DEX 12, proficiency +2), outside any fight.
+	Pieces are made for the purpose and put on directly, and where only the cost
+	of a lost notch is measured their notches are set by hand."""
+	var dur = _mgr("DurabilityManager")
+	var items = _mgr("ItemDatabase")
+	var inv = _mgr("InventoryManager")
+	var combat = _mgr("CombatManager")
+	var bus = _mgr("EventBus")
+	var spell_items = _mgr("SpellDatabase")
+	var player = world.player
+	var stats = player.stats
+	var kit: Dictionary = inv.equipped_items[stats].duplicate()
+	var bag: Array = _bag_snapshot(inv)
+	dur.wear_enabled = true
+
+	check(stats.class_id == "fighter" and stats.dexterity == 12 and stats.strength == 14 and stats.armor_class == 18
+		and dur.count_repair_kits() == 2 and not world.in_combat,
+		"test setup: the fighter in its kit, outside a fight, with the two repair kits every starting kit holds",
+		"AC %d, %d kits" % [stats.armor_class, dur.count_repair_kits()])
+
+	# --- how many notches a piece holds: its material, its making, its magic ---
+	var counts: Array = []
+	var whole := true
+	for row in [["copper_longsword", 0, 0], ["bronze_longsword", 0, 0], ["steel_longsword", 0, 0], ["damascus_steel_longsword", 0, 0],
+			["mythril_longsword", 0, 0], ["adamantite_longsword", 0, 0], ["steel_longsword", 1, 0], ["steel_longsword", 3, 0],
+			["steel_longsword", 0, 1], ["steel_longsword", 0, 3], ["steel_longsword", 2, 2], ["cowhide_jerkin", 0, 0],
+			["fine_linen_robe", 0, 0], ["oak_light_crossbow", 0, 0], ["steel_shield", 0, 2], ["cloak_protection", 0, 0]]:
+		var made: Dictionary = items.create_item_instance(row[0], row[1], row[2])
+		counts.append(int(made.get("notches_max", -1)))
+		if (made.get("notches") != made.get("notches_max") or made.get("notches_max") != made.get("notches_max_original")
+				or made.get("marks") != 0 or made.get("age") != 0 or made.get("debuffs") != [] or made.get("buffs") != []
+				or made.has("current_durability") or made.has("max_durability")):
+			whole = false
+	check(counts == [2, 3, 4, 5, 6, 8, 5, 5, 5, 7, 7, 2, 2, 2, 6, 2] and whole,
+		"a new piece holds its material's notches, one more when masterforged and one more for each plus of magic, and is whole",
+		str(counts))
+
+	# --- what wears, and what does not ---
+	var wrong: Array = []
+	for item_id in ["longsword", "light_crossbow", "shield", "chain_mail", "jerkin", "robe", "helmet", "hood", "gauntlets", "leggings",
+			"plate_boots", "cloak_protection", "belt_strength"]:
+		if not dur.wears(items.create_item_instance(item_id)):
+			wrong.append("%s does not wear" % item_id)
+	for item_id in ["ring_protection", "amulet_health", "trinket_luck", "potion_healing", "material_steel", "scrap_steel", "repair_kit",
+			"explorer_pack"]:
+		var plain: Dictionary = items.create_item_instance(item_id)
+		if dur.wears(plain) or plain.has("notches") or dur.get_max_notches(plain) != 0:
+			wrong.append("%s wears" % item_id)
+	var kinds: Array = []
+	for slot in ["shoulder", "back", "wrist", "hands", "waist", "legs", "feet", "head", "chest"]:
+		kinds.append(dur.get_piece_kind(_test_piece(items, slot, "steel")))
+	kinds.append(dur.get_piece_kind(items.create_item_instance("longsword")))
+	kinds.append(dur.get_piece_kind(items.create_item_instance("shield")))
+	var wand: Dictionary = items.create_item_instance("wand_" + str(spell_items.SPELL_ITEM_IDS[0]))
+	check(wrong.is_empty() and kinds == ["secondary", "secondary", "secondary", "secondary", "secondary", "secondary", "secondary", "head", "body",
+			"weapon", "shield"],
+		"weapons, shields, body armour, helmets and the seven secondary slots wear; neck, rings, trinkets and everything carried do not",
+		"%s %s" % [str(wrong), str(kinds)])
+	check(not wand.is_empty() and not dur.wears(wand) and int(wand.get("charges", -1)) == spell_items.WAND_CHARGES
+		and int(wand.get("max_charges", -1)) == spell_items.WAND_CHARGES and not wand.has("notches") and not wand.has("current_durability")
+		and not ("max_durability" in wand.item_data) and not ("has_durability" in wand.item_data),
+		"a wand keeps its charges as charges: the old durability points are gone from items and their instances")
+
+	# --- a weapon: every second lost notch costs 1 to hit ---
+	var sword: Dictionary = items.create_item_instance("steel_longsword")
+	_put_on(inv, stats, "main_hand", sword)
+	var to_hit: Array = []
+	var damage_texts: Dictionary = {}
+	for left in [4, 3, 2, 1]:
+		sword["notches"] = left
+		var worn_profile: Dictionary = combat.get_attack_profile(player)
+		to_hit.append("%d:%+d" % [left, int(worn_profile.attack_bonus)])
+		damage_texts[combat.get_damage_text(worn_profile)] = true
+	var great: Dictionary = items.create_item_instance("adamantite_longsword")
+	_put_on(inv, stats, "main_hand", great)
+	var penalties: Array = []
+	for left in [8, 7, 6, 5, 4, 3, 2, 1]:
+		great["notches"] = left
+		penalties.append(int(combat.get_attack_profile(player).wear_attack_penalty))
+	check(to_hit == ["4:+4", "3:+4", "2:+3", "1:+3"] and penalties == [0, 0, 1, 1, 2, 2, 3, 3] and damage_texts.keys() == ["1d8+2 slashing"],
+		"a weapon's first lost notch is free and every second one costs 1 to hit; its damage does not change",
+		"%s %s %s" % [str(to_hit), str(penalties), str(damage_texts.keys())])
+
+	# --- a broken weapon cannot attack, and is not destroyed ---
+	sword["notches"] = 0
+	_put_on(inv, stats, "main_hand", sword)
+	var broken_profile: Dictionary = combat.get_attack_profile(player)
+	check(dur.is_broken(sword) and not broken_profile.usable and broken_profile.reason == "Steel Longsword is broken"
+		and combat.make_attack(player, world.enemies[0]).is_empty() and is_same(inv.get_equipped_item(stats, "main_hand"), sword)
+		and int(sword.notches_max) == 4,
+		"a weapon with no notch left is broken: it cannot attack, says why, and is still there", str(broken_profile.reason))
+	_put_on(inv, stats, "main_hand", kit["main_hand"])
+
+	# --- body armour, by category ---
+	_put_on(inv, stats, "off_hand", {})
+	var mail: Dictionary = items.create_item_instance("steel_chain_mail")
+	_put_on(inv, stats, "chest", mail)
+	var heavy: Array = _armor_classes(inv, stats, mail, [4, 3, 2, 1, 0])
+	mail["notches"] = 2
+	inv.recalculate_character_stats(stats)
+	var worn_parts: Array = []
+	for part in stats.get_armor_class_breakdown():
+		worn_parts.append("%s %d" % [str(part.label), int(part.value)])
+	mail["notches"] = 0
+	inv.recalculate_character_stats(stats)
+	var broken_parts: Array = []
+	for part in stats.get_armor_class_breakdown():
+		broken_parts.append("%s %d" % [str(part.label), int(part.value)])
+	stats.strength = 12
+	var still_heavy: bool = stats.is_slowed_by_armor() and stats.armor_stealth_disadvantage
+	stats.strength = 14
+	check(heavy == [16, 16, 15, 15, 11] and worn_parts == ["Steel Chain Mail 16", "Worn armour, 2 notches lost -1"]
+		and broken_parts == ["Unarmoured: Steel Chain Mail is broken 10", "Dexterity 1"] and still_heavy,
+		"heavy armour loses 1 armour class for every second lost notch and everything when it breaks: steel chain mail goes 16, 16, 15, 15, then unarmoured",
+		"%s / %s / %s" % [str(heavy), str(worn_parts), str(broken_parts)])
+
+	var scale: Dictionary = items.create_item_instance("steel_scale_mail")
+	_put_on(inv, stats, "chest", scale)
+	var medium: Array = _armor_classes(inv, stats, scale, [4, 3, 2, 1, 0])
+	stats.dexterity = 18
+	var medium_nimble: Array = _armor_classes(inv, stats, scale, [4, 3, 2, 1, 0])
+	var hard_scale: Dictionary = items.create_item_instance("adamantite_scale_mail")
+	_put_on(inv, stats, "chest", hard_scale)
+	var floor_held: Array = _armor_classes(inv, stats, hard_scale, [8, 7, 6, 5, 4, 3, 2, 1, 0])
+	stats.dexterity = 12
+	check(medium == [15, 15, 14, 14, 11] and medium_nimble == [16, 16, 15, 15, 14] and floor_held == [16, 16, 15, 15, 15, 15, 15, 15, 14],
+		"medium armour wears the same way, but still gives at least +1 over no armour until it breaks, and never less than no armour",
+		"%s / %s / %s" % [str(medium), str(medium_nimble), str(floor_held)])
+
+	var jerkin: Dictionary = items.create_item_instance("cowhide_jerkin", 0, 3)
+	_put_on(inv, stats, "chest", jerkin)
+	var light: Array = _armor_classes(inv, stats, jerkin, [5, 4, 3, 2, 1, 0])
+	check(light == [15, 15, 15, 15, 15, 11], "light armour keeps its whole bonus until the last notch goes", str(light))
+
+	# --- a shield keeps its bonus until it breaks ---
+	_mend(mail)
+	_put_on(inv, stats, "chest", mail)
+	var shield: Dictionary = items.create_item_instance("steel_shield")
+	_put_on(inv, stats, "off_hand", shield)
+	var shielded: Array = _armor_classes(inv, stats, shield, [4, 3, 2, 1, 0])
+	var shield_parts: Array = []
+	for part in stats.get_armor_class_breakdown():
+		shield_parts.append("%s %d" % [str(part.label), int(part.value)])
+	check(shielded == [18, 18, 18, 18, 16] and shield_parts == ["Steel Chain Mail 16", "Steel Shield, broken 0"],
+		"a shield keeps its whole bonus until the last notch goes, and gives nothing once broken", "%s %s" % [str(shielded), str(shield_parts)])
+	_put_on(inv, stats, "off_hand", {})
+
+	# --- a helmet and the secondary pieces: nothing to lose until broken, then whatever they gave ---
+	var helmet: Dictionary = items.create_item_instance("steel_helmet")
+	_put_on(inv, stats, "head", helmet)
+	var helmeted: Array = _armor_classes(inv, stats, helmet, [4, 3, 2, 1, 0])
+	_put_on(inv, stats, "head", {})
+	var cloak: Dictionary = items.create_item_instance("cloak_protection")
+	_put_on(inv, stats, "back", cloak)
+	var cloaked: Array = _armor_classes(inv, stats, cloak, [2, 1, 0])
+	_put_on(inv, stats, "back", {})
+	var belt: Dictionary = items.create_item_instance("belt_strength")
+	_put_on(inv, stats, "waist", belt)
+	var belted: Array = []
+	for left in [2, 1, 0]:
+		belt["notches"] = left
+		inv.recalculate_character_stats(stats)
+		belted.append(stats.equipment_str_bonus)
+	_put_on(inv, stats, "waist", {})
+	var warded: Dictionary = _test_piece(items, "head", "steel", "Warded Helm")
+	warded.item_data.damage_resistances.assign(["fire"])
+	_put_on(inv, stats, "head", warded)
+	var resists_whole: Array = player.get_resistances()
+	warded["notches"] = 0
+	var resists_broken: Array = player.get_resistances()
+	_put_on(inv, stats, "head", {})
+	check(helmeted == [16, 16, 16, 16, 16] and cloaked == [17, 17, 16] and belted == [2, 2, 0] and resists_whole == ["fire"] and resists_broken.is_empty(),
+		"a helmet and the secondary pieces give no armour class and lose nothing as they wear; broken, a piece gives no bonus of any kind",
+		"%s %s %s %s" % [str(helmeted), str(cloaked), str(belted), str(resists_whole)])
+
+	# --- marks: one for every two rounds; the limit is the hardness times a factor ---
+	var by_rounds: Array = []
+	for rounds in range(0, 8):
+		by_rounds.append(dur.get_marks_for_rounds(rounds))
+	var limits: Array = []
+	for item_id in ["steel_longsword", "copper_longsword", "steel_shield", "steel_chain_mail", "steel_helmet", "cowhide_jerkin",
+			"fine_linen_robe", "steel_gauntlets", "cowhide_boots", "steel_greaves", "cloak_protection", "belt_strength"]:
+		limits.append(dur.get_marks_limit(items.create_item_instance(item_id)))
+	for slot in ["shoulder", "wrist"]:
+		limits.append(dur.get_marks_limit(_test_piece(items, slot, "steel")))
+	check(by_rounds == [0, 1, 1, 2, 2, 3, 3, 4] and limits == [15, 9, 15, 15, 15, 9, 6, 30, 18, 30, 12, 18, 30, 30],
+		"a fight gives one mark for every two rounds, rounded up; a piece's limit is its hardness times 3, times 6 for the seven secondary slots",
+		"%s %s" % [str(by_rounds), str(limits)])
+
+	var worn_sword: Dictionary = items.create_item_instance("steel_longsword")
+	var marked: Array = []
+	for added in [14, 1, 31, 14, 5]:
+		dur.add_marks(worn_sword, added)
+		marked.append(_row(dur, worn_sword))
+	check(marked == ["4/4 m14", "3/4 m0", "1/4 m1", "0/4 m0", "0/4 m0"] and worn_sword.debuffs.is_empty()
+		and dur.get_wear_names(worn_sword) == ["dulled"],
+		"at its limit a piece loses a notch and its marks start again; a broken piece wears no further; marks bring no debuff",
+		str(marked))
+	var charmed: Dictionary = items.create_item_instance("steel_shield", 0, 3)
+	dur.force_rolls([0.0, 0.0, 0.0])
+	dur.add_marks(charmed, 15)
+	var rolls_left: int = dur._forced_rolls.size()
+	dur.force_rolls([])
+	check(_row(dur, charmed) == "6/7 m0" and rolls_left == 3 and is_equal_approx(dur.get_resist_chance(charmed), 0.15),
+		"a notch lost to marks is never resisted, however magic the piece", "%s, %d rolls left" % [_row(dur, charmed), rolls_left])
+
+	# --- who gains marks: what attacked, and what was worn by someone attacked ---
+	var blade: Dictionary = items.create_item_instance("bronze_longsword")
+	var buckler: Dictionary = items.create_item_instance("bronze_shield")
+	var hauberk: Dictionary = items.create_item_instance("bronze_chain_mail")
+	var cap: Dictionary = items.create_item_instance("bronze_helmet")
+	var mitts: Dictionary = items.create_item_instance("bronze_gauntlets")
+	var mantle: Dictionary = items.create_item_instance("cloak_protection")
+	var spare: Dictionary = items.create_item_instance("bronze_longsword")
+	var crossbow: Dictionary = kit["main_hand_2"]
+	var ring: Dictionary = items.create_item_instance("ring_protection")
+	inv.add_item(spare)
+	inv.equipped_items[stats]["rings"] = [ring]
+	for placed in [["main_hand", blade], ["off_hand", buckler], ["chest", hauberk], ["head", cap], ["hands", mitts], ["back", mantle]]:
+		_put_on(inv, stats, placed[0], placed[1])
+	var foe = _spawn_far(world, "bandit", 50, 201)
+	var foe_armor: Dictionary = foe.gear.get("armor", {})
+	var everything: Array = [blade, buckler, hauberk, cap, mitts, mantle, crossbow, spare, foe_armor]
+
+	dur.begin_fight()
+	bus.attack_resolved.emit(_blow("hit", player, foe, {"weapon_instance": blade}))
+	bus.attack_resolved.emit(_blow("miss", foe, player, {"weapon": foe.get_weapon()}))
+	var long_fight: Dictionary = dur.end_fight(5)
+	var after_long: Array = everything.map(func(piece): return dur.get_marks(piece))
+	dur.begin_fight()
+	bus.attack_resolved.emit(_blow("miss", player, foe, {"weapon_instance": blade}))
+	dur.end_fight(2)
+	var after_attacking: Array = everything.map(func(piece): return dur.get_marks(piece))
+	dur.begin_fight()
+	bus.attack_resolved.emit(_blow("hit", foe, player, {"weapon": foe.get_weapon()}))
+	dur.end_fight(1)
+	var after_defending: Array = everything.map(func(piece): return dur.get_marks(piece))
+	check(not foe_armor.is_empty() and after_long == [3, 3, 3, 3, 3, 3, 0, 0, 3] and long_fight == {"marks": 3, "pieces": 7, "notches_lost": 0}
+		and not ring.has("marks"),
+		"after a fight of five rounds every piece used has three marks: the weapon that attacked and all that was worn by those attacked; the other weapon set, a spare and a ring have none",
+		"%s %s" % [str(after_long), str(long_fight)])
+	check(after_attacking == [4, 3, 3, 3, 3, 3, 0, 0, 4] and after_defending == [4, 4, 4, 4, 4, 4, 0, 0, 4],
+		"a weapon gains marks only in a fight it attacked in, armour and shield only in one their wearer was attacked in",
+		"%s %s" % [str(after_attacking), str(after_defending)])
+
+	# With the other weapon set in hand, the shield of the first is carried, not used
+	inv.set_weapon_set(stats, 2)
+	dur.begin_fight()
+	bus.attack_resolved.emit(_blow("hit", foe, player, {"weapon": foe.get_weapon()}))
+	dur.end_fight(2)
+	inv.set_weapon_set(stats, 1)
+	var after_swapped: Array = everything.map(func(piece): return dur.get_marks(piece))
+	# No fight is running: an attack marks nothing, and a fight that never began ends with nothing
+	bus.attack_resolved.emit(_blow("hit", foe, player, {"weapon": foe.get_weapon()}))
+	bus.attack_resolved.emit(_blow("hit", player, foe, {"weapon_instance": blade}))
+	var no_fight: Dictionary = dur.end_fight(6)
+	var after_no_fight: Array = everything.map(func(piece): return dur.get_marks(piece))
+	check(after_swapped == [4, 4, 5, 5, 5, 5, 0, 0, 4] and after_no_fight == after_swapped and int(no_fight.pieces) == 0,
+		"a shield in the weapon set that is not in hand gains nothing; outside a fight nothing gains marks",
+		"%s %s" % [str(after_swapped), str(after_no_fight)])
+
+	# Teardown
+	_remove_enemy(world, foe)
+	inv.equipped_items[stats] = kit
+	inv.recalculate_character_stats(stats)
+	_bag_restore(inv, bag)
+	stats.current_hp = stats.max_hp
+	dur.wear_enabled = false
+	await _frames(2)
+	check(stats.armor_class == 18 and inv.get_equipped_item(stats, "main_hand") == kit["main_hand"] and dur.count_repair_kits() == 2
+		and not world.in_combat, "test teardown: the fighter is back in its kit, armour class 18")
+
+# ---------------------------------------------------------------------------
+#  Durability: blows - critical hits, natural 1s, hardness, magic
+# ---------------------------------------------------------------------------
+
+func _lost(dur, pieces: Array) -> Array:
+	"""How many notches each of the pieces has lost"""
+	return pieces.map(func(piece): return dur.get_lost_notches(piece))
+
+func _struck_name(dur, pieces: Array) -> String:
+	"""The name of the one piece that has lost a notch, 'nothing' when none
+	has, and all of them when more than one has"""
+	var names: Array = []
+	for piece in pieces:
+		if dur.get_lost_notches(piece) > 0:
+			names.append(str(piece.item_data.item_name))
+	return "nothing" if names.is_empty() else " and ".join(names)
+
+func _armor_class_met(combat, attacker, target, profile: Dictionary) -> int:
+	"""The armour class an attack on the target has to meet, cover left out
+	(the staged enemies stand far away, behind whatever walls there are)"""
+	var modifiers: Dictionary = combat.get_attack_modifiers(attacker, target, profile)
+	return int(modifiers.target_ac) - int(modifiers.cover_bonus)
+
+func _check_blows(world):
+	"""Outside any fight. Attacks are announced as CombatManager announces them,
+	with the outcome given and nothing rolled; where the game's own dice are
+	wanted the attack is repeated until they fall that way. Bronze (hardness 4,
+	three notches) struck by wrought iron (hardness 3) loses the plain notch."""
+	var dur = _mgr("DurabilityManager")
+	var items = _mgr("ItemDatabase")
+	var inv = _mgr("InventoryManager")
+	var combat = _mgr("CombatManager")
+	var bus = _mgr("EventBus")
+	var player = world.player
+	var stats = player.stats
+	var kit: Dictionary = inv.equipped_items[stats].duplicate()
+	var xp_before: int = stats.experience
+	dur.wear_enabled = true
+	var notes: Array = []
+	var on_note = func(message, _type): notes.append(message)
+	bus.ui_notification.connect(on_note)
+
+	var bandit = _spawn_far(world, "bandit", 50000, 211)
+	var goblin = _spawn_far(world, "goblin", 50000, 212)
+	var wolf = _spawn_far(world, "wolf", 50000, 213)
+	var skeleton = _spawn_far(world, "skeleton", 50000, 214)
+	var armoured = _spawn_far(world, "bandit", 50000, 215)
+	armoured.gear["armor"] = items.create_item_instance("damascus_steel_chain_mail")
+	var iron: Dictionary = items.create_item_instance("wrought_iron_longsword")
+
+	var shield: Dictionary = items.create_item_instance("bronze_shield")
+	var mail: Dictionary = items.create_item_instance("bronze_chain_mail")
+	var helmet: Dictionary = items.create_item_instance("bronze_helmet")
+	var gauntlets: Dictionary = items.create_item_instance("bronze_gauntlets")
+	var worn: Array = [shield, mail, helmet, gauntlets]
+	for placed in [["off_hand", shield], ["chest", mail], ["head", helmet], ["hands", gauntlets]]:
+		_put_on(inv, stats, placed[0], placed[1])
+	check(not world.in_combat and bandit.gear.has("armor") and goblin.gear.has("shield") and wolf.gear.is_empty() and skeleton.gear.is_empty()
+		and dur.get_hardness(iron) == 3 and dur.get_hardness(shield) == 4 and _lost(dur, worn) == [0, 0, 0, 0],
+		"test setup: staged enemies far away - a bandit in leather, a goblin with a shield, a wolf and a skeleton with neither - and the fighter in bronze")
+
+	# --- a critical hit lands on the shield in hand ---
+	dur.force_rolls([0.9, 0.9])
+	bus.attack_resolved.emit(_blow("critical", bandit, player, {"weapon_instance": iron}))
+	var shield_first: Array = _lost(dur, worn)
+	var unrolled: int = dur._forced_rolls.size()
+	dur.force_rolls([])
+	check(shield_first == [1, 0, 0, 0] and unrolled == 2 and not notes.is_empty()
+		and "Bronze Shield loses a notch to a critical hit: 2 of 3 left." in notes[-1]
+		and shield.debuffs.is_empty() and dur.get_wear_names(shield) == ["dented"],
+		"a critical hit against a character takes one notch from the shield in hand, without a roll, and a toast names the piece",
+		"%s, %d unrolled, %s" % [str(shield_first), unrolled, str(notes.slice(-1))])
+
+	# --- without a shield: the body armour two times in three, another worn piece one time in three ---
+	_put_on(inv, stats, "off_hand", {})
+	var others: Array = []
+	for piece in player.get_wear_pieces():
+		if dur.get_piece_kind(piece) in ["head", "secondary"]:
+			others.append(str(piece.item_data.item_name))
+	var landed: Array = []
+	for rolls in [[0.0], [0.66], [0.67, 0.0], [0.9, 0.99]]:
+		for piece in worn:
+			_mend(piece)
+		dur.force_rolls(rolls)
+		bus.attack_resolved.emit(_blow("critical", bandit, player, {"weapon_instance": iron}))
+		landed.append("%s%s" % [_struck_name(dur, worn), "" if dur._forced_rolls.is_empty() else ", a roll unused"])
+		dur.force_rolls([])
+	others.sort()
+	check(others == ["Bronze Gauntlets", "Bronze Helmet"] and landed.slice(0, 2) == ["Bronze Chain Mail", "Bronze Chain Mail"]
+		and landed.slice(2).has("Bronze Helmet") and landed.slice(2).has("Bronze Gauntlets"),
+		"without a shield a critical hit lands on the body armour when the roll is under two thirds, and on another worn piece, picked by a second roll, when it is not",
+		str(landed))
+
+	# Nothing else worn: the body armour takes it. A broken shield, and one in
+	# the weapon set that is not in hand, stop nothing. No body armour: the two
+	# times in three find nothing.
+	var edge: Array = []
+	for piece in worn:
+		_mend(piece)
+	_put_on(inv, stats, "head", {})
+	_put_on(inv, stats, "hands", {})
+	dur.force_rolls([0.9])
+	bus.attack_resolved.emit(_blow("critical", bandit, player, {"weapon_instance": iron}))
+	edge.append("alone: %s%s" % [_struck_name(dur, worn), "" if dur._forced_rolls.is_empty() else ", a roll unused"])
+	_mend(mail)
+	shield["notches"] = 0
+	_put_on(inv, stats, "off_hand", shield)
+	dur.force_rolls([0.0])
+	bus.attack_resolved.emit(_blow("critical", bandit, player, {"weapon_instance": iron}))
+	edge.append("broken shield: %s" % _struck_name(dur, [mail]))
+	_mend(mail)
+	_mend(shield)
+	_put_on(inv, stats, "off_hand", {})
+	_put_on(inv, stats, "off_hand_2", shield)
+	dur.force_rolls([0.0])
+	bus.attack_resolved.emit(_blow("critical", bandit, player, {"weapon_instance": iron}))
+	edge.append("shield not in hand: %s" % _struck_name(dur, worn))
+	_put_on(inv, stats, "off_hand_2", {})
+	_mend(mail)
+	_put_on(inv, stats, "chest", {})
+	_put_on(inv, stats, "head", helmet)
+	dur.force_rolls([0.0])
+	bus.attack_resolved.emit(_blow("critical", bandit, player, {"weapon_instance": iron}))
+	edge.append("no body armour, low roll: %s" % _struck_name(dur, worn))
+	dur.force_rolls([0.9, 0.0])
+	bus.attack_resolved.emit(_blow("critical", bandit, player, {"weapon_instance": iron}))
+	edge.append("high roll: %s" % _struck_name(dur, worn))
+	dur.force_rolls([])
+	check(edge == ["alone: Bronze Chain Mail", "broken shield: Bronze Chain Mail", "shield not in hand: Bronze Chain Mail",
+		"no body armour, low roll: nothing", "high roll: Bronze Helmet"],
+		"with nothing else worn the body armour takes every critical hit; a broken shield and a shield in the other weapon set take none",
+		str(edge))
+	for piece in worn:
+		_mend(piece)
+	for placed in [["off_hand", shield], ["chest", mail], ["head", helmet], ["hands", gauntlets]]:
+		_put_on(inv, stats, placed[0], placed[1])
+
+	# --- two notches from a two-handed weapon or a bludgeoning one ---
+	var heavy: Array = []
+	for options in [{"damage_type": "slashing"}, {"damage_type": "slashing", "two_handed": true}, {"damage_type": "bludgeoning"},
+			{"damage_type": "piercing", "two_handed_grip": true}]:
+		_mend(shield)
+		var blow_options: Dictionary = options.duplicate()
+		blow_options["weapon_instance"] = iron
+		bus.attack_resolved.emit(_blow("critical", bandit, player, blow_options))
+		heavy.append(dur.get_lost_notches(shield))
+	check(heavy == [1, 2, 2, 1] and not dur.is_heavy_blow(_blow("critical", bandit, player, {"kind": "unarmed", "damage_type": "bludgeoning"})),
+		"a critical hit with a two-handed weapon or a bludgeoning one takes two notches; a versatile weapon swung in both hands, and a fist, do not",
+		str(heavy))
+
+	# --- a natural 1 takes a notch from the attacker's weapon ---
+	var blade: Dictionary = items.create_item_instance("bronze_longsword")
+	_put_on(inv, stats, "main_hand", blade)
+	_mend(shield)
+	notes.clear()
+	bus.attack_resolved.emit(_blow("natural_1", player, bandit, {"weapon_instance": blade}))
+	var after_one: String = "%s %s" % [_row(dur, blade), str(blade.debuffs)]
+	var fumble_note: String = str(notes[-1]) if not notes.is_empty() else ""
+	bus.attack_resolved.emit(_blow("miss", player, bandit, {"weapon_instance": blade}))
+	bus.attack_resolved.emit(_blow("hit", player, bandit, {"weapon_instance": blade}))
+	bus.attack_resolved.emit(_blow("natural_1", player, bandit, {"kind": "unarmed"}))
+	bus.attack_resolved.emit(_blow("natural_1", bandit, player, {"weapon": bandit.get_weapon()}))
+	check(after_one == "2/3 m0 [\"chipped\"]" and "Bronze Longsword loses a notch to a natural 1: 2 of 3 left. Chipped: -1 damage." in fumble_note
+		and _row(dur, blade) == "2/3 m0" and _lost(dur, worn) == [0, 0, 0, 0] and _lost(dur, bandit.get_wear_pieces()) == [0],
+		"a natural 1 takes one notch from the attacker's weapon and chips it; a plain miss, a hit and a fist's natural 1 take nothing",
+		"%s / %s" % [after_one, fumble_note])
+
+	# --- hardness: the harder striker takes one more; a piece harder by two takes a mark instead ---
+	var by_hardness: Array = []
+	for row in [["wrought_iron", "bronze", false], ["steel", "bronze", false], ["damascus_steel", "bronze", false], ["adamantite", "steel", false],
+			["copper", "steel", false], ["bronze", "damascus_steel", false], ["damascus_steel", "bronze", true], ["copper", "steel", true]]:
+		var striker: Dictionary = items.create_item_instance(row[0] + "_longsword")
+		var struck: Dictionary = items.create_item_instance(row[1] + "_shield")
+		_put_on(inv, stats, "off_hand", struck)
+		bus.attack_resolved.emit(_blow("critical", bandit, player, {"weapon_instance": striker, "two_handed": row[2]}))
+		by_hardness.append("%d on %d: -%d m%d %s" % [dur.get_hardness(striker), dur.get_hardness(struck), dur.get_lost_notches(struck),
+			dur.get_marks(struck), str(struck.debuffs)])
+	check(by_hardness == ["3 on 4: -1 m0 []", "5 on 4: -1 m0 []", "6 on 4: -2 m0 [\"cracked\"]", "10 on 5: -2 m0 [\"cracked\"]",
+		"3 on 5: -0 m1 []", "4 on 6: -0 m1 []", "6 on 4: -3 m0 [\"cracked\"]", "3 on 5: -0 m1 []"],
+		"a critical hit compares hardness: within 1 the plain loss, a striker harder by 2 one notch more, a piece harder by 2 no notch and a mark",
+		str(by_hardness))
+
+	var by_target: Array = []
+	for row in [["bronze_longsword", bandit, false], ["bronze_longsword", armoured, false], ["steel_longsword", wolf, false],
+			["steel_longsword", goblin, false], ["bronze_longsword", skeleton, false], ["oak_light_crossbow", armoured, true]]:
+		var swung: Dictionary = items.create_item_instance(row[0])
+		bus.attack_resolved.emit(_blow("natural_1", player, row[1], {"weapon_instance": swung, "is_ranged": row[2]}))
+		by_target.append("%d on %d: -%d m%d" % [dur.get_hardness(swung), dur.get_struck_hardness(row[1]), dur.get_lost_notches(swung),
+			dur.get_marks(swung)])
+	check(by_target == ["4 on 3: -1 m0", "4 on 6: -2 m0", "5 on 1: -0 m1", "5 on 2: -0 m1", "4 on 2: -0 m1", "3 on 6: -1 m0"],
+		"a natural 1 measures the weapon against what it was swung at - the shield, the armour or the hide; a bow or crossbow meets nothing",
+		str(by_target))
+
+	var natures: Array = [player.get_hide_hardness(), player.get_natural_weapon_hardness(), wolf.get_hide_hardness(),
+		wolf.get_natural_weapon_hardness(), skeleton.get_hide_hardness(), skeleton.get_natural_weapon_hardness(),
+		bandit.get_natural_weapon_hardness(), goblin.get_natural_weapon_hardness()]
+	var bitten: Dictionary = items.create_item_instance("bronze_shield")
+	_put_on(inv, stats, "off_hand", bitten)
+	bus.attack_resolved.emit(_blow("critical", wolf, player, {"weapon": wolf.get_weapon()}))
+	var after_bite: String = _row(dur, bitten)
+	bus.attack_resolved.emit(_blow("critical", bandit, player, {"weapon": bandit.get_weapon()}))
+	var after_blade: String = _row(dur, bitten)
+	var spell_struck: Dictionary = items.create_item_instance("adamantite_shield")
+	_put_on(inv, stats, "off_hand", spell_struck)
+	bus.attack_resolved.emit(_blow("critical", bandit, player, {"kind": "spell", "damage_type": "fire"}))
+	check(natures == [1, 1, 1, 2, 2, 2, 3, 3] and after_bite == "3/3 m1" and after_blade == "2/3 m1" and _row(dur, spell_struck) == "7/8 m0"
+		and wolf.get_weapon().damage_type == "piercing" and bandit.get_weapon().damage_type == "slashing",
+		"creatures have a hardness for hide and for claws and teeth, flesh is 1, and a spell's critical hit compares nothing",
+		"%s %s %s %s" % [str(natures), after_bite, after_blade, _row(dur, spell_struck)])
+
+	# --- magic: a chance to ignore a notch lost to a blow ---
+	var chances: Array = []
+	for plus in range(4):
+		chances.append(dur.get_resist_chance(items.create_item_instance("bronze_shield", 0, plus)))
+	var warded: Dictionary = items.create_item_instance("bronze_shield", 0, 3)
+	_put_on(inv, stats, "off_hand", warded)
+	var resisted: Array = []
+	dur.force_rolls([0.149])
+	bus.attack_resolved.emit(_blow("critical", bandit, player, {"weapon_instance": iron}))
+	resisted.append("%s %s%s" % [_row(dur, warded), str(warded.debuffs), "" if dur._forced_rolls.is_empty() else " unrolled"])
+	dur.force_rolls([0.15])
+	bus.attack_resolved.emit(_blow("critical", bandit, player, {"weapon_instance": iron}))
+	resisted.append(_row(dur, warded))
+	dur.force_rolls([0.0, 0.9])
+	bus.attack_resolved.emit(_blow("critical", bandit, player, {"weapon_instance": iron, "damage_type": "bludgeoning"}))
+	resisted.append("%s %s" % [_row(dur, warded), str(warded.debuffs)])
+	var plain_shield: Dictionary = items.create_item_instance("bronze_shield")
+	_put_on(inv, stats, "off_hand", plain_shield)
+	dur.force_rolls([0.0])
+	bus.attack_resolved.emit(_blow("critical", bandit, player, {"weapon_instance": iron}))
+	resisted.append("%s, %d unrolled" % [_row(dur, plain_shield), dur._forced_rolls.size()])
+	var lucky: Dictionary = items.create_item_instance("bronze_longsword", 0, 1)
+	dur.force_rolls([0.049])
+	bus.attack_resolved.emit(_blow("natural_1", player, bandit, {"weapon_instance": lucky}))
+	resisted.append("%s %s" % [_row(dur, lucky), str(lucky.debuffs)])
+	dur.force_rolls([])
+	check(chances == [0.0, 0.05, 0.10, 0.15] and resisted == ["6/6 m0 []", "5/6 m0", "4/6 m0 [\"dented\"]", "2/3 m0, 1 unrolled", "4/4 m0 []"],
+		"a magic piece ignores a notch lost to a blow on a roll under 5% for each plus, notch by notch; a notch it ignores brings no debuff; a plain piece does not roll",
+		"%s %s" % [str(chances), str(resisted)])
+
+	# --- cracked: two notches in one blow; the piece breaks on the next critical hit against it, or natural 1 with it ---
+	var cracking: Dictionary = items.create_item_instance("bronze_shield")
+	_put_on(inv, stats, "off_hand", cracking)
+	bus.attack_resolved.emit(_blow("critical", bandit, player, {"weapon_instance": items.create_item_instance("damascus_steel_longsword")}))
+	var cracked: Array = ["%s %s" % [_row(dur, cracking), str(cracking.debuffs)]]
+	notes.clear()
+	bus.attack_resolved.emit(_blow("critical", bandit, player, {"weapon_instance": iron}))
+	cracked.append(_row(dur, cracking))
+	var break_note: String = str(notes[-1]) if not notes.is_empty() else ""
+	var splitting: Dictionary = items.create_item_instance("bronze_longsword")
+	bus.attack_resolved.emit(_blow("natural_1", player, armoured, {"weapon_instance": splitting}))
+	cracked.append("%s %s" % [_row(dur, splitting), str(splitting.debuffs)])
+	bus.attack_resolved.emit(_blow("natural_1", player, wolf, {"weapon_instance": splitting}))
+	cracked.append(_row(dur, splitting))
+	var patched: Dictionary = items.create_item_instance("bronze_shield")
+	_put_on(inv, stats, "off_hand", patched)
+	bus.attack_resolved.emit(_blow("critical", bandit, player, {"weapon_instance": iron, "damage_type": "bludgeoning"}))
+	dur.repair(patched, 1)
+	inv.recalculate_character_stats(stats)
+	bus.attack_resolved.emit(_blow("critical", bandit, player, {"weapon_instance": iron}))
+	cracked.append("%s %s" % [_row(dur, patched), str(patched.debuffs)])
+	check(cracked == ["1/3 m0 [\"cracked\"]", "0/3 m0", "1/3 m0 [\"cracked\", \"chipped\"]", "0/3 m0", "1/3 m0 []"]
+		and "Bronze Shield was cracked and breaks" in break_note and cracking.get("ever_broken", false),
+		"a piece that loses two notches in one blow is cracked: it breaks on the next critical hit against it, or the next natural 1 with it, unless it is repaired first",
+		"%s / %s" % [str(cracked), break_note])
+
+	# --- a party member's critical hit notches an enemy's shield or armour, and its armour class falls ---
+	var probe: Dictionary = combat.build_attack_profile(player, iron.item_data)
+	var seen: Array = [_armor_class_met(combat, player, bandit, probe)]
+	var chance_before: int = int(combat.get_hit_chance(player, bandit, probe).percent)
+	notes.clear()
+	for blow in range(2):
+		bus.attack_resolved.emit(_blow("critical", player, bandit, {"weapon_instance": iron}))
+		seen.append(_armor_class_met(combat, player, bandit, probe))
+	var bandit_note: String = str(notes[0]) if not notes.is_empty() else ""
+	var for_others: int = _armor_class_met(combat, wolf, bandit, combat.get_attack_profile(wolf))
+	var goblin_seen: Array = [_armor_class_met(combat, player, goblin, probe)]
+	for blow in range(2):
+		bus.attack_resolved.emit(_blow("critical", player, goblin, {"weapon_instance": iron}))
+		goblin_seen.append(_armor_class_met(combat, player, goblin, probe))
+	bus.attack_resolved.emit(_blow("critical", player, wolf, {"weapon_instance": iron}))
+	check(seen == [10, 10, 9] and for_others == 9 and bandit.stats.armor_class == 10 and dur.is_broken(bandit.gear["armor"])
+		and int(combat.get_hit_chance(player, bandit, probe).percent) == chance_before + 5
+		and "Bandit's Leather Armour loses a notch to a critical hit: 1 of 2 left." in bandit_note
+		and goblin_seen == [10, 10, 8] and dur.is_broken(goblin.gear["shield"]) and bandit.get_gear_armor_class_loss() == 1
+		and goblin.get_gear_armor_class_loss() == 2 and wolf.get_gear_armor_class_loss() == 0,
+		"a party member's critical hit takes a notch from an enemy's shield or armour; broken, the piece's armour class is gone for every attacker after",
+		"%s %s / %s" % [str(seen), str(goblin_seen), bandit_note])
+
+	# --- the same, with the game's own dice: the hook is attached ---
+	var slayer: Dictionary = items.create_item_instance("adamantite_longsword", 0, 3)
+	_put_on(inv, stats, "main_hand", slayer)
+	_put_on(inv, stats, "off_hand", {})
+	var victim = _spawn_far(world, "bandit", 50000, 216)
+	var rolled_crit: Dictionary = _hit(combat, player, victim, {}, "critical")
+	check(not rolled_crit.is_empty() and dur.is_broken(victim.gear["armor"]) and victim.get_gear_armor_class_loss() == 1
+		and _armor_class_met(combat, player, victim, probe) == 9 and dur.get_notches(slayer) == 11,
+		"a critical hit rolled by a party member breaks a bandit's leather with adamantite, and the bandit is easier to hit from then on",
+		"armour %s, sword %s" % [_row(dur, victim.gear["armor"]), _row(dur, slayer)])
+	var braced: Dictionary = items.create_item_instance("bronze_shield")
+	_put_on(inv, stats, "off_hand_2", {})
+	_put_on(inv, stats, "main_hand", blade)
+	_put_on(inv, stats, "off_hand", braced)
+	stats.max_hp = 500000
+	stats.current_hp = 500000
+	var rolled_at_player: Dictionary = _hit(combat, bandit, player, {}, "critical")
+	check(not rolled_at_player.is_empty() and _row(dur, braced) == "2/3 m0" and stats.is_alive(),
+		"a critical hit rolled by an enemy takes a notch from the character's shield", _row(dur, braced))
+
+	# Teardown
+	bus.ui_notification.disconnect(on_note)
+	for staged in [bandit, goblin, wolf, skeleton, armoured, victim]:
+		_remove_enemy(world, staged)
+	inv.equipped_items[stats] = kit
+	inv.recalculate_character_stats(stats)
+	stats.experience = xp_before
+	stats.current_hp = stats.max_hp
+	dur.wear_enabled = false
+	await _frames(2)
+	check(stats.armor_class == 18 and stats.max_hp < 100 and inv.get_equipped_item(stats, "main_hand") == kit["main_hand"]
+		and dur.get_lost_notches(kit["main_hand"]) == 0 and dur.get_lost_notches(kit["off_hand"]) == 0 and not world.in_combat,
+		"test teardown: the staged enemies are gone and the fighter is back in its kit, whole")
+
+# ---------------------------------------------------------------------------
+#  Durability: debuffs and buffs
+# ---------------------------------------------------------------------------
+
+func _signature(dur, piece: Dictionary) -> Array:
+	"""What no debuff and no buff may touch: a piece's marks, the marks at which
+	it loses a notch, and its hardness"""
+	return [dur.get_marks(piece), dur.get_marks_limit(piece), dur.get_hardness(piece)]
+
+func _roll_of(combat, attacker, target, wanted: int) -> Dictionary:
+	"""Roll attacks, applying nothing, until the d20 shows the face wanted"""
+	for attempt in range(4000):
+		var rolled: Dictionary = combat.roll_attack(attacker, target)
+		if int(rolled.get("roll", 0)) == wanted:
+			return rolled
+	return {}
+
+func _check_wear_states(world):
+	"""Outside any fight, attacks announced with their outcome given, as in the
+	check of blows. What brings each debuff, what it costs, and that any repair
+	clears it; what earns each buff and what it gives; and that neither ever
+	touches a piece's marks or its hardness."""
+	var dur = _mgr("DurabilityManager")
+	var items = _mgr("ItemDatabase")
+	var inv = _mgr("InventoryManager")
+	var combat = _mgr("CombatManager")
+	var bus = _mgr("EventBus")
+	var player = world.player
+	var stats = player.stats
+	var kit: Dictionary = inv.equipped_items[stats].duplicate()
+	var xp_before: int = stats.experience
+	dur.wear_enabled = true
+	var notes: Array = []
+	var on_note = func(message, _type): notes.append(message)
+	bus.ui_notification.connect(on_note)
+
+	var bandit = _spawn_far(world, "bandit", 50000, 221)
+	var goblin = _spawn_far(world, "goblin", 50000, 222)
+	var wolf = _spawn_far(world, "wolf", 50000, 223)
+	var skeleton = _spawn_far(world, "skeleton", 50000, 224)
+	var iron: Dictionary = items.create_item_instance("wrought_iron_longsword")
+	var steel: Dictionary = items.create_item_instance("steel_longsword")
+	var untouched := true
+	_put_on(inv, stats, "off_hand", {})
+
+	# --- what brings each debuff: a lost notch, and what took it ---
+	var causes: Array = []
+	for row in [["bronze_chain_mail", "piercing"], ["bronze_chain_mail", "bludgeoning"], ["bronze_chain_mail", "slashing"],
+			["cowhide_jerkin", "slashing"], ["fine_linen_robe", "slashing"], ["cowhide_jerkin", "piercing"]]:
+		var armour: Dictionary = items.create_item_instance(row[0])
+		armour["marks"] = 2
+		var before: Array = _signature(dur, armour)
+		_put_on(inv, stats, "chest", armour)
+		dur.force_rolls([0.0])
+		bus.attack_resolved.emit(_blow("critical", bandit, player, {"weapon_instance": iron, "damage_type": row[1]}))
+		causes.append("%s, %s: -%d %s %s" % [row[0], row[1], dur.get_lost_notches(armour), str(armour.debuffs), str(dur.get_wear_names(armour))])
+		if _signature(dur, armour) != before:
+			untouched = false
+	check(causes == ["bronze_chain_mail, piercing: -1 [\"breached\"] []", "bronze_chain_mail, bludgeoning: -2 [\"cracked\", \"dented\"] []",
+		"bronze_chain_mail, slashing: -1 [] [\"dented\"]", "cowhide_jerkin, slashing: -1 [\"torn\"] []",
+		"fine_linen_robe, slashing: -1 [\"torn\"] []", "cowhide_jerkin, piercing: -1 [\"breached\"] []"],
+		"a piercing critical hit breaches armour, a bludgeoning one dents and cracks it, a slashing one tears leather and cloth; a notch lost without a debuff is named for its cause",
+		str(causes))
+
+	var more: Array = []
+	for damage_type in ["piercing", "bludgeoning"]:
+		var buckler: Dictionary = items.create_item_instance("bronze_shield")
+		_put_on(inv, stats, "off_hand", buckler)
+		bus.attack_resolved.emit(_blow("critical", bandit, player, {"weapon_instance": iron, "damage_type": damage_type}))
+		more.append("shield, %s: -%d %s %s" % [damage_type, dur.get_lost_notches(buckler), str(buckler.debuffs), str(dur.get_wear_names(buckler))])
+	_put_on(inv, stats, "off_hand", {})
+	var mitts: Dictionary = items.create_item_instance("bronze_gauntlets")
+	_put_on(inv, stats, "chest", items.create_item_instance("bronze_chain_mail"))
+	_put_on(inv, stats, "hands", mitts)
+	dur.force_rolls([0.9, 0.0])
+	bus.attack_resolved.emit(_blow("critical", bandit, player, {"weapon_instance": iron, "damage_type": "piercing"}))
+	more.append("gauntlets, piercing: -%d %s" % [dur.get_lost_notches(mitts), str(mitts.debuffs)])
+	_put_on(inv, stats, "hands", {})
+	# No notch, no debuff: a piece too hard to notch, and a blow its magic turned
+	var hard: Dictionary = items.create_item_instance("damascus_steel_chain_mail")
+	_put_on(inv, stats, "chest", hard)
+	dur.force_rolls([0.0])
+	bus.attack_resolved.emit(_blow("critical", bandit, player, {"weapon_instance": iron, "damage_type": "bludgeoning"}))
+	more.append("too hard: %s %s" % [_row(dur, hard), str(hard.debuffs)])
+	var charmed: Dictionary = items.create_item_instance("bronze_chain_mail", 0, 3)
+	_put_on(inv, stats, "chest", charmed)
+	dur.force_rolls([0.0, 0.0])
+	bus.attack_resolved.emit(_blow("critical", bandit, player, {"weapon_instance": iron, "damage_type": "piercing"}))
+	more.append("turned: %s %s" % [_row(dur, charmed), str(charmed.debuffs)])
+	dur.force_rolls([])
+	check(more == ["shield, piercing: -1 [] [\"dented\"]", "shield, bludgeoning: -2 [\"cracked\", \"dented\"] []",
+		"gauntlets, piercing: -1 [\"breached\"]", "too hard: 5/5 m1 []", "turned: 6/6 m0 []"],
+		"a shield can be dented but not breached, a secondary piece can be breached, and a debuff never comes without a lost notch",
+		str(more))
+
+	# --- breached: attackers score a critical hit on a 19 ---
+	var breached: Dictionary = items.create_item_instance("bronze_chain_mail")
+	breached["marks"] = 6
+	var breached_before: Array = _signature(dur, breached)
+	_put_on(inv, stats, "chest", breached)
+	dur.force_rolls([0.0])
+	bus.attack_resolved.emit(_blow("critical", bandit, player, {"weapon_instance": iron, "damage_type": "piercing"}))
+	var thresholds: Array = [dur.get_critical_threshold(player)]
+	dur.wear_enabled = false  # the attacks rolled below must not wear what is being measured
+	var bolt := {"spell_id": "smoke_bolt", "display_name": "Smoke Bolt", "attack_roll": true, "damage_dice": "", "damage_type": "fire",
+		"target_type": "enemy", "range_tiles": 12}
+	var nineteen: Dictionary = _roll_of(combat, bandit, player, 19)
+	var spell_nineteen: Dictionary = {}
+	for attempt in range(4000):
+		spell_nineteen = combat.make_spell_attack(bandit, player, bolt)
+		if int(spell_nineteen.roll) == 19:
+			break
+	if _signature(dur, breached) != breached_before:
+		untouched = false
+	dur.repair(breached, 1)
+	thresholds.append(dur.get_critical_threshold(player))
+	var plain_nineteen: Dictionary = _roll_of(combat, bandit, player, 19)
+	dur.wear_enabled = true
+	check(thresholds == [19, 20] and nineteen.get("hit", false) and nineteen.get("is_crit", false)
+		and int(spell_nineteen.get("roll", 0)) == 19 and spell_nineteen.hit and spell_nineteen.is_crit
+		and plain_nineteen.get("hit", false) and not plain_nineteen.get("is_crit", true) and breached.debuffs.is_empty(),
+		"breached armour: a hit on a natural 19 is a critical hit on its wearer, with a weapon or a spell; repaired, only a 20 is",
+		"%s, 19 is a crit: %s / %s / %s" % [str(thresholds), str(nineteen.get("is_crit")), str(spell_nineteen.get("is_crit")),
+			str(plain_nineteen.get("is_crit"))])
+
+	# --- dented: one tile less movement, however many pieces are dented ---
+	var speeds: Array = [stats.get_modified_movement_speed()]
+	var dented_mail: Dictionary = items.create_item_instance("bronze_chain_mail")
+	_put_on(inv, stats, "chest", dented_mail)
+	dur.force_rolls([0.0])
+	bus.attack_resolved.emit(_blow("critical", bandit, player, {"weapon_instance": iron, "damage_type": "bludgeoning"}))
+	speeds.append_array([stats.get_modified_movement_speed(), player.get_turn_speed(), stats.get_modified_speed_feet()])
+	var dented_shield: Dictionary = items.create_item_instance("bronze_shield")
+	_put_on(inv, stats, "off_hand", dented_shield)
+	bus.attack_resolved.emit(_blow("critical", bandit, player, {"weapon_instance": iron, "damage_type": "bludgeoning"}))
+	speeds.append(stats.get_modified_movement_speed())
+	dur.repair(dented_mail, 1)
+	speeds.append(stats.get_modified_movement_speed())
+	dur.repair(dented_shield, 1)
+	speeds.append(stats.get_modified_movement_speed())
+	var goblin_speeds: Array = [goblin.get_turn_speed()]
+	bus.attack_resolved.emit(_blow("critical", player, goblin, {"weapon_instance": iron, "damage_type": "bludgeoning"}))
+	goblin_speeds.append(goblin.get_turn_speed())
+	check(speeds == [6, 5, 5, 25, 5, 5, 6] and dented_shield.debuffs.is_empty() and goblin_speeds == [6, 5]
+		and dur.has_debuff(goblin.gear["shield"], "dented"),
+		"dented armour or a dented shield costs its wearer one tile of movement, once, until every dented piece is repaired; an enemy is slowed the same way",
+		"%s %s" % [str(speeds), str(goblin_speeds)])
+	_put_on(inv, stats, "off_hand", {})
+
+	# --- torn: hits on the wearer deal 1 more ---
+	var torn: Dictionary = items.create_item_instance("cowhide_jerkin")
+	_put_on(inv, stats, "chest", torn)
+	dur.force_rolls([0.0])
+	bus.attack_resolved.emit(_blow("critical", bandit, player, {"weapon_instance": iron, "damage_type": "slashing"}))
+	stats.max_hp = 5000
+	stats.current_hp = 5000
+	var cuts: Array = []
+	cuts.append(int(combat.deal_damage(bandit, player, 5, "slashing", {"kind": "weapon", "attack_roll": true}).amount))
+	cuts.append(int(combat.deal_damage(bandit, player, 5, "fire", {"kind": "spell", "attack_roll": true}).amount))
+	cuts.append(int(combat.deal_damage(bandit, player, 5, "fire", {"kind": "spell"}).amount))
+	cuts.append(int(combat.deal_damage(null, player, 5, "slashing").amount))
+	dur.wear_enabled = false
+	var real_hit: Dictionary = _hit(combat, bandit, player)
+	dur.wear_enabled = true
+	dur.repair(torn, 1)
+	cuts.append(int(combat.deal_damage(bandit, player, 5, "slashing", {"kind": "weapon", "attack_roll": true}).amount))
+	check(cuts == [6, 6, 5, 5, 5] and not real_hit.is_empty() and int(real_hit.damage) == int(real_hit.damage_rolled) + 1,
+		"torn leather or cloth: every attack that hits its wearer deals 1 more, and nothing else does; repaired, none does",
+		"%s, a rolled hit %s of %s" % [str(cuts), str(real_hit.get("damage", "?")), str(real_hit.get("damage_rolled", "?"))])
+
+	# --- chipped: the weapon deals 1 less ---
+	_put_on(inv, stats, "off_hand", kit["off_hand"])
+	var chipped: Dictionary = items.create_item_instance("bronze_longsword")
+	chipped["marks"] = 5
+	var chipped_before: Array = _signature(dur, chipped)
+	_put_on(inv, stats, "main_hand", chipped)
+	bus.attack_resolved.emit(_blow("natural_1", player, bandit, {"weapon_instance": chipped}))
+	var chipped_profile: Dictionary = combat.get_attack_profile(player)
+	var dulled: Array = [combat.get_damage_text(chipped_profile), str(_damage_range(combat, chipped_profile)), int(chipped_profile.attack_bonus)]
+	if _signature(dur, chipped) != chipped_before:
+		untouched = false
+	dur.repair(chipped, 1)
+	dulled.append(combat.get_damage_text(combat.get_attack_profile(player)))
+	check(dulled == ["1d8+1 slashing", "[2, 9]", 4, "1d8+2 slashing"] and chipped.debuffs.is_empty(),
+		"a chipped weapon deals 1 less damage until it is repaired", str(dulled))
+
+	# --- any repair clears every debuff of the piece, and no mark ---
+	var battered: Dictionary = items.create_item_instance("steel_chain_mail")
+	battered["marks"] = 7
+	_put_on(inv, stats, "off_hand", {})
+	_put_on(inv, stats, "chest", battered)
+	for damage_type in ["piercing", "bludgeoning"]:
+		dur.force_rolls([0.0])
+		bus.attack_resolved.emit(_blow("critical", bandit, player, {"weapon_instance": steel, "damage_type": damage_type}))
+	var battered_then: String = "%s %s" % [_row(dur, battered), str(battered.debuffs)]
+	var kit_repair: Dictionary = dur.repair(battered, 1)
+	var battered_now: String = "%s %s age %d" % [_row(dur, battered), str(battered.debuffs), int(battered.age)]
+	check(battered_then == "1/4 m7 [\"breached\", \"cracked\", \"dented\"]" and battered_now == "2/4 m7 [] age 1" and int(kit_repair.restored) == 1,
+		"any repair of a piece clears all its debuffs at once; a repair of one notch leaves its marks where they were",
+		"%s -> %s" % [battered_then, battered_now])
+
+	# --- Battle-Honed: thirty kills with a weapon that has never been broken ---
+	_put_on(inv, stats, "chest", kit["chest"])
+	_put_on(inv, stats, "off_hand", kit["off_hand"])
+	var honed: Dictionary = items.create_item_instance("bronze_longsword")
+	honed["marks"] = 4
+	var honed_before: Array = _signature(dur, honed)
+	_put_on(inv, stats, "main_hand", honed)
+	for kill in range(29):
+		dur.record_kill(honed, [wolf, goblin, skeleton][kill % 3], player)
+	var honing: Array = ["%d %s %+d" % [int(honed.kills), str(honed.buffs), int(combat.get_attack_profile(player).attack_bonus)]]
+	notes.clear()
+	dur.record_kill(honed, bandit, player)
+	honing.append("%d %s %+d" % [int(honed.kills), str(honed.buffs), int(combat.get_attack_profile(player).attack_bonus)])
+	var honed_note: String = str(notes[-1]) if not notes.is_empty() else ""
+	if _signature(dur, honed) != honed_before:
+		untouched = false
+	var shamed: Dictionary = items.create_item_instance("bronze_longsword")
+	dur.lose_notches(shamed, 3, dur.CAUSE_MARKS)
+	_mend(shamed)
+	for kill in range(30):
+		dur.record_kill(shamed, [wolf, goblin, skeleton][kill % 3])
+	dur.repair(honed, dur.ALL_NOTCHES, true)
+	dur.lose_notches(honed, 3, dur.CAUSE_MARKS)
+	check(honing == ["29 [] +4", "30 [\"battle_honed\"] +5"] and "has earned a name. Battle-Honed: +1 to hit." in honed_note
+		and int(shamed.kills) == 30 and shamed.buffs.is_empty() and honed.buffs == ["battle_honed"],
+		"a weapon is Battle-Honed at its thirtieth kill, for +1 to hit, unless it has ever been broken; once earned the buff stays, through repair and breaking",
+		"%s / %s" % [str(honing), honed_note])
+
+	# --- Blood-Forged: twenty kills of one kind of creature ---
+	var forged: Dictionary = items.create_item_instance("bronze_longsword")
+	for kill in range(19):
+		dur.record_kill(forged, goblin, player)
+		dur.record_kill(forged, wolf, player)
+	var forged_early: bool = dur.has_buff(forged, "blood_forged")
+	dur.record_kill(forged, goblin, player)
+	var against: Array = [dur.get_damage_bonus_against(forged, goblin), dur.get_damage_bonus_against(forged, wolf),
+		dur.get_damage_bonus_against(forged, bandit),
+		int(combat.deal_damage(player, goblin, 5, "slashing", {"kind": "weapon", "weapon_instance": forged, "attack_roll": true}).amount),
+		int(combat.deal_damage(player, wolf, 5, "slashing", {"kind": "weapon", "weapon_instance": forged, "attack_roll": true}).amount)]
+	check(not forged_early and forged.buffs == ["battle_honed", "blood_forged:goblin"] and forged.kills_by_type == {"goblin": 20, "wolf": 19}
+		and against == [1, 0, 0, 6, 5],
+		"a weapon is Blood-Forged at its twentieth kill of one kind of creature: +1 damage against that kind, and no other",
+		"%s %s" % [str(forged.buffs), str(against)])
+
+	# --- Mage-Touched: ten kills of spellcasters (no enemy casts yet: one is made a caster) ---
+	skeleton.stats.class_id = "wizard"
+	var touched: Dictionary = items.create_item_instance("bronze_longsword")
+	for kill in range(9):
+		dur.record_kill(touched, skeleton, player)
+	for kill in range(15):
+		dur.record_kill(touched, wolf, player)
+	var touched_early: String = "%d of %d %s" % [int(touched.caster_kills), int(touched.kills), str(touched.buffs)]
+	dur.record_kill(touched, skeleton, player)
+	var against_casters: Array = [dur.get_damage_bonus_against(touched, skeleton), dur.get_damage_bonus_against(touched, wolf)]
+	check(touched_early == "9 of 24 []" and touched.buffs == ["mage_touched"] and int(touched.caster_kills) == 10 and against_casters == [1, 0],
+		"a weapon is Mage-Touched at its tenth kill of a spellcaster, and only those kills count: +1 damage against spellcasters",
+		"%s -> %s %s" % [touched_early, str(touched.buffs), str(against_casters)])
+
+	# --- the game counts a weapon's kills, not a spell's ---
+	var counted: Dictionary = items.create_item_instance("bronze_longsword")
+	combat.deal_damage(player, _spawn_far(world, "wolf", 5, 226), 9999, "slashing", {"kind": "weapon", "weapon_instance": counted})
+	combat.deal_damage(player, _spawn_far(world, "wolf", 5, 227), 9999, "fire", {"kind": "spell", "spell_id": "smoke_fire"})
+	combat.deal_damage(player, goblin, 5, "slashing", {"kind": "weapon", "weapon_instance": counted})
+	check(int(counted.get("kills", 0)) == 1 and counted.get("kills_by_type", {}) == {"wolf": 1} and not counted.has("caster_kills"),
+		"a kill is counted on the weapon that made it; a spell's kill and a blow that does not kill are not", str(counted.get("kills", 0)))
+
+	# --- Dragon-Hardened: the wearer lives through a breath weapon (nothing breathes yet: the hook is called) ---
+	var scaled: Dictionary = items.create_item_instance("bronze_chain_mail")
+	scaled["marks"] = 3
+	var scaled_before: Array = _signature(dur, scaled)
+	_put_on(inv, stats, "chest", scaled)
+	stats.max_hp = 5000
+	stats.current_hp = 5000
+	var by_type: Dictionary = {}
+	for damage_type in ["fire", "cold", "slashing"]:
+		by_type[damage_type] = combat.get_unarmed_profile(bandit)
+		by_type[damage_type]["damage_type"] = damage_type
+	var classes: Array = []
+	for damage_type in by_type:
+		classes.append(_armor_class_met(combat, bandit, player, by_type[damage_type]))
+	combat.deal_damage(bandit, player, 3, "fire", {"kind": "effect"})
+	var after_plain_fire: Array = scaled.buffs.duplicate()
+	notes.clear()
+	combat.deal_damage(bandit, player, 3, "fire", {"kind": "effect", "breath_weapon": true})
+	var hardened_note: String = str(notes[-1]) if not notes.is_empty() else ""
+	for damage_type in by_type:
+		classes.append(_armor_class_met(combat, bandit, player, by_type[damage_type]))
+	dur.wear_enabled = false
+	var ray: Dictionary = combat.make_spell_attack(bandit, player, bolt)
+	dur.wear_enabled = true
+	var doomed = _spawn_far(world, "bandit", 5, 228)
+	var doomed_armor: Dictionary = doomed.gear["armor"]
+	combat.deal_damage(player, doomed, 9999, "fire", {"kind": "effect", "breath_weapon": true})
+	if _signature(dur, scaled) != scaled_before:
+		untouched = false
+	scaled["notches"] = 0
+	inv.recalculate_character_stats(stats)
+	var broken_class: int = _armor_class_met(combat, bandit, player, by_type["fire"]) - stats.armor_class
+	check(after_plain_fire.is_empty() and scaled.buffs == ["dragon_hardened"] and classes == [18, 18, 18, 19, 19, 18]
+		and "Dragon-Hardened: +1 armour class against fire and cold" in hardened_note and int(ray.target_ac) == 19
+		and doomed_armor.buffs.is_empty() and broken_class == 0,
+		"body armour whose wearer lives through a breath weapon is Dragon-Hardened: +1 armour class against fire and cold attacks, while it is whole",
+		"%s %s" % [str(scaled.buffs), str(classes)])
+
+	check(untouched, "no debuff and no buff changes a piece's marks, the marks at which it loses a notch, or its hardness")
+
+	# Teardown
+	bus.ui_notification.disconnect(on_note)
+	for staged in [bandit, goblin, wolf, skeleton]:
+		_remove_enemy(world, staged)
+	for node in world.ground_items_node.get_children():
+		node.queue_free()
+	inv.equipped_items[stats] = kit
+	inv.recalculate_character_stats(stats)
+	stats.experience = xp_before
+	stats.current_hp = stats.max_hp
+	dur.wear_enabled = false
+	await _wait(0.7)  # the three that died have faded out
+	check(stats.armor_class == 18 and stats.level == 1 and stats.max_hp < 100 and inv.get_equipped_item(stats, "main_hand") == kit["main_hand"]
+		and not world.in_combat, "test teardown: the staged enemies are gone and the fighter is back in its kit")
+
+# ---------------------------------------------------------------------------
+#  Durability: repair kits, scrap, salvage, ageing, worn loot
+# ---------------------------------------------------------------------------
+
+func _count_in_bag(inv, item_id: String) -> int:
+	"""How many of an item the pack holds, stacks counted out"""
+	var total := 0
+	for carried in inv.items:
+		if carried.item_data.item_id == item_id:
+			total += int(carried.get("stack_count", 1))
+	return total
+
+func _give(inv, items, item_id: String, count: int = 1):
+	"""Test setup: put so many of a stackable item in the pack"""
+	var instance: Dictionary = items.create_item_instance(item_id)
+	instance["stack_count"] = count
+	inv.add_item(instance)
+
+func _check_repair(world):
+	"""Outside any fight: the default fighter, whose starting kit holds two
+	repair kits. Repairs and salvage are asked of the controller, as the
+	character sheet asks them."""
+	var dur = _mgr("DurabilityManager")
+	var items = _mgr("ItemDatabase")
+	var inv = _mgr("InventoryManager")
+	var loot = _mgr("LootManager")
+	var spells = _mgr("SpellManager")
+	var classes = _mgr("ClassDatabase")
+	var bus = _mgr("EventBus")
+	var controller = world.combat
+	var player = world.player
+	var stats = player.stats
+	var kit: Dictionary = inv.equipped_items[stats].duplicate()
+	var bag: Array = _bag_snapshot(inv)
+	dur.wear_enabled = true
+	var notes: Array = []
+	var on_note = func(message, _type): notes.append(message)
+	bus.ui_notification.connect(on_note)
+
+	var kits_everywhere := true
+	for class_id in classes.get_all_class_ids():
+		var kits := 0
+		for instance in items.get_starting_kit(class_id):
+			if instance.item_data.item_id == "repair_kit":
+				kits += int(instance.get("stack_count", 1))
+			if dur.wears(instance) and dur.get_lost_notches(instance) != 0:
+				kits_everywhere = false
+		if kits != 2:
+			kits_everywhere = false
+	check(kits_everywhere and dur.count_repair_kits() == 2 and not world.in_combat,
+		"every class starts with two repair kits and whole gear")
+
+	# --- the scrap a kit needs: the piece's kind, at least as hard, and of those the softest ---
+	var shield: Dictionary = items.create_item_instance("bronze_shield")
+	shield["notches"] = 1
+	shield["marks"] = 5
+	shield["debuffs"] = ["dented"]
+	_put_on(inv, stats, "off_hand", shield)
+	var refusals: Array = [str(controller.check_action(player, "repair", {"item": shield}).reason)]
+	_give(inv, items, "scrap_oak", 2)
+	_give(inv, items, "scrap_copper", 2)
+	refusals.append(str(controller.check_action(player, "repair", {"item": shield}).reason))
+	var refused: Dictionary = controller.request_action(player, "repair", {"item": shield})
+	var nothing_used: Array = [dur.count_repair_kits(), _count_in_bag(inv, "scrap_copper"), _count_in_bag(inv, "scrap_oak"), _row(dur, shield)]
+	check(refusals == ["No scrap to patch Bronze Shield: it takes metal scrap of hardness 4 or more",
+			"No scrap to patch Bronze Shield: it takes metal scrap of hardness 4 or more"]
+		and not refused.ok and nothing_used == [2, 2, 2, "1/3 m5"],
+		"a repair needs scrap of the piece's kind that is at least as hard: wood and copper do not patch bronze, and a refused repair uses nothing up",
+		"%s %s" % [str(refusals), str(nothing_used)])
+
+	_give(inv, items, "scrap_steel", 1)
+	_give(inv, items, "scrap_silver", 1)
+	_give(inv, items, "scrap_bronze", 1)
+	var picked: Array = []
+	var mended: Array = []
+	notes.clear()
+	for attempt in range(2):
+		picked.append(str(dur.find_scrap(shield).item_data.item_id))
+		var repaired: Dictionary = controller.request_action(player, "repair", {"item": shield})
+		mended.append("%s %s %s age %d, %d kits" % [str(repaired.ok), _row(dur, shield), str(shield.debuffs), int(shield.age), dur.count_repair_kits()])
+	var repair_note: String = str(notes[0]) if not notes.is_empty() else ""
+	var full: Dictionary = controller.request_action(player, "repair", {"item": shield})
+	shield["notches"] = 2
+	var no_kit: Dictionary = controller.request_action(player, "repair", {"item": shield})
+	_give(inv, items, "repair_kit", 3)
+	picked.append(str(dur.find_scrap(shield).item_data.item_id))
+	var with_steel: Dictionary = controller.request_action(player, "repair", {"item": shield})
+	check(picked == ["scrap_bronze", "scrap_silver", "scrap_steel"]
+		and mended == ["true 2/3 m5 [] age 1, 1 kits", "true 3/3 m5 [] age 2, 0 kits"]
+		and "Bronze Shield repaired with Bronze Scrap: 2 of 3 notches." in repair_note
+		and not full.ok and full.reason == "Bronze Shield has every notch it can hold"
+		and not no_kit.ok and no_kit.reason == "No repair kit in the pack"
+		and with_steel.ok and _row(dur, shield) == "3/3 m5" and dur.count_repair_kits() == 2 and _count_in_bag(inv, "scrap_steel") == 0
+		and _count_in_bag(inv, "scrap_copper") == 2 and _count_in_bag(inv, "scrap_oak") == 2 and stats.armor_class == 18,
+		"a repair kit restores one notch with one unit of scrap - the softest that will do, the game's choice - clears the piece's debuffs and leaves its marks; it ages the piece by one",
+		"%s %s / %s" % [str(picked), str(mended), repair_note])
+
+	var by_kind: Array = []
+	for row in [["cowhide_jerkin", ["scrap_pigskin", "scrap_steel"]], ["cowhide_jerkin", ["scrap_pigskin", "scrap_bearhide", "scrap_wolfhide"]],
+			["fine_linen_robe", ["scrap_burlap", "scrap_cowhide"]], ["fine_linen_robe", ["scrap_burlap", "scrap_silk", "scrap_wool"]],
+			["oak_club", ["scrap_pine", "scrap_copper"]], ["oak_club", ["scrap_pine", "scrap_ironwood"]],
+			["adamantite_longsword", ["scrap_copper", "scrap_damascus_steel"]], ["wrought_iron_longsword", ["scrap_steel", "scrap_copper"]]]:
+		inv.items.clear()
+		for scrap_id in row[1]:
+			_give(inv, items, scrap_id, 1)
+		var worn_piece: Dictionary = items.create_item_instance(row[0])
+		worn_piece["notches"] = 1
+		var found: Dictionary = dur.find_scrap(worn_piece)
+		by_kind.append("%s: %s" % [row[0], str(found.item_data.item_id) if not found.is_empty() else "none"])
+	check(by_kind == ["cowhide_jerkin: none", "cowhide_jerkin: scrap_wolfhide", "fine_linen_robe: none", "fine_linen_robe: scrap_wool",
+		"oak_club: none", "oak_club: scrap_ironwood", "adamantite_longsword: none", "wrought_iron_longsword: scrap_copper"],
+		"metal patches metal, wood wood, leather leather and cloth cloth; steel patches bronze and copper cannot patch adamantite",
+		str(by_kind))
+
+	# --- whose piece it is ---
+	inv.items.clear()
+	_give(inv, items, "repair_kit", 2)
+	_give(inv, items, "scrap_steel", 3)
+	var carried: Dictionary = items.create_item_instance("steel_longsword")
+	carried["notches"] = 2
+	inv.add_item(carried)
+	var in_pack: Dictionary = controller.request_action(player, "repair", {"item": carried})
+	var stranger: Dictionary = items.create_item_instance("steel_longsword")
+	stranger["notches"] = 2
+	var not_mine: Dictionary = controller.request_action(player, "repair", {"item": stranger})
+	var potion: Dictionary = items.create_item_instance("potion_healing")
+	inv.add_item(potion)
+	var no_wear: Dictionary = controller.request_action(player, "repair", {"item": potion})
+	check(in_pack.ok and _row(dur, carried) == "3/4 m0" and not not_mine.ok and not_mine.reason == "That is not yours to repair"
+		and _row(dur, stranger) == "2/4 m0" and not no_wear.ok and dur.count_repair_kits() == 1,
+		"a piece in the pack can be repaired like one that is worn; someone else's piece, and what does not wear, cannot",
+		"%s / %s" % [str(not_mine.get("reason", "")), str(no_wear.get("reason", ""))])
+
+	# --- salvage: an unwanted piece becomes scrap of its material ---
+	inv.items.clear()
+	var yields: Array = []
+	for item_id in ["wrought_iron_longsword", "steel_greatsword", "bronze_chain_mail", "bronze_shield", "steel_helmet", "fine_linen_robe",
+			"oak_light_crossbow", "cowhide_boots", "cloak_protection"]:
+		var unwanted: Dictionary = items.create_item_instance(item_id)
+		inv.add_item(unwanted)
+		var salvaged: Dictionary = controller.request_action(player, "salvage", {"item": unwanted})
+		var gone: bool = inv.get_item(str(unwanted.instance_id)).is_empty()
+		yields.append("%s: %d %s%s" % [item_id, int(salvaged.get("units", 0)), str(salvaged.get("scrap_id", "")), "" if gone else " (still there)"])
+	var scrap_held: Array = [_count_in_bag(inv, "scrap_steel"), _count_in_bag(inv, "scrap_bronze"), _count_in_bag(inv, "scrap_oak"), inv.items.size()]
+	var wreck: Dictionary = items.create_item_instance("steel_longsword")
+	wreck["notches"] = 0
+	inv.add_item(wreck)
+	var from_wreck: Dictionary = controller.request_action(player, "salvage", {"item": wreck})
+	inv.add_item(potion)
+	var salvage_refusals: Array = [str(controller.request_action(player, "salvage", {"item": shield}).reason),
+		str(controller.request_action(player, "salvage", {"item": potion}).reason),
+		str(controller.request_action(player, "salvage", {"item": items.create_item_instance("ring_protection")}).reason)]
+	check(yields == ["wrought_iron_longsword: 1 scrap_wrought_iron", "steel_greatsword: 2 scrap_steel", "bronze_chain_mail: 2 scrap_bronze",
+			"bronze_shield: 1 scrap_bronze", "steel_helmet: 1 scrap_steel", "fine_linen_robe: 2 scrap_fine_linen",
+			"oak_light_crossbow: 2 scrap_oak", "cowhide_boots: 1 scrap_cowhide", "cloak_protection: 1 scrap_wool"]
+		and scrap_held == [3, 3, 2, 7] and from_wreck.ok and _count_in_bag(inv, "scrap_steel") == 4,
+		"salvage turns a piece from the pack into one unit of scrap of its material, two for a body armour or a two-handed weapon; a broken piece gives as much",
+		"%s %s" % [str(yields), str(scrap_held)])
+	check(salvage_refusals == ["Take it off first: only what is in the pack can be salvaged", "Only weapons, shields and armour can be salvaged",
+			"Only weapons, shields and armour can be salvaged"] and is_same(inv.get_equipped_item(stats, "off_hand"), shield),
+		"what is worn, and what does not wear, cannot be salvaged", str(salvage_refusals))
+
+	# --- repair all: the worst piece first, while kits and scrap last ---
+	inv.items.clear()
+	_give(inv, items, "repair_kit", 3)
+	_give(inv, items, "scrap_steel", 5)
+	var sword: Dictionary = items.create_item_instance("wrought_iron_longsword")
+	var mail: Dictionary = items.create_item_instance("bronze_chain_mail")
+	var helmet: Dictionary = items.create_item_instance("steel_helmet")
+	var crossbow: Dictionary = items.create_item_instance("oak_light_crossbow")
+	for worn in [[sword, 1, 3], [shield, 0, 4], [mail, 2, 6], [crossbow, 1, 2], [helmet, 4, 1]]:
+		worn[0]["notches"] = worn[1]
+		worn[0]["marks"] = worn[2]
+	mail["debuffs"] = ["breached"]
+	for placed in [["main_hand", sword], ["off_hand", shield], ["chest", mail], ["head", helmet], ["main_hand_2", crossbow]]:
+		_put_on(inv, stats, placed[0], placed[1])
+	var worn_pieces: Array = [sword, shield, mail, crossbow, helmet]
+	var passes: Array = []
+	var first_pass: Dictionary = controller.request_action(player, "repair_all")
+	passes.append("%d notches on %d pieces: %s, %d kits, %d scrap" % [int(first_pass.get("restored", -1)), int(first_pass.get("pieces", -1)),
+		str(worn_pieces.map(func(piece): return _row(dur, piece))), dur.count_repair_kits(), _count_in_bag(inv, "scrap_steel")])
+	_give(inv, items, "repair_kit", 5)
+	var second_pass: Dictionary = controller.request_action(player, "repair_all")
+	passes.append("%d notches on %d pieces: %s, %d kits, %d scrap" % [int(second_pass.get("restored", -1)), int(second_pass.get("pieces", -1)),
+		str(worn_pieces.map(func(piece): return _row(dur, piece))), dur.count_repair_kits(), _count_in_bag(inv, "scrap_steel")])
+	var third_pass: Dictionary = controller.request_action(player, "repair_all")
+	crossbow["notches"] = 2
+	var nothing_left: Dictionary = controller.request_action(player, "repair_all")
+	check(first_pass.ok and second_pass.ok
+		and passes == ["3 notches on 2 pieces: [\"2/2 m3\", \"2/3 m4\", \"2/3 m6\", \"1/2 m2\", \"4/4 m1\"], 0 kits, 2 scrap",
+			"2 notches on 2 pieces: [\"2/2 m3\", \"3/3 m4\", \"3/3 m6\", \"1/2 m2\", \"4/4 m1\"], 3 kits, 0 scrap"]
+		and mail.debuffs.is_empty() and stats.armor_class == 18,
+		"repair all works through everything equipped, both weapon sets, the worst piece first and a notch at a time, until the kits or the scrap run out",
+		str(passes))
+	check(not third_pass.ok and third_pass.reason == "No scrap to patch Oak Light Crossbow: it takes wood scrap of hardness 3 or more"
+		and not nothing_left.ok and nothing_left.reason == "Nothing worn needs repair" and dur.count_repair_kits() == 3,
+		"repair all says what stands in the way when it can mend nothing", "%s / %s" % [str(third_pass.reason), str(nothing_left.reason)])
+
+	# --- ageing: a point for each notch repaired; every 4 x the original maximum costs a maximum notch, never the last ---
+	var aging: Dictionary = items.create_item_instance("steel_longsword")
+	var ages: Array = []
+	for cycle in range(1, 71):
+		aging["notches"] = int(aging.notches_max) - 1
+		dur.repair(aging, 1)
+		if cycle in [15, 16, 31, 32, 47, 48, 64, 70]:
+			ages.append("%d: %s" % [int(aging.age), _row(dur, aging)])
+	var copper: Dictionary = items.create_item_instance("copper_longsword")
+	var copper_ages: Array = []
+	for cycle in range(1, 31):
+		copper["notches"] = int(copper.notches_max) - 1
+		dur.repair(copper, 1)
+		if cycle in [7, 8, 30]:
+			copper_ages.append("%d: %s" % [int(copper.age), _row(dur, copper)])
+	check(ages == ["15: 4/4 m0", "16: 3/3 m0", "31: 3/3 m0", "32: 2/2 m0", "47: 2/2 m0", "48: 1/1 m0", "64: 1/1 m0", "70: 1/1 m0"]
+		and copper_ages == ["7: 2/2 m0", "8: 1/1 m0", "30: 1/1 m0"] and int(aging.notches_max_original) == 4 and dur.get_aged_max(aging) == 1,
+		"a piece ages by one for each notch repaired and loses a maximum notch for every 4 times its original maximum in age, but never its last",
+		"%s %s" % [str(ages), str(copper_ages)])
+
+	# --- a full repair (the smith's, when there is one) restores every notch and clears the marks ---
+	var ruined: Dictionary = items.create_item_instance("steel_shield")
+	ruined["notches"] = 1
+	ruined["marks"] = 9
+	ruined["debuffs"] = ["dented", "cracked"]
+	var smithed: Dictionary = dur.repair(ruined, dur.ALL_NOTCHES, true)
+	check(int(smithed.restored) == 3 and _row(dur, ruined) == "4/4 m0" and ruined.debuffs.is_empty() and int(ruined.age) == 3,
+		"a full repair restores every notch, clears the debuffs and, alone, the marks", _row(dur, ruined))
+
+	# --- a plus of magic adds a notch to a piece that already exists ---
+	var enchanted: Dictionary = items.create_item_instance("steel_longsword")
+	enchanted["notches"] = 2
+	spells.enchant_item(enchanted, 1)
+	check(_row(dur, enchanted) == "3/5 m0" and int(enchanted.notches_max_original) == 5 and items.get_instance_name(enchanted) == "Steel Longsword +1",
+		"enchanting a piece gives it the notch its plus of magic is worth", _row(dur, enchanted))
+
+	# --- looted gear arrives worn: it has lost from none to half of its notches ---
+	var looted: Array = []
+	for row in [["steel_longsword", 0.0], ["steel_longsword", 0.34], ["steel_longsword", 0.99], ["copper_longsword", 0.0],
+			["copper_longsword", 0.5], ["damascus_steel_longsword", 0.99], ["potion_healing", 0.5]]:
+		var found_piece: Dictionary = items.create_item_instance(row[0])
+		dur.force_rolls([row[1]])
+		dur.wear_looted(found_piece)
+		looted.append("%s%s" % [_row(dur, found_piece) if dur.wears(found_piece) else "-", "" if dur._forced_rolls.is_empty() else " unrolled"])
+	dur.force_rolls([])
+	var drops := 0
+	var worn_drops := 0
+	var whole_drops := 0
+	var kit_drops := 0
+	var out_of_range: Array = []
+	for table_id in ["bandit", "skeleton", "boss"]:
+		for roll in range(200):
+			for drop in loot.roll_loot(table_id, 1):
+				if drop.item_data.item_id == "repair_kit":
+					kit_drops += 1
+				if not dur.wears(drop):
+					continue
+				drops += 1
+				var lost: int = dur.get_lost_notches(drop)
+				if lost > 0:
+					worn_drops += 1
+				else:
+					whole_drops += 1
+				if lost < 0 or lost > int(int(drop.notches_max) / 2.0) or int(drop.marks) != 0 or not drop.debuffs.is_empty():
+					out_of_range.append("%s %s" % [drop.item_data.item_id, _row(dur, drop)])
+	var tables_with_kits: Array = []
+	for table_id in loot.loot_tables:
+		for entry in loot.loot_tables[table_id].get("entries", []):
+			if str(entry.get("item_id", "")) == "repair_kit":
+				tables_with_kits.append(table_id)
+	tables_with_kits.sort()
+	seed(20261116)  # back to the run's seed: the loot rolls used the generator
+	check(looted == ["4/4 m0", "3/4 m0", "2/4 m0", "2/2 m0", "1/2 m0", "3/5 m0", "- unrolled"]
+		and drops >= 60 and worn_drops > 0 and whole_drops > 0 and out_of_range.is_empty(),
+		"a looted weapon or piece of armour has lost, at random, from none to half of its notches (%d drops rolled)" % drops,
+		"%s, %d worn, %d whole, %s" % [str(looted), worn_drops, whole_drops, str(out_of_range.slice(0, 4))])
+	check(tables_with_kits == ["bandit", "boss", "default", "goblin", "skeleton"] and kit_drops > 0,
+		"repair kits turn up in loot", "%s, %d dropped" % [str(tables_with_kits), kit_drops])
+
+	# Teardown
+	bus.ui_notification.disconnect(on_note)
+	inv.equipped_items[stats] = kit
+	inv.recalculate_character_stats(stats)
+	_bag_restore(inv, bag)
+	stats.current_hp = stats.max_hp
+	dur.wear_enabled = false
+	await _frames(2)
+	check(stats.armor_class == 18 and dur.count_repair_kits() == 2 and inv.get_equipped_item(stats, "off_hand") == kit["off_hand"]
+		and not world.in_combat, "test teardown: the fighter is back in its kit, with its pack as it was")
+
+# ---------------------------------------------------------------------------
+#  Durability in a fight: marks by its length, and no mending while it lasts
+# ---------------------------------------------------------------------------
+
+func _check_wear_in_fight(world):
+	"""A staged fight, as in the check of actions: the default fighter against
+	one goblin that cannot be killed. The fighter is in adamantite and the
+	goblin is made as hard, so no blow can break a piece or leave a mark in
+	place of a notch: the marks at the end are the fight's length and nothing
+	else, whatever the dice do."""
+	var dur = _mgr("DurabilityManager")
+	var items = _mgr("ItemDatabase")
+	var inv = _mgr("InventoryManager")
+	var bus = _mgr("EventBus")
+	var controller = world.combat
+	var player = world.player
+	var stats = player.stats
+	var kit: Dictionary = inv.equipped_items[stats].duplicate()
+	var bag: Array = _bag_snapshot(inv)
+	var home: Vector2i = player.grid_position
+
+	var lane: Array = _find_lane(world, home)
+	check(not lane.is_empty() and not world.in_combat, "test setup: a lane of free floor for the fight that wears gear")
+	if lane.is_empty() or world.in_combat:
+		return
+	var here: Vector2i = lane[0]
+	var step: Vector2i = lane[1]
+	if here != home:
+		player.teleport_to_grid(here)
+
+	dur.wear_enabled = true
+	var sword: Dictionary = items.create_item_instance("adamantite_longsword")
+	var shield: Dictionary = items.create_item_instance("adamantite_shield")
+	var mail: Dictionary = items.create_item_instance("adamantite_chain_mail")
+	var helmet: Dictionary = items.create_item_instance("adamantite_helmet")
+	var spare: Dictionary = items.create_item_instance("adamantite_longsword")
+	var crossbow: Dictionary = kit["main_hand_2"]
+	for placed in [["main_hand", sword], ["off_hand", shield], ["chest", mail], ["head", helmet]]:
+		_put_on(inv, stats, placed[0], placed[1])
+	inv.add_item(spare)
+	_give(inv, items, "scrap_adamantite", 2)
+	shield["notches"] = 7
+	var pieces: Array = [sword, shield, mail, helmet, crossbow, spare]
+	var fight_notes: Array = []
+	var on_wear = func(event):
+		if str(event.kind) == "fight":
+			fight_notes.append(str(event.text))
+	bus.item_wear_event.connect(on_wear)
+	var attacks_on_player: Array = []
+	var on_attack = func(event):
+		if event.target == player:
+			attacks_on_player.append(event.roll)
+	bus.attack_resolved.connect(on_attack)
+
+	var goblin = world._spawn_enemy("goblin", 1, 500, here + step)
+	goblin.gear.clear()
+	goblin.wear_data = {"weapon": {"hardness": 9, "damage_type": "slashing"}, "hide_hardness": 9}
+	goblin._stand_in_weapon = null
+	goblin.stats.armor_class = -100
+	_toughen(stats)
+	Engine.time_scale = 4.0
+	var started: bool = await _until(func(): return world.in_combat, 3.0)
+	for other in controller.get_order():
+		if other != player and other != goblin:
+			controller.remove_combatant(other)
+	var my_turn: bool = started and await _until(func(): return controller.is_turn_of(player) or not world.in_combat)
+	check(started and my_turn and controller.is_turn_of(player) and goblin.get_natural_weapon_hardness() == 9 and goblin.get_wear_pieces().is_empty(),
+		"test setup: the fight started, the fighter in adamantite against a goblin as hard as its gear, and the fighter's turn came")
+	if not controller.is_turn_of(player):
+		Engine.time_scale = 1.0
+		bus.item_wear_event.disconnect(on_wear)
+		bus.attack_resolved.disconnect(on_attack)
+		dur.wear_enabled = false
+		return
+
+	# --- in a fight nothing is mended ---
+	var kits_before: int = dur.count_repair_kits()
+	var in_fight: Array = [controller.check_action(player, "repair", {"item": shield}), controller.check_action(player, "repair_all"),
+		controller.check_action(player, "salvage", {"item": spare}), controller.request_action(player, "repair", {"item": shield}),
+		controller.request_action(player, "repair_all"), controller.request_action(player, "salvage", {"item": spare})]
+	var all_refused := true
+	for answer in in_fight:
+		if answer.ok or answer.reason != controller.REASON_REPAIR_IN_FIGHT:
+			all_refused = false
+	check(all_refused and _row(dur, shield) == "7/8 m0" and dur.count_repair_kits() == kits_before and kits_before == 2
+		and not inv.get_item(str(spare.instance_id)).is_empty() and not player.action_used,
+		"in a fight a repair, a repair of everything and a salvage are refused, and change nothing", str(in_fight[0].get("reason", "")))
+
+	# --- the fight: an attack every turn, until the fourth round ---
+	while world.in_combat and controller.round_number < 4:
+		_toughen(stats)
+		controller.request_action(player, "attack", {"target": goblin})
+		player.end_turn()
+		await _until(func(): return controller.is_turn_of(player) or not world.in_combat)
+	var rounds: int = controller.round_number
+	var used: Array = pieces.map(func(piece): return dur.is_used_in_fight(piece))
+	var marks_during: Array = pieces.map(func(piece): return dur.get_marks(piece))
+	check(world.in_combat and rounds == 4 and not attacks_on_player.is_empty() and used == [true, true, true, true, false, false]
+		and marks_during == [0, 0, 0, 0, 0, 0],
+		"during a fight the game notes what is used - the weapon that attacks, the shield and armour of the one attacked - and adds no mark yet",
+		"round %d, used %s, marks %s" % [rounds, str(used), str(marks_during)])
+
+	# --- the end of the fight: a mark for every two rounds, on what was used ---
+	_remove_enemy(world, goblin)
+	var ended: bool = await _until(func(): return not world.in_combat, 8.0)
+	Engine.time_scale = 1.0
+	var marks_after: Array = pieces.map(func(piece): return dur.get_marks(piece))
+	var every_piece_stands: bool = pieces.all(func(piece): return not dur.is_broken(piece))
+	check(ended and marks_after == [2, 2, 2, 2, 0, 0] and every_piece_stands
+		and fight_notes == ["The fight lasted 4 rounds: 2 wear marks on each of the 4 pieces used."],
+		"when a fight of four rounds ends, everything used in it has two marks more, and the other weapon set and the spare none",
+		"%s %s" % [str(marks_after), str(fight_notes)])
+
+	# --- and now the repair is allowed ---
+	var lost_before: int = dur.get_lost_notches(shield)
+	var after_fight: Dictionary = controller.request_action(player, "repair", {"item": shield})
+	check(after_fight.ok and dur.get_lost_notches(shield) == lost_before - 1 and dur.get_marks(shield) == 2 and dur.count_repair_kits() == kits_before - 1,
+		"once the fight is over the repair goes through, and leaves the fight's marks on the piece", _row(dur, shield))
+
+	# Teardown
+	bus.item_wear_event.disconnect(on_wear)
+	bus.attack_resolved.disconnect(on_attack)
+	inv.equipped_items[stats] = kit
+	inv.recalculate_character_stats(stats)
+	_bag_restore(inv, bag)
+	if player.grid_position != home:
+		player.teleport_to_grid(home)
+	stats.current_hp = stats.max_hp
+	dur.wear_enabled = false
+	await _frames(2)
+	check(stats.armor_class == 18 and stats.max_hp < 100 and dur.count_repair_kits() == 2 and not world.in_combat and not player.turn_based_mode,
+		"test teardown: the fight is over and the fighter is back in its kit")
 
 # ---------------------------------------------------------------------------
 #  Cover: the 5e rule for a grid, on maps drawn for the purpose
@@ -3411,6 +4856,8 @@ func _check_game_flow():
 	var items = _mgr("ItemDatabase")
 	var ui = _mgr("UIManager")
 	var features = _mgr("FeatureManager")
+	var dur = _mgr("DurabilityManager")
+	var spell_items = _mgr("SpellDatabase")
 
 	# --- main menu, no saves yet ---
 	game.go_to_main_menu()
@@ -3478,8 +4925,23 @@ func _check_game_flow():
 	var victim = world.enemies[0]
 	victim.stats.current_hp = max(1, victim.stats.current_hp - 3)
 	var ground_script = load("res://scripts/ground_item.gd")
-	ground_script.spawn(world.ground_items_node, spot + Vector2i(1, 0), world.player.tile_size,
-		[items.create_item_instance("wrought_iron_dagger")], 7)
+	var dropped_dagger: Dictionary = items.create_item_instance("wrought_iron_dagger")
+	dropped_dagger["notches"] = 1
+	dropped_dagger["marks"] = 2
+	ground_script.spawn(world.ground_items_node, spot + Vector2i(1, 0), world.player.tile_size, [dropped_dagger], 7)
+	# Gear with a past: a save carries every piece's condition, and a wand's charges
+	var staff: Dictionary = inv.get_equipped_item(stats, "main_hand")
+	var staff_past := {"notches": 1, "notches_max": 2, "notches_max_original": 3, "marks": 4, "age": 5, "debuffs": ["chipped", "cracked"],
+		"buffs": ["battle_honed", "blood_forged:goblin"], "wear_names": ["dulled"], "kills": 31, "kills_by_type": {"goblin": 21, "wolf": 10},
+		"caster_kills": 2, "ever_broken": true}
+	staff.merge(staff_past, true)
+	var spent_wand: Dictionary = items.create_item_instance("wand_" + str(spell_items.SPELL_ITEM_IDS[0]))
+	spent_wand["charges"] = 3
+	inv.add_item(spent_wand)
+	var marked_enemy = world._spawn_enemy("bandit", 1, 14, world.find_enemy_spawn_position())
+	marked_enemy.gear["armor"]["notches"] = 1
+	marked_enemy.gear["armor"]["debuffs"] = ["torn"]
+	var marked_at: Vector2i = marked_enemy.grid_position
 	inv.gold += 123
 	quests.start_quest("mq_01_strange_tidings")
 	comp.recruit("kaelen")
@@ -3532,10 +4994,30 @@ func _check_game_flow():
 	check(_enemy_summary(world) == expected.enemies, "the enemies are the same ones, with the same wounds",
 		"%s vs %s" % [str(_enemy_summary(world)), str(expected.enemies)])
 	var drop_ok := false
+	var dropped_now: Dictionary = {}
 	for drop in world.ground_items_node.get_children():
 		if drop.grid_pos == expected.pos + Vector2i(1, 0) and drop.gold == 7 and drop.item_instances.size() == 1:
 			drop_ok = true
+			dropped_now = drop.item_instances[0]
 	check(drop_ok, "loot on the ground is still there")
+	var staff_now: Dictionary = inv.get_equipped_item(stats, "main_hand")
+	var staff_kept := true
+	for key in staff_past:
+		if staff_now.get(key) != staff_past[key]:
+			staff_kept = false
+	var wand_now: Dictionary = {}
+	for carried_item in inv.items:
+		if carried_item.item_data.item_id == spent_wand.item_data.item_id:
+			wand_now = carried_item
+	var marked_now = world.get_combatant_at(marked_at)
+	check(staff_kept and not is_same(staff_now, staff) and dur.get_notches(dropped_now) == 1 and dur.get_marks(dropped_now) == 2
+		and int(wand_now.get("charges", -1)) == 3 and int(wand_now.get("max_charges", -1)) == spell_items.WAND_CHARGES
+		and dur.get_lost_notches(inv.get_equipped_item(stats, "main_hand_2")) == 0 and saves.SAVE_FORMAT_VERSION == 5,
+		"a save keeps every piece's condition - notches, marks, age, debuffs, buffs and what they count - worn, carried or on the ground, and a wand's charges",
+		str(staff_now.get("notches", "?")))
+	check(marked_now != null and "gear" in marked_now and marked_now.gear.has("armor") and dur.get_notches(marked_now.gear["armor"]) == 1
+		and dur.has_debuff(marked_now.gear["armor"], "torn") and marked_now.get_gear_armor_class_loss() == 0,
+		"a saved enemy keeps the condition of its armour")
 	check(world.minimap.explored_tiles.size() == expected.explored, "the explored map is restored",
 		"%d vs %d" % [world.minimap.explored_tiles.size(), expected.explored])
 	check(quests.get_quest_status("mq_01_strange_tidings") == "active", "quest progress is restored")
@@ -3619,9 +5101,55 @@ func _check_game_flow():
 	check(saves.read_save(7).is_empty() and not game.load_game(7) and _world() == world,
 		"a save from a newer version is refused and nothing changes")
 
+	# Format 4: durability points on every item, a wand's charges among them, and no condition for an enemy's gear
+	var v4: Dictionary = raw.duplicate(true)
+	v4["version"] = 4
+	var v4_inventory: Dictionary = v4["systems"]["inventory"]
+	var v4_gear: Dictionary = v4_inventory["equipped_items"]["player"]
+	var wand_id: String = "wand_" + str(spell_items.SPELL_ITEM_IDS[0])
+	v4_gear["main_hand"] = {"item_id": "steel_longsword", "quality_modifier": 0, "magic_modifier": 0, "current_durability": 30, "stack_count": 1}
+	v4_gear["main_hand_2"] = {"item_id": "steel_longsword", "quality_modifier": 1, "magic_modifier": 2, "current_durability": 15, "stack_count": 1}
+	v4_gear["chest"] = {"item_id": "iron_chain_mail", "quality_modifier": 0, "magic_modifier": 0, "current_durability": 1, "stack_count": 1}
+	v4_gear["head"] = {"item_id": "steel_helmet", "quality_modifier": 0, "magic_modifier": 0, "current_durability": 0, "stack_count": 1}
+	v4_gear["back"] = {"item_id": "cloak_protection", "quality_modifier": 0, "magic_modifier": 0, "current_durability": 0, "stack_count": 1}
+	v4_gear["rings"] = [{"item_id": "ring_protection", "quality_modifier": 0, "magic_modifier": 0, "current_durability": 0, "stack_count": 1}]
+	v4_inventory["items"] = [
+		{"item_id": wand_id, "quality_modifier": 0, "magic_modifier": 0, "current_durability": 3, "stack_count": 1},
+		{"item_id": "potion_healing", "quality_modifier": 0, "magic_modifier": 0, "current_durability": 0, "stack_count": 2},
+		{"item_id": "leather_jerkin", "quality_modifier": 0, "magic_modifier": 0, "current_durability": 15, "stack_count": 1},
+		{"item_id": "copper_dagger", "quality_modifier": 0, "magic_modifier": 0, "current_durability": 6, "stack_count": 1},
+	]
+	v4["world"]["ground_items"] = [{"x": int(raw["player"]["position_x"]) + 1, "y": int(raw["player"]["position_y"]), "gold": 0,
+		"items": [{"item_id": "bronze_shield", "quality_modifier": 0, "magic_modifier": 0, "current_durability": 11, "stack_count": 1}]}]
+	for saved_enemy in v4["world"]["enemies"]:
+		saved_enemy.erase("gear")
+	_write_raw_save(saves, 9, v4)
+
+	var from_v4: Dictionary = saves.read_save(9)
+	var v5_gear: Dictionary = from_v4["systems"]["inventory"]["equipped_items"]["player"]
+	var v5_items: Array = from_v4["systems"]["inventory"]["items"]
+	var converted: Array = []
+	for entry in [v5_gear["main_hand"], v5_gear["main_hand_2"], v5_gear["chest"], v5_gear["head"], v5_gear["back"], v5_items[2], v5_items[3],
+			from_v4["world"]["ground_items"][0]["items"][0]]:
+		converted.append("%s %s/%s of %s%s" % [str(entry.item_id), str(entry.get("notches", "?")), str(entry.get("notches_max", "?")),
+			str(entry.get("notches_max_original", "?")), "" if [entry.get("marks"), entry.get("age"), entry.get("debuffs"), entry.get("buffs")] == [0, 0, [], []] else " not clean"])
+	var no_points_left := true
+	for entry in [v5_gear["main_hand"], v5_gear["chest"], v5_gear["rings"][0], v5_items[0], v5_items[1], from_v4["world"]["ground_items"][0]["items"][0]]:
+		if entry.has("current_durability"):
+			no_points_left = false
+	check(int(from_v4.get("version", 0)) == 5 and int(from_v4.get("migrated_from", 0)) == 4 and no_points_left
+		and converted == ["steel_longsword 4/4 of 4", "steel_longsword 4/7 of 7", "iron_chain_mail 1/2 of 2", "steel_helmet 0/4 of 4",
+			"cloak_protection 2/2 of 2", "leather_jerkin 2/2 of 2", "copper_dagger 1/2 of 2", "bronze_shield 2/3 of 3"]
+		and int(v5_items[0].get("charges", -1)) == 3 and not v5_items[0].has("notches") and not v5_items[1].has("notches")
+		and not v5_items[1].has("charges") and not v5_gear["rings"][0].has("notches"),
+		"a format-4 save is migrated on read: durability points become notches in proportion - whole stays whole, and a piece with a point left is not broken - with the new fields empty, and a wand's points become its charges",
+		str(converted))
+
 	var from_v3: Dictionary = saves.read_save(8)
 	var migrated_gear: Dictionary = from_v3["systems"]["inventory"]["equipped_items"]["player"]
-	check(int(from_v3.get("version", 0)) == 4 and saves.SAVE_FORMAT_VERSION == 4 and int(from_v3.get("migrated_from", 0)) == 3
+	check(int(from_v3.get("version", 0)) == 5 and saves.SAVE_FORMAT_VERSION == 5 and int(from_v3.get("migrated_from", 0)) == 3
+		and int(migrated_gear.get("main_hand", {}).get("notches", -1)) == 2 and not migrated_gear.get("main_hand", {}).has("current_durability")
+		and int(migrated_gear.get("main_hand_2", {}).get("notches", -1)) == 3
 		and not migrated_gear.has("ranged") and migrated_gear.get("main_hand_2", {}).get("item_id", "") == "ash_shortbow"
 		and from_v3["systems"]["inventory"].get("weapon_sets") is Dictionary and from_v3["systems"].get("features") is Dictionary,
 		"a format-3 save is migrated on read: the item of the ranged slot becomes the main hand of the second weapon set")
@@ -3640,6 +5168,36 @@ func _check_game_flow():
 	check(old_stats != null and inv.get_equipped_item(old_stats, "main_hand").item_data.item_id == "wrought_iron_dagger"
 		and world.player.get_weapon().item_name == "Wrought Iron Dagger" and "cowhide_jerkin" in carried,
 		"items an old save holds under old material ids load as the items they became", str(carried))
+
+	check(game.load_game(9), "a format-4 save loads")
+	await _wait(1.0)
+	world = _world()
+	var v4_stats = world.player.stats if world != null else null
+	var loaded: Array = []
+	if v4_stats != null:
+		for slot in ["main_hand", "main_hand_2", "chest", "head", "back"]:
+			var piece: Dictionary = inv.get_equipped_item(v4_stats, slot)
+			loaded.append("%s %s" % [str(piece.item_data.item_id) if not piece.is_empty() else "nothing", _row(dur, piece)])
+		for carried_item in inv.items:
+			if dur.wears(carried_item):
+				loaded.append("%s %s" % [str(carried_item.item_data.item_id), _row(dur, carried_item)])
+			elif carried_item.has("charges"):
+				loaded.append("wand %d of %d" % [int(carried_item.charges), int(carried_item.max_charges)])
+	var v4_drop: Dictionary = {}
+	var whole_gear := true
+	if world != null:
+		for drop in world.ground_items_node.get_children():
+			if drop.item_instances.size() == 1:
+				v4_drop = drop.item_instances[0]
+		for spawned in world.enemies:
+			for piece in spawned.get_wear_pieces():
+				if dur.get_lost_notches(piece) != 0:
+					whole_gear = false
+	check(loaded == ["steel_longsword 4/4 m0", "steel_longsword 4/7 m0", "wrought_iron_chain_mail 1/2 m0", "steel_helmet 0/4 m0",
+			"cloak_protection 2/2 m0", "wand 3 of %d" % spell_items.WAND_CHARGES, "cowhide_jerkin 2/2 m0", "copper_dagger 1/2 m0"]
+		and _row(dur, v4_drop) == "2/3 m0" and whole_gear and world.enemies.size() >= 1
+		and dur.is_broken(inv.get_equipped_item(v4_stats, "head")) and not inv.get_equipped_item(v4_stats, "rings").has("notches"),
+		"the game loaded from a format-4 save has its gear in notches, its wand's charges, and enemies whose gear is whole", str(loaded))
 
 	check(game.load_game(5), "a format-2 save loads")
 	await _wait(1.0)

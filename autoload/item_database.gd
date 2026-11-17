@@ -37,6 +37,21 @@ const MATERIAL_ITEM_PREFIX: String = "material_"
 # Price of one unit of a crafting material at price multiplier 1
 const MATERIAL_ITEM_VALUE: float = 5.0
 
+# Scrap: what a salvaged weapon or piece of armour becomes, and what a repair
+# kit patches gear with. One item per material: scrap_<material id>.
+const SCRAP_ITEM_PREFIX: String = "scrap_"
+# Price of one unit of scrap at price multiplier 1
+const SCRAP_ITEM_VALUE: float = 2.0
+
+# The field repair kit, and how many of them a starting kit holds
+const REPAIR_KIT_ID: String = "repair_kit"
+const STARTING_REPAIR_KITS: int = 2
+
+# What the cloaks and belts are made of. They are worn in the back and waist
+# slots, which wear like every armour slot, so they need a material.
+const CLOAK_MATERIAL: String = "wool"
+const BELT_MATERIAL: String = "cowhide"
+
 func _ready():
 	print("ItemDatabase initializing...")
 	load_materials()
@@ -412,10 +427,10 @@ func load_items():
 	_reg_accessory("ring_wisdom",       "Ring of Wisdom",       "rings",    ItemData.ItemType.ACCESSORY_RING,    {"wis": 1},       1, 20,  "A ring carved with celestial script.")
 	_reg_accessory("amulet_health",     "Amulet of Health",     "neck",     ItemData.ItemType.ACCESSORY_NECK,    {"con": 2},       1, 50,  "A ruby-studded amulet radiating warmth.")
 	_reg_accessory("amulet_charisma",   "Amulet of Charisma",   "neck",     ItemData.ItemType.ACCESSORY_NECK,    {"cha": 1},       1, 30,  "An elegant necklace of polished silver.")
-	_reg_accessory("cloak_protection",  "Cloak of Protection",  "back",     ItemData.ItemType.ACCESSORY_CLOAK,   {"ac": 1},        2, 40,  "A finely woven cloak that deflects blows.")
-	_reg_accessory("cloak_stealth",     "Cloak of Elvenkind",   "back",     ItemData.ItemType.ACCESSORY_CLOAK,   {"dex": 1},       2, 60,  "Shimmers and fades into surroundings.")
-	_reg_accessory("belt_strength",     "Belt of Giant Strength","waist",   ItemData.ItemType.ACCESSORY_BELT,    {"str": 2},       2, 80,  "Grants the wearer formidable strength.")
-	_reg_accessory("belt_constitution", "Belt of Endurance",    "waist",    ItemData.ItemType.ACCESSORY_BELT,    {"con": 1},       2, 50,  "Toughens the body against punishment.")
+	_reg_accessory("cloak_protection",  "Cloak of Protection",  "back",     ItemData.ItemType.ACCESSORY_CLOAK,   {"ac": 1},        2, 40,  "A finely woven cloak that deflects blows.", CLOAK_MATERIAL)
+	_reg_accessory("cloak_stealth",     "Cloak of Elvenkind",   "back",     ItemData.ItemType.ACCESSORY_CLOAK,   {"dex": 1},       2, 60,  "Shimmers and fades into surroundings.", CLOAK_MATERIAL)
+	_reg_accessory("belt_strength",     "Belt of Giant Strength","waist",   ItemData.ItemType.ACCESSORY_BELT,    {"str": 2},       2, 80,  "Grants the wearer formidable strength.", BELT_MATERIAL)
+	_reg_accessory("belt_constitution", "Belt of Endurance",    "waist",    ItemData.ItemType.ACCESSORY_BELT,    {"con": 1},       2, 50,  "Toughens the body against punishment.", BELT_MATERIAL)
 	_reg_accessory("trinket_luck",      "Lucky Charm",          "trinkets", ItemData.ItemType.MISC,              {"luck": 1},      0.5, 25, "A rabbit's foot that hums faintly.")
 	_reg_accessory("trinket_arcane",    "Arcane Focus",         "trinkets", ItemData.ItemType.MISC,              {},               0.5, 10, "A polished crystal sphere for spellcasting.")
 	_reg_accessory("holy_symbol",       "Holy Symbol",          "trinkets", ItemData.ItemType.MISC,              {},               1.0, 5,  "A divine symbol of faith.")
@@ -448,6 +463,11 @@ func load_items():
 	# ── 7. CRAFTING MATERIAL ITEMS (material_<mat_id>) ───────────────
 	for mat in materials.values():
 		register_item(_build_material_item(mat))
+
+	# ── 8. FIELD REPAIR: the kit, and scrap of every material (scrap_<mat_id>) ──
+	register_item(_build_repair_kit())
+	for mat in materials.values():
+		register_item(_build_scrap_item(mat))
 
 	print("ItemDatabase: Loaded ", items.size(), " items")
 
@@ -488,8 +508,6 @@ func _build_weapon_item(wb: Dictionary, mat: MaterialData) -> ItemData:
 	item.range_normal = int(wb["rn"])
 	item.range_max = int(wb["rm"])
 	item.equip_slot = "main_hand"
-	item.has_durability = true
-	item.max_durability = mat.durability_score
 	for prop in (wb["props"] as Array):
 		item.special_properties.append(str(prop))
 	item.weight = float(wb["weight"])
@@ -514,8 +532,6 @@ func _build_armor_item(ab: Dictionary, mat: MaterialData) -> ItemData:
 	item.dex_bonus_limit = int(ab["dex"])
 	item.strength_requirement = int(ab["str"])
 	item.stealth_disadvantage = bool(ab["stealth"])
-	item.has_durability = true
-	item.max_durability = mat.durability_score
 	item.weight = float(ab["weight"])
 	item.base_value = _price(float(ab["value"]), mat)
 	item.description = "%s of %s." % [str(ab["name"]), mat.material_name.to_lower()]
@@ -546,6 +562,48 @@ func _build_material_item(mat: MaterialData) -> ItemData:
 	return item
 
 
+func _build_scrap_item(mat: MaterialData) -> ItemData:
+	"""A unit of scrap of a material: scrap_<material id>. Salvaging a weapon or
+	a piece of armour gives it; a repair kit patches gear with it."""
+	var item := ItemData.new()
+	item.item_id = SCRAP_ITEM_PREFIX + mat.material_id
+	item.item_name = mat.material_name + " Scrap"
+	item.item_type = ItemData.ItemType.MISC
+	item.material = mat
+	item.stackable = true
+	item.max_stack_size = 20
+	item.weight = 0.5
+	item.base_value = _price(SCRAP_ITEM_VALUE, mat)
+	item.description = "%s scrap of hardness %d, from salvaged gear. A repair kit patches %s gear with it, if the gear is no harder." % [
+		mat.get_category_name(), mat.hardness, mat.get_kind()]
+	return item
+
+
+func _build_repair_kit() -> ItemData:
+	"""The field repair kit: with one unit of suitable scrap it restores one
+	notch on one piece, outside a fight"""
+	var item := ItemData.new()
+	item.item_id = REPAIR_KIT_ID
+	item.item_name = "Repair Kit"
+	item.item_type = ItemData.ItemType.MISC
+	item.stackable = true
+	item.max_stack_size = 10
+	item.weight = 1.0
+	item.base_value = 15
+	item.description = "Tools and fittings for one field repair. With one unit of scrap of the right kind it restores one notch on a weapon, a shield or a piece of armour. Not in a fight."
+	return item
+
+
+func is_scrap(item_data) -> bool:
+	"""True for a scrap item (scrap_<material id>)"""
+	return item_data is ItemData and str(item_data.item_id).begins_with(SCRAP_ITEM_PREFIX) and item_data.material != null
+
+
+func scrap_item_id(material_id: String) -> String:
+	"""The id of the scrap of a material"""
+	return SCRAP_ITEM_PREFIX + str(MATERIAL_ALIASES.get(material_id, material_id))
+
+
 func _register_alias(alias_id: String, source_id: String, alias_name: String = ""):
 	"""Register a copy of an item under another id: a plain base id for the
 	default-material version ("longsword"), or a second name for one item."""
@@ -563,11 +621,12 @@ func _register_alias(alias_id: String, source_id: String, alias_name: String = "
 
 func _reg_accessory(item_id: String, item_name: String, equip_slot: String,
 		item_type: ItemData.ItemType, stat_bonuses: Dictionary,
-		weight: float, base_value: int, description: String):
+		weight: float, base_value: int, description: String, material_id: String = ""):
 	var item := ItemData.new()
 	item.item_id = item_id
 	item.item_name = item_name
 	item.item_type = item_type
+	item.material = get_material(material_id) if material_id != "" else null
 	item.equip_slot = equip_slot
 	item.stat_bonuses = stat_bonuses
 	item.weight = weight
@@ -657,13 +716,20 @@ func _renamed_item_id(item_id: String) -> String:
 
 
 func _try_regenerate(item_id: String) -> ItemData:
-	"""Rebuild a generated item id on demand: material_<material id>, or
-	<material id>_<base id> for a weapon or armour base in a material of its
-	kind. null when the id follows neither pattern."""
+	"""Rebuild a generated item id on demand: material_<material id>,
+	scrap_<material id>, or <material id>_<base id> for a weapon or armour base
+	in a material of its kind. null when the id follows none of the patterns."""
 	if item_id.begins_with(MATERIAL_ITEM_PREFIX):
 		var mat: MaterialData = materials.get(item_id.substr(MATERIAL_ITEM_PREFIX.length()), null)
 		if mat != null:
 			var item := _build_material_item(mat)
+			register_item(item)
+			return item
+		return null
+	if item_id.begins_with(SCRAP_ITEM_PREFIX):
+		var mat: MaterialData = materials.get(item_id.substr(SCRAP_ITEM_PREFIX.length()), null)
+		if mat != null:
+			var item := _build_scrap_item(mat)
 			register_item(item)
 			return item
 		return null
@@ -690,22 +756,26 @@ func _try_regenerate(item_id: String) -> ItemData:
 func create_item_instance(item_id: String, quality: int = 0, magic: int = 0) -> Dictionary:
 	"""An item instance: the item's data with what belongs to this one piece -
 	its craftsmanship (quality_modifier) and magic (magic_modifier) bonuses, its
-	charges or condition, its stack count and an id of its own."""
+	stack count and an id of its own. A weapon, a shield or a piece of armour
+	also carries its condition, whole and unworn: notches, marks, age, debuffs
+	and buffs (DurabilityManager.init_instance). A wand carries its charges."""
 	var item_data := get_item(item_id)
 	if not item_data:
 		push_error("ItemDatabase: Item not found: " + item_id)
 		return {}
 
-	var max_dur: int = item_data.max_durability if item_data.has_durability else 0
-	return {
+	var instance: Dictionary = {
 		"item_data": item_data,
 		"quality_modifier": quality,
 		"magic_modifier": magic,
-		"current_durability": max_dur,
-		"max_durability": max_dur,
 		"stack_count": 1,
 		"instance_id": generate_instance_id()
 	}
+	if item_data.max_charges > 0:
+		instance["charges"] = item_data.max_charges
+		instance["max_charges"] = item_data.max_charges
+	DurabilityManager.init_instance(instance)
+	return instance
 
 
 func generate_instance_id() -> String:
@@ -829,7 +899,8 @@ func _apply_elixir(item_id: String, user: Node, power: int):
 func get_starting_kit(class_id: String) -> Array:
 	"""
 	Returns an Array of item instances from the class's starting_equipment_list
-	plus 3 healing potions. Missing ids are skipped with push_error.
+	plus 3 healing potions and the repair kits every character starts with.
+	Missing ids are skipped with push_error.
 	"""
 	var class_data = ClassDatabase.get_class_data(class_id)
 	if not class_data:
@@ -849,6 +920,12 @@ func get_starting_kit(class_id: String) -> Array:
 		var potion := create_item_instance("potion_healing_minor")
 		if not potion.is_empty():
 			kit.append(potion)
+
+	# And the repair kits: a new character can mend its gear twice
+	var repair_kits := create_item_instance(REPAIR_KIT_ID)
+	if not repair_kits.is_empty():
+		repair_kits["stack_count"] = STARTING_REPAIR_KITS
+		kit.append(repair_kits)
 
 	print("ItemDatabase: Starting kit for '", class_id, "' has ", kit.size(), " items")
 	return kit
