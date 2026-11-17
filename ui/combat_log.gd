@@ -42,6 +42,7 @@ func _ready():
 		EventBus.turn_ended.connect(_on_turn_ended)
 		EventBus.character_died.connect(_on_character_died)
 		EventBus.enemy_died.connect(_on_enemy_died)
+		EventBus.item_wear_event.connect(_on_item_wear_event)
 	else:
 		push_warning("CombatLog: EventBus not found, some features won't work")
 	
@@ -139,6 +140,14 @@ func _on_damage_applied(event: Dictionary):
 		var hp = target.get_hp()
 		var max_hp = target.get_max_hp()
 		add_message("[color=gray]   %s: %d/%d HP[/color]" % [target_name, hp, max_hp])
+
+func _on_item_wear_event(event: Dictionary):
+	"""One line for everything that happens to a piece of gear: a notch lost,
+	a debuff, a break, a buff earned, a repair, a blow that left only a mark,
+	and the marks a fight leaves (DurabilityManager._announce)"""
+	var colors: Dictionary = {"error": "red", "warning": "orange", "success": "green", "info": "gray"}
+	var color: String = colors.get(str(event.get("level", "info")), "gray")
+	add_message("[color=%s]🛡 %s[/color]" % [color, _escape_bbcode(str(event.get("text", "")))])
 
 func _on_character_died(character: Node):
 	var char_name = _escape_bbcode(character.name) if character else "Character"

@@ -76,7 +76,7 @@ func _run_only(world):
 	"""Run the checks named with --only, in the order given"""
 	var by_name: Dictionary = {
 		"durability": _check_durability, "blows": _check_blows, "wear_states": _check_wear_states, "repair": _check_repair,
-		"wear_in_fight": _check_wear_in_fight,
+		"wear_in_fight": _check_wear_in_fight, "wear_display": _check_wear_display,
 	}
 	for check_name in _only:
 		if check_name == "game_flow":
@@ -222,6 +222,7 @@ func _run():
 	await _check_blows(world)
 	await _check_wear_states(world)
 	await _check_repair(world)
+	await _check_wear_display(world)
 	await _check_art(world)
 	_check_crafting(world)
 	await _check_companions(world)
@@ -739,8 +740,11 @@ func _check_art(world):
 	sheet.show_character(player.stats)
 	var weapon_slot: Button = sheet.slot_buttons["main_hand"]
 	var weapon_icon: TextureRect = weapon_slot.get_node_or_null("ItemIcon")
+	sheet.show_tooltip_for_slot("main_hand")
+	var slot_tip: Array = Array(sheet.item_tooltip.get_lines()) if sheet.item_tooltip.visible else []
+	sheet.hide_tooltip()
 	check(weapon_icon != null and weapon_icon.texture != null and not art.is_fallback(weapon_icon.texture)
-		and weapon_slot.text == "" and weapon_slot.tooltip_text != "",
+		and weapon_slot.text == "" and not slot_tip.is_empty() and slot_tip[0] == "Wrought Iron Longsword",
 		"an equipment slot shows the item's icon, no name text, and keeps its tooltip")
 	var stacked_ok := false
 	var inventory = _mgr("InventoryManager")
@@ -750,7 +754,7 @@ func _check_art(world):
 			var count_label: Label = slot.get_node_or_null("StackCount")
 			var slot_icon: TextureRect = slot.get_node_or_null("ItemIcon")
 			stacked_ok = (count_label != null and count_label.text == "x%d" % int(inventory.items[i].stack_count)
-				and slot_icon != null and slot_icon.texture != null and slot.text == "" and slot.tooltip_text != "")
+				and slot_icon != null and slot_icon.texture != null and slot.text == "" and is_same(slot.get_meta("item", {}), inventory.items[i]))
 			break
 	check(stacked_ok, "an inventory slot shows the icon with the stack count over it")
 	sheet.hide_screen()
@@ -1227,10 +1231,10 @@ func _check_materials(world):
 	var steel_tip: String = sheet._item_tooltip(items.create_item_instance("steel_longsword"))
 	var iron_tip: String = sheet._item_tooltip(items.create_item_instance("wrought_iron_chain_mail"))
 	var potion_tip: String = sheet._item_tooltip(items.create_item_instance("potion_healing"))
-	check("Material: Steel (metal)" in steel_tip and "Notches: 4   Hardness: 5" in steel_tip and not "Trait" in steel_tip
-		and "Material: Wrought Iron (metal)" in iron_tip and "Notches: 2   Hardness: 3" in iron_tip and "Trait: Rusts Easily" in iron_tip
-		and not "Material" in potion_tip and not "Notches" in potion_tip,
-		"an item's tooltip names its material, its notches, its hardness and its trait", steel_tip.replace("\n", " / "))
+	check("Material: Steel (metal), hardness 5" in steel_tip and "4 of 4 notches, wear 0 of 15" in steel_tip and not "Trait" in steel_tip
+		and "Material: Wrought Iron (metal), hardness 3" in iron_tip and "2 of 2 notches, wear 0 of 9" in iron_tip and "Trait: Rusts Easily" in iron_tip
+		and not "Material" in potion_tip and not "notches" in potion_tip,
+		"an item's tooltip names its material, its hardness, its notches and its trait", steel_tip.replace("\n", " / "))
 
 func _art_is_missing(item) -> bool:
 	"""True when an item resolved but got the missing-art texture"""
@@ -3066,6 +3070,261 @@ func _check_repair(world):
 		and not world.in_combat, "test teardown: the fighter is back in its kit, with its pack as it was")
 
 # ---------------------------------------------------------------------------
+#  Durability on screen: the bar, the tooltip, the sheet, the bench, the HUD
+# ---------------------------------------------------------------------------
+
+func _inside(outer: Control, inner: Control) -> bool:
+	"""True when one control lies wholly within another on the screen"""
+	return outer.get_global_rect().grow(0.5).encloses(inner.get_global_rect())
+
+func _check_wear_display(world):
+	"""Outside any fight: the default fighter in worn gear of the test's own.
+	What the character sheet, the item tooltip, the repair bench, the HUD
+	warning, the combat log and the toasts show of it, and that the sheet's
+	repairs and salvage are requests."""
+	var dur = _mgr("DurabilityManager")
+	var items = _mgr("ItemDatabase")
+	var inv = _mgr("InventoryManager")
+	var bus = _mgr("EventBus")
+	var ui = _mgr("UIManager")
+	var controller = world.combat
+	var player = world.player
+	var stats = player.stats
+	var sheet = world.character_screen
+	var combat_log = world.get_node("UI/CombatLog")
+	var screen := Rect2(Vector2.ZERO, root.get_visible_rect().size)
+	var kit: Dictionary = inv.equipped_items[stats].duplicate()
+	var bag: Array = _bag_snapshot(inv)
+	dur.wear_enabled = true
+
+	var sword: Dictionary = items.create_item_instance("steel_longsword")
+	sword.merge({"notches": 2, "marks": 5, "debuffs": ["chipped"], "buffs": ["battle_honed"], "wear_names": ["dulled"]}, true)
+	var shield: Dictionary = items.create_item_instance("bronze_shield")
+	shield["notches"] = 0
+	var mail: Dictionary = items.create_item_instance("steel_chain_mail")
+	mail.merge({"notches": 2, "debuffs": ["breached"]}, true)
+	var helmet: Dictionary = items.create_item_instance("steel_helmet")
+	helmet.merge({"notches": 3, "notches_max": 3, "age": 16}, true)
+	var spare: Dictionary = items.create_item_instance("bronze_longsword")
+	spare["notches"] = 1
+	inv.add_item(spare)
+	for placed in [["main_hand", sword], ["off_hand", shield], ["chest", mail], ["head", helmet]]:
+		_put_on(inv, stats, placed[0], placed[1])
+
+	# --- the segmented bar on every slot of the sheet ---
+	sheet.show_character(stats)
+	await _frames(3)
+	var bars: Array = []
+	var bars_fit := true
+	for slot_id in ["main_hand", "off_hand", "chest", "head", "neck", "main_hand_2"]:
+		var slot: Button = sheet.slot_buttons[slot_id]
+		var bar = slot.get_node_or_null("DurabilityBar")
+		bars.append("%s: %s" % [slot_id, "-".join(bar.get_segments()) if bar != null and bar.visible else "none"])
+		if bar != null and bar.visible and (not _inside(slot, bar) or bar.size.x < 50.0 or bar.size.y < 5.0):
+			bars_fit = false
+	var sword_bar = sheet.slot_buttons["main_hand"].get_node("DurabilityBar")
+	var spare_bar = sheet.inventory_slots[inv.items.find(spare)].get_node("DurabilityBar")
+	var potion_bar = sheet.inventory_slots[inv.items.find(_potion_stack(inv))].get_node("DurabilityBar")
+	check(bars == ["main_hand: full-wearing-lost-lost", "off_hand: lost-lost-lost", "chest: full-full-lost-lost", "head: full-full-full-aged",
+			"neck: none", "main_hand_2: full-full"] and bars_fit and is_equal_approx(sword_bar.get_wear_fill(), 1.0 - 5.0 / 15.0)
+		and spare_bar.visible and spare_bar.get_segments() == ["full", "lost", "lost"] and not potion_bar.visible,
+		"every slot of the sheet shows a piece's segmented bar: a segment a notch, the lost ones empty, the notch being worn part filled by its marks",
+		str(bars))
+
+	# --- the tooltip: the bar again, the condition in words, debuffs and buffs with what they do ---
+	sheet.show_tooltip_for_slot("main_hand")
+	await _frames(3)
+	var tip = sheet.item_tooltip
+	var tip_lines: Array = Array(tip.get_lines())
+	var wanted: Array = ["Steel Longsword", "Material: Steel (metal), hardness 5", "2 of 4 notches, wear 5 of 15", "Chipped: -1 damage",
+		"Battle-Honed: +1 to hit", "Signs of use: dulled", "To mend a notch: drag it onto REPAIR, or right-click it where it is worn"]
+	var in_order := true
+	var last_index := -1
+	for line in wanted:
+		var index: int = tip_lines.find(line)
+		if index <= last_index:
+			in_order = false
+		last_index = index
+	var tip_rect: Rect2 = tip.get_global_rect()
+	var slot_rect: Rect2 = sheet.slot_buttons["main_hand"].get_global_rect()
+	check(tip.visible and in_order and tip.get_bar().visible and tip.get_bar().get_segments() == sword_bar.get_segments()
+		and screen.encloses(tip_rect) and not tip_rect.intersects(slot_rect) and tip_rect.size.x >= 300.0 and _inside(tip, tip.get_bar()),
+		"an item's tooltip shows its bar, its notches and marks in words, each debuff and buff with what it does, and the names of its plain wear; it sits beside the slot, on the screen",
+		"%s at %s" % [str(tip_lines), str(tip_rect)])
+	sheet.show_tooltip_for_slot("off_hand")
+	await _frames(2)
+	var broken_lines: Array = Array(tip.get_lines())
+	sheet.show_tooltip_for_slot("neck")
+	var empty_hidden: bool = not tip.visible
+	_move_pointer(sheet.slot_buttons["chest"].get_global_rect().get_center())
+	await _frames(3)
+	var hovered: Array = Array(tip.get_lines()) if tip.visible else []
+	_move_pointer(Vector2(900, 20))
+	await _frames(3)
+	check("BROKEN - gives nothing until repaired" in broken_lines and broken_lines[0] == "Bronze Shield" and empty_hidden
+		and not hovered.is_empty() and hovered[0] == "Steel Chain Mail" and "Breached: attackers score critical hits on 19-20 against the wearer" in hovered
+		and not tip.visible,
+		"a broken piece's tooltip says so; an empty slot has none; the tooltip follows the pointer on to a slot and goes when it leaves",
+		"%s / %s" % [str(broken_lines.slice(0, 6)), str(hovered.slice(0, 3))])
+
+	# --- the armour class and its parts, wear included ---
+	var ac_label: Label = sheet.stats_panel.find_child("ACLabel", true, false)
+	var parts_label: Label = sheet.stats_panel.find_child("ACBreakdownLabel", true, false)
+	var shown: Array = []
+	for line in parts_label.text.split("\n"):
+		shown.append(line.strip_edges())
+	check(ac_label.text == "AC: 15" and shown == ["Steel Chain Mail 16", "Worn armour, 2 notches lost -1", "Bronze Shield, broken +0",
+			"Steel Chain Mail breached: critical hits on 19-20"] and _inside(sheet.stats_panel, parts_label),
+		"the sheet's armour class shows what lost notches take, a broken shield that adds nothing, and what a debuff on the gear costs",
+		str(shown))
+
+	# --- the repair bench: what the pack holds, and why everything cannot be repaired ---
+	var bench = sheet.repair_bench
+	var repair_all: Button = bench.get_repair_all_button()
+	var bench_lines: Array = Array(bench.get_lines())
+	check(bench.is_visible_in_tree() and _inside(sheet.inventory_panel, bench) and screen.encloses(bench.get_global_rect())
+		and bench_lines.slice(0, 3) == ["Repair kits: 2", "Scrap: none - salvage a spare piece", "REPAIR ALL WORN - 7 notches lost"]
+		and repair_all.disabled and bench_lines[3] == "No scrap to patch Bronze Shield: it takes metal scrap of hardness 4 or more",
+		"the sheet's repair bench shows the kits and the scrap in the pack and how much is worn, and says why it cannot be repaired",
+		str(bench_lines))
+
+	# --- repair all, by the button ---
+	_give(inv, items, "scrap_steel", 4)
+	await _frames(2)
+	var ready_lines: Array = Array(bench.get_lines())
+	var enabled: bool = not repair_all.disabled
+	repair_all.pressed.emit()
+	await _frames(2)
+	check(enabled and ready_lines[1] == "Scrap: Steel x4 (metal 5)" and _row(dur, shield) == "2/3 m0" and _row(dur, sword) == "2/4 m5"
+		and dur.count_repair_kits() == 0 and _count_in_bag(inv, "scrap_steel") == 2 and ac_label.text == "AC: 17"
+		and sheet.slot_buttons["off_hand"].get_node("DurabilityBar").get_segments() == ["full", "full", "lost"],
+		"the bench's button asks for everything worn to be repaired: the two kits go to the broken shield, and the sheet shows it at once",
+		"%s, shield %s, %s" % [str(ready_lines.slice(0, 3)), _row(dur, shield), ac_label.text])
+
+	# --- one piece: dropped on REPAIR, or right-clicked where it is worn ---
+	_give(inv, items, "repair_kit", 2)
+	var repair_zone: Control = bench.get_node("%RepairZone")
+	var salvage_zone: Control = bench.get_node("%SalvageZone")
+	var zones_apart: bool = bench.is_over_repair(repair_zone.get_global_rect().get_center()) \
+		and not bench.is_over_salvage(repair_zone.get_global_rect().get_center()) \
+		and bench.is_over_salvage(salvage_zone.get_global_rect().get_center()) \
+		and not bench.is_over_repair(salvage_zone.get_global_rect().get_center())
+	sheet.start_drag(sword, "equipment", "main_hand")
+	sheet.end_drag_on_repair()
+	sheet.repair_slot("chest")
+	await _frames(2)
+	check(zones_apart and _row(dur, sword) == "3/4 m5" and sword.debuffs.is_empty() and sword.buffs == ["battle_honed"]
+		and _row(dur, mail) == "3/4 m0" and mail.debuffs.is_empty() and dur.count_repair_kits() == 0 and _count_in_bag(inv, "scrap_steel") == 0
+		and not sheet.is_dragging and ac_label.text == "AC: 18",
+		"a piece dropped on the bench's REPAIR, and a worn piece that is right-clicked, each get one notch back for a kit and a scrap",
+		"sword %s, mail %s" % [_row(dur, sword), _row(dur, mail)])
+
+	# --- salvage: a spare piece dropped on SALVAGE, here with the pointer ---
+	var notes: Array = []
+	var on_note = func(message, _type): notes.append(message)
+	bus.ui_notification.connect(on_note)
+	sheet.start_drag(shield, "equipment", "off_hand")
+	sheet.end_drag_on_salvage()
+	var worn_refused: String = str(notes[-1]) if not notes.is_empty() else ""
+	sheet.start_drag(spare, "inventory", str(inv.items.find(spare)))
+	_move_pointer(salvage_zone.get_global_rect().get_center())
+	await _frames(2)
+	sheet._end_drag_at_mouse()
+	await _frames(2)
+	check(worn_refused == "Take it off first: only what is in the pack can be salvaged" and is_same(inv.get_equipped_item(stats, "off_hand"), shield)
+		and inv.items.find(spare) == -1 and _count_in_bag(inv, "scrap_bronze") == 1 and not sheet.is_dragging
+		and "Scrap: Bronze x1 (metal 4)" in Array(bench.get_lines()),
+		"a spare piece dropped on the bench's SALVAGE becomes scrap; a piece that is worn is refused, and the sheet says why",
+		"%s, %d bronze scrap" % [worn_refused, _count_in_bag(inv, "scrap_bronze")])
+	sheet.hide_screen()
+	paused = false
+	await _frames(2)
+
+	# --- the HUD warns of what is on its last notch, or broken, among the gear in use ---
+	var warning = world.gear_warning
+	var quiet: bool = not warning.is_showing()
+	shield["notches"] = 1
+	sword["notches"] = 0
+	inv.equipped_items[stats]["main_hand_2"]["notches"] = 1
+	await _frames(2)
+	var warned: Array = Array(warning.get_lines())
+	var warning_rect: Rect2 = warning.get_node("%Panel").get_global_rect()
+	var bottom: Rect2 = world.bottom_ui.get_global_rect()
+	sword["notches"] = 3
+	shield["notches"] = 2
+	inv.equipped_items[stats]["main_hand_2"]["notches"] = 2
+	await _frames(2)
+	check(quiet and warned == ["Steel Longsword: BROKEN", "Bronze Shield: last notch"] and screen.encloses(warning_rect)
+		and warning_rect.end.y <= bottom.position.y and warning_rect.size.x >= 150.0 and not warning.is_showing(),
+		"the HUD warns when a piece in use is broken or down to its last notch, above the bottom bar, and says nothing of the weapon set that is not in hand",
+		"%s at %s" % [str(warned), str(warning_rect)])
+
+	# --- the attack readout: what the weapon's wear and the target's does to the attack ---
+	var foe = _spawn_far(world, "bandit", 50, 231)
+	sword.merge({"notches": 2, "debuffs": ["chipped"]}, true)
+	foe.gear["armor"].merge({"notches": 1, "debuffs": ["torn", "breached"]}, true)
+	var preview: Dictionary = controller.preview_attack(player, foe)
+	var readout = world.attack_preview
+	var as_in_a_fight: Dictionary = preview.duplicate()
+	as_in_a_fight["ok"] = true
+	readout._fill(as_in_a_fight, foe)
+	var wear_label: Label = readout.get_node("%Wear")
+	check(preview.get("wear_notes", []) == ["Worn weapon, 2 notches lost: -1 to hit", "Chipped: -1 damage", "Battle-Honed: +1 to hit",
+			"Its torn armour: +1 damage", "Its breached armour: critical hit on 19-20"]
+		and int(preview.profile.attack_bonus) == 4 and int(preview.profile.wear_attack_penalty) == 1 and preview.damage_text == "1d8+1 slashing"
+		and wear_label.visible and wear_label.text.split("\n").size() == 5 and wear_label.text.begins_with("Worn weapon, 2 notches lost: -1 to hit"),
+		"the attack readout says what the weapon's lost notches, its debuffs and buffs and the target's torn or breached gear do to the attack",
+		str(preview.get("wear_notes", [])))
+	_remove_enemy(world, foe)
+
+	# --- the combat log and a toast say what happens to a piece, by name ---
+	combat_log.clear_log()
+	notes.clear()
+	var struck: Dictionary = items.create_item_instance("bronze_shield")
+	_put_on(inv, stats, "off_hand", struck)
+	var iron: Dictionary = items.create_item_instance("wrought_iron_longsword")
+	bus.attack_resolved.emit(_blow("critical", null, player, {"weapon_instance": iron, "damage_type": "bludgeoning"}))
+	bus.attack_resolved.emit(_blow("critical", null, player, {"weapon_instance": iron}))
+	var honed: Dictionary = items.create_item_instance("bronze_longsword")
+	for kill in range(30):
+		dur.record_kill(honed, null, player)
+	await _frames(3)
+	var log_now: String = combat_log.log_text.get_parsed_text()
+	var said: Array = ["Bronze Shield loses 2 notches to a critical hit: 1 of 3 left. Cracked: breaks on the next critical hit against it, or natural 1 with it. Dented: 1 tile less movement.",
+		"Bronze Shield was cracked and breaks. It gives nothing until it is repaired.", "Bronze Longsword has earned a name. Battle-Honed: +1 to hit."]
+	var in_log := true
+	var in_toasts := true
+	for sentence in said:
+		if not sentence in log_now:
+			in_log = false
+		var toasted := false
+		for message in notes:
+			if sentence in str(message):
+				toasted = true
+		if not toasted:
+			in_toasts = false
+	var on_screen := false
+	for message in ui.toasts.get_visible_messages():
+		if said[2] in str(message):
+			on_screen = true
+	check(in_log and in_toasts and on_screen,
+		"the combat log and a toast name the piece when it loses a notch, gains a debuff, breaks or earns a buff", log_now.replace("\n", " / ").right(400))
+
+	# Teardown
+	bus.ui_notification.disconnect(on_note)
+	inv.equipped_items[stats] = kit
+	for piece in kit.values():
+		if piece is Dictionary:
+			_mend(piece)
+	inv.recalculate_character_stats(stats)
+	_bag_restore(inv, bag)
+	stats.current_hp = stats.max_hp
+	dur.wear_enabled = false
+	await _frames(2)
+	check(stats.armor_class == 18 and dur.count_repair_kits() == 2 and not world.in_combat and not paused and not sheet.visible
+		and not warning.is_showing(), "test teardown: the sheet is closed and the fighter is back in its kit, whole")
+
+# ---------------------------------------------------------------------------
 #  Durability in a fight: marks by its length, and no mending while it lasts
 # ---------------------------------------------------------------------------
 
@@ -3152,6 +3411,50 @@ func _check_wear_in_fight(world):
 	check(all_refused and _row(dur, shield) == "7/8 m0" and dur.count_repair_kits() == kits_before and kits_before == 2
 		and not inv.get_item(str(spare.instance_id)).is_empty() and not player.action_used,
 		"in a fight a repair, a repair of everything and a salvage are refused, and change nothing", str(in_fight[0].get("reason", "")))
+
+	# --- the sheet in a fight: the repair bench is shut, and a right-click on a worn piece is refused ---
+	var sheet = world.character_screen
+	var notes: Array = []
+	var on_note = func(message, _type): notes.append(message)
+	bus.ui_notification.connect(on_note)
+	sheet.show_character(stats)
+	await _frames(2)
+	var bench_shut: bool = sheet.repair_bench.get_repair_all_button().disabled \
+		and controller.REASON_REPAIR_IN_FIGHT in Array(sheet.repair_bench.get_lines())
+	sheet.repair_slot("off_hand")
+	sheet.hide_screen()
+	paused = false
+	bus.ui_notification.disconnect(on_note)
+	check(bench_shut and not notes.is_empty() and notes[-1] == controller.REASON_REPAIR_IN_FIGHT and _row(dur, shield) == "7/8 m0",
+		"in a fight the sheet's repair bench is shut and says why, and a right-click on a worn piece mends nothing",
+		str(notes.slice(-1)))
+
+	# --- a broken weapon: no attack with it; the bar says why and what would help; the HUD warns ---
+	sword["notches"] = 0
+	await _frames(2)
+	var broken_attack: Dictionary = controller.check_action(player, "attack", {"target": goblin})
+	var bar_reason: String = world.bottom_ui.action_bar.get_button("attack").get_reason()
+	var hud_lines: Array = Array(world.gear_warning.get_lines())
+	var broken_swing: Dictionary = controller.request_action(player, "attack", {"target": goblin})
+	sword["notches"] = 8
+	check(not broken_attack.ok and broken_attack.reason == "Adamantite Longsword is broken - swap to the Oak Light Crossbow"
+		and bar_reason == broken_attack.reason and hud_lines == ["Adamantite Longsword: BROKEN"] and not broken_swing.ok and not player.action_used,
+		"a broken weapon cannot attack: the Attack button says so and what a swap would give, and the HUD warns",
+		"%s / %s" % [str(broken_attack.reason), str(hud_lines)])
+
+	# --- aiming with a worn weapon: the readout says what the wear costs ---
+	sword.merge({"notches": 6, "debuffs": ["chipped"]}, true)
+	player.choose_action("attack")
+	player.set_process(false)
+	player._update_aim(goblin.grid_position)
+	world.attack_preview.refresh()
+	var aimed: Array = Array(world.attack_preview.get_lines())
+	player.set_process(true)
+	player.attack_mode = false
+	player.queue_redraw()
+	sword.merge({"notches": 8, "debuffs": []}, true)
+	check(aimed.has("Worn weapon, 2 notches lost: -1 to hit\nChipped: -1 damage"),
+		"while an attack is aimed the readout shows what the weapon's lost notches and debuffs cost it", str(aimed))
 
 	# --- the fight: an attack every turn, until the fourth round ---
 	while world.in_combat and controller.round_number < 4:

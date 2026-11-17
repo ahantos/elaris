@@ -441,13 +441,18 @@ func get_attack_notes(item_instance, target = null) -> Array[String]:
 	return notes
 
 func get_wearer_notes(pieces: Array) -> Array[String]:
-	"""What the debuffs on a wearer's gear cost it, a line for each: for the
-	character sheet, under the armour class"""
+	"""What the debuffs on a wearer's gear cost it, a short line for each: for
+	the character sheet, under the armour class"""
 	var notes: Array[String] = []
-	for debuff in [DEBUFF_BREACHED, DEBUFF_TORN, DEBUFF_DENTED]:
+	var costs: Dictionary = {
+		DEBUFF_BREACHED: "critical hits on %d-20" % (20 - DurabilityDials.breached_critical_range),
+		DEBUFF_TORN: "hits deal +%d damage" % DurabilityDials.torn_extra_damage,
+		DEBUFF_DENTED: "%d tile slower" % DurabilityDials.dented_speed_tiles,
+	}
+	for debuff in costs:
 		for piece in pieces:
 			if has_debuff(piece, debuff):
-				notes.append("%s - %s" % [ItemDatabase.get_instance_name(piece), get_debuff_text(debuff)])
+				notes.append("%s %s: %s" % [ItemDatabase.get_instance_name(piece), debuff, costs[debuff]])
 				break
 	return notes
 

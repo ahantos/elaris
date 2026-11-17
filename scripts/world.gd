@@ -7,6 +7,7 @@ var CharacterScene = preload("res://scenes/character.tscn")
 var EnemyScene = preload("res://scenes/enemy.tscn")
 const GroundItemScript = preload("res://scripts/ground_item.gd")
 const AttackPreviewScene = preload("res://scenes/ui/attack_preview.tscn")
+const GearWarningScene = preload("res://scenes/ui/gear_warning.tscn")
 
 # Enemy identities assigned at spawn (loot tables exist for all four types).
 # "resistances", "vulnerabilities" and "immunities" list the damage types the
@@ -42,6 +43,7 @@ var turn_ui: TurnUI
 var initiative_tracker: InitiativeTracker
 var bottom_ui: BottomUI
 var attack_preview: Control  # the readout beside an enemy an attack is aimed at
+var gear_warning: Control  # the HUD's lines about gear that is broken or on its last notch
 var grid_overlay: GridOverlay
 var save_load_menu: SaveLoadMenu  # Properly typed now
 var enemies: Array[Enemy] = []
@@ -126,6 +128,7 @@ func _ready():
 	create_initiative_tracker()
 	create_bottom_ui()
 	create_attack_preview()
+	create_gear_warning()
 	create_save_load_menu()  # Create save/load menu
 
 	# Get reference to grid overlay (it's created by dungeon_generator)
@@ -688,6 +691,17 @@ func create_attack_preview():
 	attack_preview = AttackPreviewScene.instantiate()
 	canvas_layer.add_child(attack_preview)
 	attack_preview.setup(player, bottom_ui)
+
+func create_gear_warning():
+	"""The HUD's warning about gear in use that is broken or on its last notch,
+	just above the bottom bar"""
+	var canvas_layer = CanvasLayer.new()
+	canvas_layer.name = "GearWarningLayer"
+	add_child(canvas_layer)
+
+	gear_warning = GearWarningScene.instantiate()
+	canvas_layer.add_child(gear_warning)
+	gear_warning.setup(player, bottom_ui)
 
 func create_save_load_menu():
 	"""Create save/load menu"""

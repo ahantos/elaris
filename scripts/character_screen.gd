@@ -4,8 +4,15 @@
 # moving a weapon between the two weapon sets, swapping the sets - and every
 # item used is a request to the CombatController, made through the character's
 # combatant (_request). In a fight the controller refuses changes of gear.
+# Wear is shown and mended here too: a segmented bar on every slot, the item
+# tooltip (scenes/ui/item_tooltip.tscn) and the field repair bench
+# (scenes/ui/repair_bench.tscn). A repair or a salvage is a request as well.
 extends Control
 class_name CharacterScreen
+
+const DurabilityBarScene := preload("res://scenes/ui/durability_bar.tscn")
+const ItemTooltipScene := preload("res://scenes/ui/item_tooltip.tscn")
+const RepairBenchScene := preload("res://scenes/ui/repair_bench.tscn")
 
 # Current character being displayed
 var current_character: CharacterStats
@@ -42,8 +49,12 @@ var drag_source_id: String = ""  # slot_id or inventory index
 var drag_preview: Control
 var is_dragging: bool = false
 
-# Tooltip
-var tooltip: PanelContainer
+# The tooltip of the item the pointer rests on, and the slot it belongs to
+var item_tooltip: Control
+var _hovered_slot: Button = null
+
+# Field repair: kits, scrap, where a piece is dropped to be mended or salvaged
+var repair_bench: Control
 
 func _ready():
 	setup_ui()
@@ -447,7 +458,14 @@ func create_inventory_panel() -> Panel:
 	gold_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	gold_label.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	content.add_child(gold_label)
-	
+
+	# Field repair: kits and scrap, and where a piece is dropped to be mended
+	# or salvaged
+	repair_bench = RepairBenchScene.instantiate()
+	repair_bench.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
+	content.add_child(repair_bench)
+	repair_bench.repair_all_pressed.connect(_on_repair_all_pressed)
+
 	return panel
 
 func create_inventory_slot(index: int) -> Button:
@@ -465,11 +483,15 @@ func create_inventory_slot(index: int) -> Button:
 	return button
 
 func _style_slot_button(button: Button):
-	"""Give a slot the two children that show an item - its icon, drawn at twice
-	its 32 pixels and unfiltered, and the stack count in the corner - and small
-	wrapped text for an item that has no icon."""
+	"""Give a slot the children that show an item - its icon, drawn at twice
+	its 32 pixels and unfiltered, the stack count in the corner, and along the
+	bottom edge the segmented bar of a piece that wears - and small wrapped text
+	for an item that has no icon. Resting the pointer on it shows the item's
+	tooltip."""
 	button.add_theme_font_size_override("font_size", 10)
 	button.clip_text = true
+	button.mouse_entered.connect(_on_slot_mouse_entered.bind(button))
+	button.mouse_exited.connect(_on_slot_mouse_exited.bind(button))
 
 	var icon_rect = TextureRect.new()
 	icon_rect.name = "ItemIcon"
@@ -493,10 +515,21 @@ func _style_slot_button(button: Button):
 	count_label.offset_right = -4
 	count_label.offset_bottom = -1
 
+	var wear_bar: Control = DurabilityBarScene.instantiate()
+	wear_bar.name = "DurabilityBar"
+	button.add_child(wear_bar)
+	wear_bar.set_anchors_and_offsets_preset(Control.PRESET_BOTTOM_WIDE)
+	wear_bar.offset_left = 4
+	wear_bar.offset_right = -4
+	wear_bar.offset_top = -10
+	wear_bar.offset_bottom = -3
+	wear_bar.show_item({})
+
 func _show_slot_item(button: Button, item_instance: Dictionary):
 	"""Fill a slot from an item instance: the icon with the stack count over it,
-	or the short name as text when the item has no icon. The tooltip is set either
-	way. An empty instance clears the slot."""
+	or the short name as text when the item has no icon, and the segmented bar
+	of a piece that wears. The slot remembers the item for its tooltip. An empty
+	instance clears the slot."""
 	var item_data: ItemData = item_instance.get("item_data")
 	var icon: Texture2D = item_data.icon if item_data != null else null
 	var stack: int = int(item_instance.get("stack_count", 1))
@@ -508,9 +541,15 @@ func _show_slot_item(button: Button, item_instance: Dictionary):
 	if count_label:
 		count_label.text = "x%d" % stack if (icon != null and stack > 1) else ""
 
+	var wear_bar: Control = button.get_node_or_null("DurabilityBar")
+	if wear_bar:
+		wear_bar.show_item(item_instance)
+
 	button.icon = null
 	button.text = "" if (item_data == null or icon != null) else _slot_label(item_instance)
-	button.tooltip_text = "" if item_data == null else _item_tooltip(item_instance)
+	button.set_meta("item", item_instance if item_data != null else {})
+	if button == _hovered_slot:
+		_show_tooltip_for(button)
 
 func _slot_label(item_instance: Dictionary) -> String:
 	"""Short two-line name for a slot: the last two words of the item name
@@ -530,11 +569,29 @@ func _slot_label(item_instance: Dictionary) -> String:
 	return label
 
 func _item_tooltip(item_instance: Dictionary) -> String:
-	"""Hover text for an item: name, what it does, weight, value, condition"""
+	"""An item's tooltip as one text, a line to a line: what the tooltip scene
+	shows, in the order it shows it"""
+	var parts: Dictionary = _item_tooltip_parts(item_instance)
+	var lines: Array = []
+	for key in ["title", "body", "condition", "debuffs", "buffs", "wear", "footer"]:
+		var part = parts.get(key, "")
+		if part is Array:
+			lines.append_array(part)
+		elif str(part) != "":
+			lines.append(str(part))
+	return "\n".join(lines)
+
+func _item_tooltip_parts(item_instance: Dictionary) -> Dictionary:
+	"""The words of an item's tooltip: {title, body (what it is and does),
+	condition (its notches and marks, for a piece that wears), broken, debuffs,
+	buffs (each with what it does), wear (the names of its plain lost notches),
+	footer (weight, value, description, what the pointer can do)}"""
+	var parts: Dictionary = {"title": "", "body": [], "condition": "", "broken": false, "debuffs": [], "buffs": [], "wear": "", "footer": []}
 	var item_data: ItemData = item_instance.get("item_data")
 	if item_data == null:
-		return ""
-	var lines: Array = [item_data.item_name]
+		return parts
+	parts["title"] = ItemDatabase.get_instance_name(item_instance)
+	var lines: Array = []
 	if item_data.damage_dice != "":
 		var damage := "Damage: " + item_data.damage_dice
 		if item_data.damage_type != "":
@@ -562,21 +619,30 @@ func _item_tooltip(item_instance: Dictionary) -> String:
 	if item_data.equip_slot != "":
 		lines.append("Slot: " + item_data.equip_slot.replace("_", " "))
 	var material: MaterialData = item_data.material
-	if material != null and (item_data.is_weapon or item_data.is_armor):
-		lines.append("Material: %s (%s)" % [material.material_name, material.get_kind()])
-		lines.append("Notches: %d   Hardness: %d" % [material.notches, material.hardness])
+	if DurabilityManager.wears(item_instance):
+		lines.append("Material: %s (%s), hardness %d" % [material.material_name, material.get_kind(), material.hardness])
 		if material.trait_id != "":
 			lines.append("Trait: %s" % material.get_trait_name())
+		parts["condition"] = DurabilityManager.get_condition_text(item_instance)
+		parts["broken"] = DurabilityManager.is_broken(item_instance)
+		parts["debuffs"] = DurabilityManager.get_debuff_lines(item_instance)
+		parts["buffs"] = DurabilityManager.get_buff_lines(item_instance)
+		var wear_names: Array[String] = DurabilityManager.get_wear_names(item_instance)
+		if not wear_names.is_empty():
+			parts["wear"] = "Signs of use: %s" % ", ".join(wear_names)
 	elif int(item_instance.get("max_charges", 0)) > 0:
 		lines.append("Charges: %d / %d" % [int(item_instance.get("charges", 0)), int(item_instance.get("max_charges", 0))])
-	lines.append("Weight: %s lb   Value: %d gp" % [str(snappedf(item_data.weight, 0.1)), item_data.base_value])
+	parts["body"] = lines
+
+	var footer: Array = ["Weight: %s lb   Value: %d gp" % [str(snappedf(item_data.weight, 0.1)), item_data.base_value]]
 	if item_data.description != "":
-		lines.append("")
-		lines.append(item_data.description)
+		footer.append(item_data.description)
 	if item_data.is_consumable or str(item_data.item_id).begins_with("scroll_") or str(item_data.item_id).begins_with("wand_"):
-		lines.append("")
-		lines.append("Right-click to use")
-	return "\n".join(lines)
+		footer.append("Right-click to use")
+	elif DurabilityManager.get_lost_notches(item_instance) > 0:
+		footer.append("To mend a notch: drag it onto REPAIR, or right-click it where it is worn")
+	parts["footer"] = footer
+	return parts
 
 func _armor_lines(item_data: ItemData) -> Array[String]:
 	"""What a piece of armour does for the armour class, by 5e rules: body
@@ -604,25 +670,57 @@ func _armor_lines(item_data: ItemData) -> Array[String]:
 	return lines
 
 func create_tooltip():
-	"""Create tooltip for item hover"""
-	tooltip = PanelContainer.new()
-	tooltip.visible = false
-	tooltip.z_index = 3000
-	tooltip.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	
-	var margin = MarginContainer.new()
-	margin.add_theme_constant_override("margin_left", 10)
-	margin.add_theme_constant_override("margin_right", 10)
-	margin.add_theme_constant_override("margin_top", 10)
-	margin.add_theme_constant_override("margin_bottom", 10)
-	tooltip.add_child(margin)
-	
-	var vbox = VBoxContainer.new()
-	vbox.add_theme_constant_override("separation", 5)
-	vbox.name = "TooltipContent"
-	margin.add_child(vbox)
-	
-	add_child(tooltip)
+	"""The tooltip of the item under the pointer: a scene of its own, shown and
+	placed by the sheet"""
+	item_tooltip = ItemTooltipScene.instantiate()
+	item_tooltip.visible = false
+	item_tooltip.z_index = 3000
+	add_child(item_tooltip)
+
+func _on_slot_mouse_entered(button: Button):
+	_show_tooltip_for(button)
+
+func _on_slot_mouse_exited(button: Button):
+	if button == _hovered_slot:
+		hide_tooltip()
+
+func show_tooltip_for_slot(slot_id: String):
+	"""Show the tooltip of what an equipment slot holds, as resting the pointer
+	on the slot does"""
+	if slot_buttons.has(slot_id):
+		_show_tooltip_for(slot_buttons[slot_id])
+
+func _show_tooltip_for(button: Button):
+	"""Show the tooltip of the item a slot holds, beside the slot; an empty
+	slot, or a drag in progress, shows none"""
+	var item = button.get_meta("item", {})
+	if is_dragging or not (item is Dictionary) or item.is_empty():
+		hide_tooltip()
+		return
+	_hovered_slot = button
+	item_tooltip.show_item(item, _item_tooltip_parts(item))
+	item_tooltip.visible = true
+	_place_tooltip()
+
+func hide_tooltip():
+	_hovered_slot = null
+	if item_tooltip:
+		item_tooltip.visible = false
+
+func _place_tooltip():
+	"""Beside the slot it belongs to: to its right, to its left when the screen
+	ends there, and never off the screen"""
+	if _hovered_slot == null or not is_instance_valid(_hovered_slot) or not item_tooltip.visible:
+		return
+	item_tooltip.reset_size()
+	var area: Rect2 = get_viewport_rect()
+	var slot: Rect2 = _hovered_slot.get_global_rect()
+	var tip_size: Vector2 = item_tooltip.size
+	var x: float = slot.end.x + 10.0
+	if x + tip_size.x > area.end.x - 8.0:
+		x = slot.position.x - 10.0 - tip_size.x
+	var y: float = clampf(slot.position.y, 8.0, maxf(8.0, area.end.y - 8.0 - tip_size.y))
+	item_tooltip.global_position = Vector2(maxf(8.0, x), y)
 
 # === PUBLIC METHODS ===
 
@@ -636,6 +734,7 @@ func show_character(character: CharacterStats):
 func hide_screen():
 	"""Hide the character screen"""
 	cancel_drag()
+	hide_tooltip()
 	visible = false
 	get_tree().paused = false
 
@@ -731,14 +830,17 @@ func refresh_stats():
 
 func _armor_class_lines(character: CharacterStats) -> Array[String]:
 	"""The parts of the armour class as lines for the sheet: '   Chain Mail 16',
-	'   Dexterity +2', '   Iron Shield +2'. The first part is the base and is
-	shown as it is; the rest are shown as what they add. A line after them
-	names armour worn without proficiency."""
+	'   Dexterity +2', '   Iron Shield +2', '   Worn armour, 2 notches lost -1'.
+	The first part is the base and is shown as it is; the rest are shown as
+	what they add. After them, what the debuffs on the gear in use cost, and
+	armour worn without proficiency."""
 	var lines: Array[String] = []
 	var parts: Array = character.get_armor_class_breakdown()
 	for i in range(parts.size()):
 		var value: int = int(parts[i].value)
 		lines.append("   %s %s" % [str(parts[i].label), str(value) if i == 0 else "%+d" % value])
+	for note in DurabilityManager.get_wearer_notes(InventoryManager.get_active_equipped_items(character)):
+		lines.append("   %s" % note)
 	if character.wears_untrained_armor():
 		lines.append("   No proficiency with %s:" % " or ".join(character.untrained_armor))
 		lines.append("   attacks at disadvantage, no spells")
@@ -769,6 +871,8 @@ func refresh_equipment():
 			# Normal single-item slots: icon, or the name when there is none
 			_show_slot_item(button, InventoryManager.get_equipped_item(current_character, slot_id))
 
+	_refresh_repair_bench()
+
 	# Which weapon set is in hand
 	var in_hand: int = InventoryManager.get_weapon_set(current_character)
 	for set_index in weapon_set_captions:
@@ -797,6 +901,20 @@ func refresh_inventory():
 	if gold_label:
 		gold_label.text = "Gold: %dg" % InventoryManager.gold
 
+	_refresh_repair_bench()
+
+func _refresh_repair_bench():
+	"""Show the repair bench what the pack holds, and whether the controller
+	would let everything worn be repaired now"""
+	if repair_bench == null or current_character == null:
+		return
+	var refusal: String = ""
+	var user = _find_combatant(current_character)
+	var world = GameManager.world
+	if user != null and world != null and is_instance_valid(world) and world.combat != null:
+		refusal = str(world.combat.check_action(user, CombatController.ACTION_REPAIR_ALL).reason)
+	repair_bench.refresh(current_character, refusal)
+
 # === DRAG AND DROP SYSTEM ===
 
 func _on_equipment_slot_gui_input(event: InputEvent, slot_id: String):
@@ -812,6 +930,22 @@ func _on_equipment_slot_gui_input(event: InputEvent, slot_id: String):
 				# Release events are delivered to the control that was pressed,
 				# so resolve the actual drop target from the mouse position
 				_end_drag_at_mouse()
+		elif event.button_index == MOUSE_BUTTON_RIGHT and event.pressed and not is_dragging:
+			repair_slot(slot_id)
+
+func repair_slot(slot_id: String):
+	"""Right-click on an equipment slot: ask for one notch of the piece it
+	holds to be mended"""
+	var equipped: Dictionary = InventoryManager.get_equipped_item(current_character, slot_id)
+	if equipped.is_empty() or not DurabilityManager.wears(equipped):
+		return
+	_request(CombatController.ACTION_REPAIR, {"item": equipped})
+	refresh_all()
+
+func _on_repair_all_pressed():
+	"""The bench's button: ask for everything worn to be mended"""
+	_request(CombatController.ACTION_REPAIR_ALL)
+	refresh_all()
 
 func _on_inventory_slot_gui_input(event: InputEvent, index: int):
 	"""Handle inventory slot drag and drop (left) and item use (right-click)"""
@@ -881,8 +1015,16 @@ func _find_combatant(character: CharacterStats) -> Combatant:
 	return null
 
 func _end_drag_at_mouse():
-	"""Route the drop to whichever slot is under the mouse cursor"""
+	"""Route the drop to whichever slot is under the mouse cursor, or to the
+	repair bench"""
 	var mouse_pos = get_global_mouse_position()
+
+	if repair_bench.is_over_repair(mouse_pos):
+		end_drag_on_repair()
+		return
+	if repair_bench.is_over_salvage(mouse_pos):
+		end_drag_on_salvage()
+		return
 
 	# Check equipment slots
 	for slot_id in slot_buttons:
@@ -902,6 +1044,7 @@ func _end_drag_at_mouse():
 
 func start_drag(item: Dictionary, source_type: String, source_id: String):
 	"""Start dragging an item"""
+	hide_tooltip()
 	dragging_item = item
 	drag_source_type = source_type
 	drag_source_id = source_id
@@ -974,6 +1117,26 @@ func end_drag_on_inventory(_target_index: int):
 
 	cancel_drag()
 
+func end_drag_on_repair():
+	"""An item was dropped on the bench's REPAIR: ask for one notch of it to be
+	mended, wherever it came from"""
+	if not is_dragging or dragging_item.is_empty():
+		return
+	var item: Dictionary = dragging_item
+	cancel_drag()
+	_request(CombatController.ACTION_REPAIR, {"item": item})
+	refresh_all()
+
+func end_drag_on_salvage():
+	"""An item was dropped on the bench's SALVAGE: ask for it to be turned into
+	scrap. What is worn has to be taken off first: the controller says so."""
+	if not is_dragging or dragging_item.is_empty():
+		return
+	var item: Dictionary = dragging_item
+	cancel_drag()
+	_request(CombatController.ACTION_SALVAGE, {"item": item})
+	refresh_all()
+
 func cancel_drag():
 	"""Cancel drag operation"""
 	is_dragging = false
@@ -986,9 +1149,11 @@ func cancel_drag():
 		drag_preview = null
 
 func _process(_delta):
-	"""Update drag preview position each frame"""
+	"""Update drag preview position each frame, and keep the tooltip beside its slot"""
 	if is_dragging:
 		update_drag_preview_position()
+	if item_tooltip and item_tooltip.visible:
+		_place_tooltip()
 
 # === SIGNAL HANDLERS ===
 
