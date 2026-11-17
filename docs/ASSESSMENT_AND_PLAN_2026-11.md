@@ -866,6 +866,17 @@ Under discussion since 2026-11-17. Nothing is decided.
   The fighter exists in it as nine layers at 32 by 32 and at 32 by 48. Those files
   are still in a temporary folder and need a home in the repo before real art
   starts.
+- For sound, later: Ákos pointed to `uilianks/chirp` (MIT, same author as the
+  drawing tool) on 2026-11-17, saying "you'll need this for later". It makes game
+  sound effects and looping chiptune music from code, exports WAV (with loop
+  points Godot reads) and OGG, and ships as a skill. Needs Node 22.18 or newer,
+  and ffmpeg for OGG. Not looked at beyond its description; not installed.
+- Theory. Asked whether the drawing tool gives any pixel-art theory: very little
+  (a few habits and a lint). Ákos: "the theory will definitely move the needle,
+  but you'll need a BIG dose of it." A first attempt at applying one rule
+  mechanically (hue-shifted colour ramps on the tall fighter) did not improve it:
+  the leather went khaki and the face pale. Rules need a studied style and
+  judgement, not a formula.
 - Animation principle he proposed, and the one to use: the body is a few sections
   (head, torso, each arm, legs), each piece of gear belongs to one section, and
   animation moves the sections so the gear rides along. His other project
