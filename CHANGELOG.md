@@ -4,6 +4,59 @@ All notable changes and session notes documented here.
 
 ---
 
+## [Session - November 17, 2026] - Phase 2, step 5: Gear Wears
+
+### Added
+- Notches. Every weapon, shield, body armour, helmet and piece in the shoulder,
+  back, wrist, hands, waist, legs and feet slots has notches: its material's
+  count, one more when masterforged, one more for each plus of magic. Neck, rings
+  and trinkets do not wear. At no notches a piece is broken: it gives nothing, a
+  broken weapon cannot attack, and nothing is ever destroyed.
+- What a lost notch costs. Every second one costs a weapon 1 to hit and medium or
+  heavy armour 1 armour class; light armour and shields keep their bonus until the
+  last notch goes.
+- Wear marks. A fight leaves one mark for every two rounds on everything used in
+  it: the weapon that attacked, the armour and shield of whoever was attacked. At
+  the material's hardness times 3 a piece loses a notch (times 6 for the seven
+  secondary slots).
+- Blows. A critical hit takes a notch from the shield, or without one from the body
+  armour two times in three and another worn piece otherwise; two notches from a
+  two-handed or bludgeoning weapon. A natural 1 takes one from the attacker's
+  weapon. Hardness is compared where two pieces meet: a striker harder by 2 takes
+  one more, a piece harder by 2 takes a mark and no notch. Magic gear has a small
+  chance to ignore a notch lost to a blow.
+- Debuffs, which come only with a lost notch and go with any repair: cracked,
+  breached, dented, torn, chipped. Buffs, which stay: Battle-Honed, Blood-Forged,
+  Mage-Touched, Dragon-Hardened (the last two cannot be earned until enemies cast
+  spells and breathe fire).
+- Field repair on the character sheet, outside a fight. A repair kit and one unit
+  of scrap of the piece's kind, at least as hard, restore one notch. Salvaging a
+  spare piece gives scrap. One button repairs everything worn while kits and scrap
+  last. Every character starts with two kits; kits turn up in loot.
+- Ageing: every repaired notch ages a piece, and enough age costs it a maximum
+  notch, never the last.
+- Looted weapons and armour arrive worn, having lost up to half their notches.
+- A party member's critical hit notches an enemy's shield or armour and lowers its
+  armour class. Goblins carry a wooden shield and bandits wear leather for this.
+- On screen: a segmented bar on every slot of the sheet and in the item tooltip, a
+  tooltip that lists each debuff and buff with what it does, the cost of wear in
+  the armour class breakdown and in the attack readout, a line on the HUD for a
+  piece that is broken or on its last notch, and a combat log line and a toast
+  whenever a piece loses a notch, breaks, is repaired or earns a buff.
+
+### Changed
+- The old durability points are gone. Save format 5 converts them to notches in
+  proportion; wands keep their charges under a name of their own.
+- Enemy attacks have a damage type: goblins, skeletons and bandits slash, wolves
+  pierce. They were untyped before.
+- Cloaks and belts are made of wool and cowhide, because their slots wear.
+- The unused gold-and-material repair in the crafting manager is removed.
+
+### Checks
+- 506 smoke checks, up from 417, and 38 screenshots.
+
+---
+
 ## [Session - November 17, 2026] - Phase 2, step 4: Damage, Armour Class, Materials, Weapon Sets
 
 ### Added

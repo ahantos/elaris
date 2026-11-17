@@ -18,8 +18,8 @@ called `CURRENT_WORK.md` until Phase 1. The plan it tracks is in section 7 of
   `main`; `main` is still the June commit. The durability design commits on
   `phase-1-game-shell` after that push, and all of `phase-2-combat-core`, are
   local only.
-- `tools\run_checks.bat` passes at the step 4 merge on `phase-2-combat-core`: 417
-  smoke checks, no engine errors, 33 screenshots.
+- `tools\run_checks.bat` passes at the step 5 merge on `phase-2-combat-core`: 506
+  smoke checks, no engine errors, 38 screenshots.
 - Standing agreement since 2026-11-16: commit as work proceeds, on the phase branch.
   Push and merge only when Ákos asks.
 - Two folders sit next to the repo since 2026-11-17. `..\elaris-worktrees\` holds
@@ -37,10 +37,24 @@ called `CURRENT_WORK.md` until Phase 1. The plan it tracks is in section 7 of
    questions for him. Phase 2 is the same whichever level he picks.
 1. **Play the Phase 1 build:** menu, new game, save, load, die, load again. Say what
    feels wrong.
-2. **Durability: done for Phase 2.** The design was settled with him on 2026-11-17
-   from his homebrew system and is written up in section 8 of the plan, small items
-   included. Left for later, by his choice: material traits. Left for their phases:
-   climate (Phase 3) and what worn gear does socially (Phase 4).
+2. **Durability: built (step 5). Play it and say how it feels.** The design is in
+   section 8 of the plan. Left for later, by his choice: material traits. Left for
+   their phases: climate (Phase 3) and what worn gear does socially (Phase 4).
+   Things to watch for while playing, none of them retuned (the simulator does
+   that at step 10); the numbers are estimates worked out from the rules for
+   fights of about four rounds, not measurements:
+   - A starting fighter's gear is wrought iron: two notches a piece. Its shield
+     should break after three or four fights, its sword after five or six, its
+     armour after about nine. A copper sword lasts as long as the wrought iron
+     one. A steel sword (four notches) should last about 27 fights against the
+     present enemies, none of which is hard enough to notch it on a natural 1.
+   - A character starts with two repair kits and no scrap. Nothing can be
+     repaired until a spare piece has been salvaged.
+   - The repair that brings a piece's age to its limit restores the notch and
+     takes a maximum notch in the same moment, so that kit seems to do nothing.
+   - A critical hit with a two-handed or bludgeoning weapon takes two notches, so
+     it always cracks the piece as well, and a cracked piece breaks on the next
+     critical hit.
 3. **During Phase 2:** play each step's build when it lands, and give the win-rate
    band the simulator should aim for at levels 1 to 3 (needed at step 10).
 3a. **Resting rules.** He wants them; a separate discussion, not started. His
@@ -64,8 +78,8 @@ exit test are in section 7 of the plan; the durability rules are in section 8.
 | 2 | Turn resources (movement, action, bonus action, reaction) and the action bar: Attack with the equipped weapon, Dash, Disengage, Dodge, End Turn | Done 2026-11-17. Built on `phase-2-step-2`, reviewed, merged. Not yet played by Ákos |
 | 3 | Ranged attacks: range, line of sight, targeting, hit chance shown before committing | Done 2026-11-17. Built on `phase-2-step-3`, reviewed, merged. Not yet played by Ákos |
 | 4 | One damage pipeline with types, resistance, vulnerability and hooks; 5e armour class; armour and material data reworked so materials add no stats; two weapon sets swapped with an action; the smaller fixes from step 3 (longbow range, cover) | Done 2026-11-17. Built on `phase-2-step-4`, reviewed, merged. Save format is now 4. Not yet played by Ákos |
-| 5 | Durability as designed: notches, marks, blows, hardness, debuffs, buffs, field kits and scrap, ageing, the segmented bar | Being built on branch `phase-2-step-5` by a background agent (started 2026-11-17), in the working copy at `C:\Users\Akos\Documents\GitHub\elaris-worktrees\step5`. Not yet reviewed or merged. If the session that started it has ended: look at `git status` and `git log phase-2-combat-core..phase-2-step-5` in that working copy, run the checks there, finish or review, then merge |
-| 5b | The figure on the map shows what the character is wearing, so a broken or missing piece is visible (agreed 2026-11-17). It will use the animation rig's data and waits for Ákos's decision on the rig (see "Art track") | Not started |
+| 5 | Durability as designed: notches, marks, blows, hardness, debuffs, buffs, field kits and scrap, ageing, the segmented bar | Done 2026-11-17. Built on `phase-2-step-5`, reviewed, merged. Save format is now 5. Not yet played by Ákos |
+| 5b | The figure on the map shows what the character is wearing, so a broken or missing piece is visible (agreed 2026-11-17). It will use the animation rig's data and waits for Ákos's decision on the rig (see "Art track") | Not started. Put off with the rest of the art track by Ákos on 2026-11-17 ("can come later"); the steps after it do not depend on it |
 | 6 | Bestiary as data (goblin, skeleton, bandit, wolf, one boss); behaviours (rusher, archer, caster, pack); perception by line of sight; encounters by budget | |
 | 7 | Companions as party combatants that enemies target, driven by the same behaviours. Settle here, by Ákos playing both, whether companions default to player control or to acting on their own (he wondered on 2026-11-17 whether anyone wants to control four characters, then left the decision as it stands; my lean is AI by default because fights are frequent and small) | |
 | 8 | Readability: movement range, valid targets, status icons, a working turn-order bar, faster enemy turns | |
@@ -107,7 +121,9 @@ of the plan under "Own art: how it gets made"; this is only where things stand.
     rig), the rough machine-turned limbs, or any timing question. The data format,
     tools, checks, angle set, joint ranges, all eight limb parts and the five
     animation files carry over.
-- Step 5 of Phase 2 puts worn gear on the map figure and will use the rig's data.
+- Step 5b of Phase 2 puts worn gear on the map figure and will use the rig's data.
+- On 2026-11-17 Ákos put the rig decision and everything else in the art track off
+  until later. Nothing here is waiting on work; it is waiting on him.
 
 ## Homebrew source document
 
@@ -139,9 +155,13 @@ What has been read, as of 2026-11-17:
 
 - Main menu, character creation as the start of a new game (with a skill choice),
   pause menu on ESC, settings, game-over screen.
-- Seeded dungeons and save format 3: a save restores the same dungeon, the living
-  enemies with their wounds, ground loot, the explored map, quests and companions.
-  Loading wipes all state and starts a fresh World scene. Older saves are migrated.
+- Seeded dungeons and save format 5: a save restores the same dungeon, the living
+  enemies with their wounds and the state of their gear, ground loot, the explored
+  map, quests and companions. Loading wipes all state and starts a fresh World
+  scene. Older saves are migrated.
+- Gear that wears: notches, wear marks, critical hits and natural 1s that notch a
+  piece, debuffs and buffs, field repair with kits and scrap on the character
+  sheet (I), a bar on every piece and a warning on the HUD.
 - Autosave on new game and zone travel; Continue loads the newest save.
 - No saving in combat or after death; overwriting a slot takes a second click.
 - 32-pixel grid and placeholder art for every tile, creature, companion and item,
@@ -174,8 +194,17 @@ pulling the combat loop out of `world.gd`. Scope and exit test are in the plan.
 ## Known and deliberately left for later
 
 - No ammunition and no thrown weapons.
-- Item instances still carry the old durability points, and `repair_item` has no
-  caller (step 5 replaces both with notches).
+- Durability, left for its phase: there is no smith, so nothing clears wear marks
+  and nothing repairs for gold (Phase 4); no forge, so nothing clears age or
+  erases a buff; material traits do nothing; a broken secondary piece costs
+  nothing until climate exists (Phase 3); acid, rust, fire and cold do not wear
+  gear, and sunder is not an action.
+- Durability, smaller: enemy weapons do not wear (an enemy's natural 1 costs it
+  nothing); Mage-Touched and Dragon-Hardened cannot be earned, because nothing
+  casts or breathes yet; companions' gear wears only if they have any equipped,
+  and it is not saved (step 7).
+- Toasts are drawn over the top of the pack while the character sheet is open, so
+  a run of repair messages covers the first row of items for a few seconds.
 - The rogue's armour class fell from 15 to 13 when armour class became 5e's, so a
   starting enemy hits a rogue 55% of the time instead of 45%. Nothing was retuned
   (step 10).
