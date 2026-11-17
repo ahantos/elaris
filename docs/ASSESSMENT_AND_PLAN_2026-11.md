@@ -849,6 +849,23 @@ Under discussion since 2026-11-17. Nothing is decided.
   figure was drawn this way, with the far arm behind the torso and the near arm in
   front of it. This replaces the first line of this section's "figures drawn
   facing the viewer".
+- Figure size, decided by Ákos on 2026-11-17: figures are 32 wide and 48 tall on
+  the 32-pixel map grid. A figure stands on one tile and overlaps the tile above
+  it, so the game must draw figures sorted by their feet. The grid, the tiles and
+  the placeholder art stay at 32. He asked whether to raise the whole resolution
+  because 32 by 32 felt "very limited"; a bigger grid was turned down because it
+  shows fewer tiles on screen, makes every tile and monster cost more to draw, and
+  no longer fits the placeholder set, while the taller figure gives the detail
+  where it was missing. Item pictures in the inventory can be larger than a tile,
+  in slots of different sizes.
+- The tool in use for drawing since 2026-11-17 is `uilianks/pxl` (MIT), found by
+  Ákos: art written as text grids, with per-layer export, mirroring, palette
+  swaps, a lint for stray pixels and jagged lines, Godot export, and a live viewer
+  in which he can paint marks and pin notes that Claude reads back. Its code was
+  read before it was run; it was run from a scratch copy and is not installed.
+  The fighter exists in it as nine layers at 32 by 32 and at 32 by 48. Those files
+  are still in a temporary folder and need a home in the repo before real art
+  starts.
 - Animation principle he proposed, and the one to use: the body is a few sections
   (head, torso, each arm, legs), each piece of gear belongs to one section, and
   animation moves the sections so the gear rides along. His other project
