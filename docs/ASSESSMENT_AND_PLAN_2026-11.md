@@ -488,8 +488,9 @@ His requirements, which outrank any single rule below:
 
 #### Notches
 
-- Weapons, shields, body armour and helmets have notches. Nothing else wears. (Which
-  slots wear is carried over from the first sketch and was not discussed again.)
+- Weapons, shields, body armour and helmets have notches. Nothing else wears: not
+  the neck, shoulder, back, wrist, hands, waist, legs or feet slots, nor rings and
+  trinkets. (Confirmed by him.)
 - The count comes from the material: the durability score in his tables divided by
   about 8. Copper 2, bronze 3, steel 4, Damascus steel 5, mythril 6, adamantite 8.
 - Masterforged adds one notch. Each plus of magic adds one.
@@ -591,6 +592,9 @@ His requirements, which outrank any single rule below:
 
 - A field kit restores one notch on one piece, out of combat. It is paid for in
   kits and in scrap salvaged from loot, not gold.
+- The scrap must be the same kind as the piece (metal, wood, leather or cloth) and
+  at least as hard. Steel scrap patches bronze; copper cannot patch adamantite. The
+  kit picks suitable scrap by itself. (Confirmed by him.)
 - The smith restores everything for gold: a set fraction of the item's value. The
   numbers belong to Phase 4, with the shops.
 - Any repair of a piece clears its debuffs.
@@ -630,9 +634,8 @@ His requirements, which outrank any single rule below:
 
 #### Target and dials
 
-- Working target for one dungeon run, proposed and not yet confirmed by him: cheap
-  gear breaks unless repaired or swapped, steel comes home damaged, the best gear
-  comes home merely worn.
+- Target for one dungeon run, confirmed by him: cheap gear breaks unless repaired or
+  swapped, steel comes home damaged, the best gear comes home merely worn.
 - Dials for the simulator: the marks factor; the divisor of 8; the hardness gap of
   2; the extra notch for two-handed and bludgeoning weapons; the magic resist
   chances; kills needed for each buff; age points per lost maximum notch; what a kit
@@ -642,16 +645,14 @@ His requirements, which outrank any single rule below:
 
 None of these blocks the Phase 2 hooks.
 
-- Medium and heavy armour: at least +1 until broken (proposed above).
-- Material traits: kept, or out along with the stat bonuses.
+- What a lost notch costs armour. He doubts -1 AC per notch: "i dunno if that 1 ac
+  for each notch isn't too harsh". Put to him: -1 AC for every second lost notch,
+  with at least +1 until the piece breaks. Whether weapons (-1 to hit per notch)
+  should soften the same way is part of the same question.
 - Whether the magic resist chance also applies to a notch lost through marks.
-  Proposed: yes, one rule for any lost notch.
-- What scrap a kit needs. Proposed: the same kind (metal, wood, leather, cloth) and
-  at least as hard as the piece, so steel scrap patches bronze but copper cannot
-  patch adamantite.
-- Which slots wear: weapons, shields, body armour and helmets, as in the first
-  sketch.
-- The run target.
+  Put to him: no, blows only, so marks stay fully predictable.
+- Material traits: kept, or out along with the stat bonuses. He deferred it ("we
+  can talk about traits later").
 - Resting rules. A separate discussion; it includes whether anything clears marks.
 
 #### How this was arrived at
