@@ -525,7 +525,7 @@ His requirements, which outrank any single rule below:
 
 | Event | Loss |
 |---|---|
-| A critical hit against you | 1 notch from your shield, otherwise your body armour; 2 from a two-handed or bludgeoning weapon |
+| A critical hit against you | 1 notch from your shield. Without a shield: two times in three from your body armour, one time in three from another worn armour piece picked at random. 2 notches from a two-handed or bludgeoning weapon |
 | Your natural 1 on an attack | 1 notch from your weapon |
 | Your critical hit on an armoured enemy | 1 notch from its shield or armour |
 | Sunder, acid, rust | Notches directly |
@@ -550,6 +550,28 @@ His requirements, which outrank any single rule below:
 - Acid and rust ignore hardness. They go by material traits (mythril rustproof,
   tantalum acid-resistant).
 - Creatures have a hardness for natural weapons and for hide, set in the bestiary.
+
+#### The seven secondary armour slots
+
+Shoulder, back, wrist, hands, waist, legs and feet. Agreed 2026-11-17.
+
+- They give no armour class. Body armour and shield set it, as in 5e.
+- In a fight they take one critical hit in three for a wearer without a shield
+  (the blows table). The share is a dial. It was chosen so the body armour still
+  takes most critical hits and a shield stays the better protection. Spreading
+  critical hits evenly over all worn armour was rejected: a notch on a secondary
+  piece costs nothing until the piece breaks and the first lost notch is free
+  everywhere, so it protected body armour too much.
+- From Phase 3 they are the wearer's protection from the elements, using his
+  weather rule: three layers (base clothing; an insulated layer of fur, wool or a
+  cloak; waterproofing such as an oiled cloak or waxed boots). A place needs so
+  many layers, and an underdressed character makes Constitution saves against
+  exposure, then exhaustion. A broken piece stops counting.
+- From Phase 4 they can matter socially. Not designed.
+- Known gap: until Phase 3 a broken secondary piece costs nothing.
+- Upkeep: a character has about eleven wearing pieces instead of four. These slots
+  use a slower marks factor, and kits and the smith get a repair-all action.
+  (Assumed; he was told and did not object.)
 
 #### Magic and craftsmanship
 
@@ -651,28 +673,11 @@ His requirements, which outrank any single rule below:
 
 None of these blocks the Phase 2 hooks.
 
-- What the seven secondary armour slots give, now that they wear and 5e armour
-  class comes from body armour and shield. His pointers: "in my system they
-  interacted with weather and cold and shit, plus i guess they could interact with
-  social things too." His weather rule is three layers (base clothing; an
-  insulated layer of fur, wool or a cloak; waterproofing such as an oiled cloak or
-  waxed boots). Each kind of weather needs so many layers, and an underdressed
-  character makes Constitution saves against exposure, then exhaustion.
-- Which piece a critical hit lands on. Spreading crits evenly over all worn armour
-  protects body armour too much (his objection, and the arithmetic agrees): a
-  notch on a secondary piece costs nothing until the piece breaks, and the first
-  lost notch is free on every piece. He still likes the idea ("sounded
-  interesting but maybe there is no way to make it work"). Put to him: the shield
-  takes the notch as before; without a shield, two crits in three hit the body
-  armour and one in three lands on one of the other worn armour pieces, picked at
-  random. The share is a dial. The blows table above still says shield, otherwise
-  body armour.
-- Upkeep for the seven secondary slots. A character goes from about four pieces to
-  keep up to about eleven. Proposed: a slower marks factor for those slots, and a
-  repair-all action for kits and the smith.
 - Material traits: kept, or out along with the stat bonuses. He deferred it ("we
   can talk about traits later").
 - Resting rules. A separate discussion; it includes whether anything clears marks.
+- Climate for places, which the secondary slots protect against (Phase 3), and
+  what worn gear does socially (Phase 4). Neither is designed.
 
 #### How this was arrived at
 

@@ -30,13 +30,10 @@ called `CURRENT_WORK.md` until Phase 1. The plan it tracks is in section 7 of
    questions for him. Phase 2 is the same whichever level he picks.
 1. **Play the Phase 1 build:** menu, new game, save, load, die, load again. Say what
    feels wrong.
-2. **Durability: small confirmations.** The design was settled with him on
-   2026-11-17 from his homebrew system and is written up in section 8 of the plan.
-   What is left is listed there under "Still to confirm or decide": three points he
-   did not object to but did not explicitly confirm (magic gives both extra notches
-   and a resist chance; materials stop adding damage and AC; light armour keeps its
-   bonus until the last notch), the target for one dungeon run, and what scrap a
-   field kit needs. None of it blocks Phase 2.
+2. **Durability: done for Phase 2.** The design was settled with him on 2026-11-17
+   from his homebrew system and is written up in section 8 of the plan, small items
+   included. Left for later, by his choice: material traits. Left for their phases:
+   climate (Phase 3) and what worn gear does socially (Phase 4).
 3. **Go for Phase 2.** All of it can now be built, durability included. The numbers
    are tuned in the simulator once it exists.
 3a. **Resting rules.** He wants them; a separate discussion, not started. His
