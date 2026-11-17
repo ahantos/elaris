@@ -71,6 +71,32 @@ exit test are in section 7 of the plan; the durability rules are in section 8.
 | 9 | `AStarGrid2D` pathfinding; an input map with rebindable actions | |
 | 10 | Headless combat simulator; tune the durability dials and encounter budgets against the run target | |
 
+## Art track
+
+Runs beside Phase 2 since 2026-11-17. The decisions and the method are in section 8
+of the plan under "Own art: how it gets made"; this is only where things stand.
+
+- **Style: settled.** The rendered barbarian, `art_work/barbarian/a1.px.js`. The
+  final longsword is `art_work/items/longsword_final.png`.
+- **Method: settled** by a bake-off (`art_work/bakeoff/`). Drawn with the `pxl`
+  tool by an agent that does nothing else, applying `docs/art/PIXEL_ART_THEORY.md`
+  in rounds of render, look and fix. Aseprite is not part of the pipeline.
+- **Animation rig: in progress** in `art_work/rig/` (not committed yet), by a
+  background agent started 2026-11-17. Ákos is shown each part when it is finished,
+  never mid-way, and judges motion by watching, which the agent cannot do.
+  - Done and seen: the parts and pivots (`final_rig.png`); joint ranges with a
+    check, after he spotted an elbow bending backwards; a first idle ("isn't bad")
+    and a second with the lower body moving (`final_idle2`, not yet judged); a
+    first walk, which he found "choppy" and "a little silly", moving too much.
+  - Still to come from that agent: a calmer second walk (`final_walk2`), then the
+    attack swing.
+  - **His open decision:** he expects a rig drawn as fully separate parts from the
+    start to be better than this one, where head, torso and hips are still slices
+    of the standing figure. After he has seen the second walk and the swing, if he
+    still says so, build that rig and compare the same three animations. The
+    pivots, joint ranges, gear attachment, angle set and data format carry over.
+- Step 5 of Phase 2 puts worn gear on the map figure and will use the rig's data.
+
 ## Homebrew source document
 
 `C:\Users\Akos\Downloads\Elaris Gameplay.md` is Ákos's tabletop supplement: 10,154
