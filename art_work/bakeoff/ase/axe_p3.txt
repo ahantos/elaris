@@ -1,0 +1,38 @@
+# Bearded axe, pass 3: edits to the layer already in a1_doll.aseprite.
+# Seen in pass 2: lower down the head still read as part of the helmet and hid the fur
+# on the shoulder. So: back to the top of the haft, but the upper half of the haft
+# leans one pixel back and the edge stops at x10, which leaves two clear pixels to the
+# helmet on every row but one. Head tones regrouped into clusters (two orphans in pass 2).
+# erase the pass-2 head and the upper haft
+row 4  4 ________
+row 5  4 ________
+row 6  4 ________
+row 7  4 ________
+row 8  4 ________
+row 9  4 ________
+row 10 4 ________
+row 11 4 ________
+row 12 4 ________
+row 13 4 ________
+row 14 4 ________
+row 15 4 ________
+# upper haft, one pixel further back, and the head on it
+row 1  4 Wy
+row 2  3 LWy..34
+row 3  3 12334445
+row 4  3 01233445
+row 5  3 01223345
+row 6  3 LWy13345
+row 7  3 LWy.1345
+row 8  3 LWy.1345
+row 9  3 LWy..135
+row 10 3 LWy...15
+row 11 3 LWy....1
+row 12 3 LWy
+row 13 3 LWy
+# lower haft back in place
+row 14 4 LWy
+row 15 4 LWy
+# plain wood below the fist
+row 31 4 LWy
+row 32 4 LWy

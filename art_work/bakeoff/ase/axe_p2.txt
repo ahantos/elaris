@@ -1,0 +1,34 @@
+# Bearded axe, pass 2: edits to the layer already in a1_doll.aseprite.
+# Seen in pass 1: the head sat beside the helmet and the two steel shapes read as one;
+# the beard was only a one-pixel notch. So: the haft is cut three rows shorter, the
+# head moves down to sit between helmet and shoulder, and the beard hangs clear.
+# erase the old head and the top of the haft
+row 1  4 ________
+row 2  4 ________
+row 3  4 ________
+row 4  4 ________
+row 5  4 ________
+row 6  4 ________
+row 7  4 ________
+row 8  4 ________
+row 9  4 ________
+row 10 4 ________
+row 11 4 ________
+# new head: upper horn, socket (rows 7-9), then the beard dropping away from the haft
+row 4  5 Wy
+row 5  4 LWy
+row 6  4 LWy..34
+row 7  4 12334445
+row 8  4 01233445
+row 9  4 01223345
+row 10 4 LWy12345
+row 11 4 LWy.1345
+row 12 4 LWy.1245
+row 13 4 LWy..135
+row 14 4 LWy..024
+row 15 4 LWy...02
+# a leather binding where the fist grips, above and below it
+row 25 4 lLmm
+row 26 4 lLmm
+row 31 4 lLm
+row 32 4 LWy

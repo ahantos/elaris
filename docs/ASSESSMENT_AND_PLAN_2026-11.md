@@ -903,6 +903,29 @@ Under discussion since 2026-11-17. Nothing is decided.
   saw that "sword bends": it was redrawn by hand at each angle, so its length and
   shape change between frames. A weapon must be drawn once per fixed angle from one
   master, at the same length, and the rig picks the angle.
+- **The method, settled by the bake-off** (finished 2026-11-17; everything is in
+  `art_work/bakeoff/`, with `bakeoff.png` as the overview and `notes.md` as the
+  recipe):
+  - Layered figures: drawn as text grids in `pxl`, applying the theory reference
+    in rounds of render, look and fix, with the pose and build taken from a real
+    picture first. Draw from the model figure, not from a description.
+  - Item pictures: the model figure's colour ramps and blade recipe; check the
+    proportions against a real item before drawing.
+  - Animation: a rig (being built in `art_work/rig/`); poses drawn at fixed
+    angles, never free rotation; someone has to watch it play, because the agent
+    can only judge frames laid side by side.
+  - Aseprite: tested by drawing an axe inside it from the first pixel and building
+    the swing as an Aseprite file. It does not change the quality of the drawing,
+    only the workflow. It is the better container for hand fixes, layer switching,
+    palette swaps and animation timing; `pxl` is better for placing and checking
+    pixels, because it has a lint and a text source that can be compared. So:
+    draw in `pxl`, export to Aseprite files for Ákos to edit by hand. Hand edits
+    made in Aseprite do not flow back into the text source.
+  - Generators and reference-first drawing gave a bolder pose but a plainer
+    finish; monsters and effects were not tested.
+  - Every exported image and animation is read back and compared with its source,
+    after one animation was saved with a scrambled colour table and one import
+    silently produced empty layers.
 - What produced it, as opposed to the plain figures before: the theory applied
   deliberately; several rounds of looking at the rendered result on a review sheet
   (four sizes on two floor colours, a greyscale copy, a silhouette, a mirror, and

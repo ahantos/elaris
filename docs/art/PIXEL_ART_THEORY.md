@@ -31,6 +31,48 @@ A working reference for hand-placed sprites: 32×48 side-facing paper-doll figur
 
 ---
 
+## 0a. What the first figures taught (2026-11-17)
+
+Added after this reference was used to draw the first barbarian, a second chunkier
+one, a longsword, an axe and a swing animation. The owner chose the first
+barbarian's rendered style; `art_work/barbarian/a1.px.js` is the model to match.
+
+**Rules that made a visible difference, in this order:**
+
+1. The steel recipe: a dark band beside near-white.
+2. One light, with cast shadows under every overhang and far limbs a step darker.
+3. No stray pixels: fix by coordinates from the text dump until the lint is clean.
+4. A dark contour on the shade side only; lit edges carry none.
+5. The head layout with a brow-shadow row.
+6. Checking the figure against both floor colours, which forced a better blade.
+
+**Rules that made little difference at this size:** wear marks, top-to-bottom
+falloff, reflected light, hand anti-aliasing and dithering.
+
+**Corrections to this document:**
+
+- **Fur (5.6) as written gives checkerboard noise.** Use a dark base with a few
+  lighter streaks that follow the lie of the fur. Do not alternate pixels.
+- **Add a gate before any shading:** the figure must already read as five to seven
+  flat shapes, each at least four pixels across, with the weapon on a diagonal.
+  The first barbarian skipped this and came out well rendered but stiff.
+- **Check an item's proportions against a real one before drawing.** The first
+  longsword was drawn seven pixels wide and read as a short arming sword.
+
+**How the model figure was made:** light direction written at the top of the file;
+one shared near-black and four tones per material; the bare body first, with
+contour on the back and underside only; each gear piece drawn over it one pixel
+proud, dark on its lower and back edge, light on its upper and front edge; a blade
+four pixels across (soft edge, dark band, lit plane, bright edge); after every
+build, a review sheet at four sizes on both floors with a greyscale copy, a
+silhouette and a mirror; fix only the first checklist failure each round. Six
+rounds. The full recipe is in `art_work/bakeoff/notes.md`.
+
+**Animation:** sliding the standing figure's layers is not enough. The figure needs
+a rig, cut at the joints (see section 9 and `art_work/rig/`).
+
+---
+
 ## 1. Fundamentals at low resolution
 
 ### 1.1 Readability outranks everything

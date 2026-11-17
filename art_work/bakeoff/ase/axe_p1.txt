@@ -1,0 +1,36 @@
+# Bearded axe for A1's near hand, pass 1 (first draft, drawn straight into a1_doll.aseprite).
+# Same grip point as the sword: the haft runs through the fist at x4-7, y27-30, so no
+# pixels are drawn there. Light from the upper right; the edge faces forward (right).
+# haft: dark back edge, wood, lit front
+row 1  5 Wy
+row 2  4 LWy
+# head: socket round the haft, blade sweeping forward, the beard hanging below the socket
+row 3  4 12344
+row 4  4 1234445
+row 5  4 01233445
+row 6  4 01223345
+row 7  4 L1122345
+row 8  4 LWy12345
+row 9  4 LWy.1345
+row 10 4 LWy.0245
+row 11 4 LWy..024
+row 12 4 LWy
+row 13 4 LWy
+row 14 4 LWy
+row 15 4 LWy
+row 16 4 LWy
+row 17 4 LWy
+row 18 4 LWy
+row 19 4 LWy
+row 20 4 LWy
+row 21 4 LWy
+row 22 4 LWy
+row 23 4 LWy
+row 24 4 LWy
+row 25 4 LWy
+row 26 4 LWy
+# below the fist: the end of the haft and an iron butt cap
+row 31 4 LWy
+row 32 4 LWy
+row 33 4 123
+row 34 4 012

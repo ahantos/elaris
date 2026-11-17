@@ -1,0 +1,2 @@
+# Bearded axe, pass 7: the last stray pixel in the butt cap (it sits over the cloak).
+row 34 4 011

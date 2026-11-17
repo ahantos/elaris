@@ -1,0 +1,4 @@
+# Bearded axe, pass 5: clean-up after the checker (three stray pixels from pass 4).
+px 4 1 W
+row 13 3 1444
+row 14 4 011

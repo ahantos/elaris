@@ -1,0 +1,101 @@
+{ "frames": [
+   {
+    "filename": "a1_swing 0.aseprite",
+    "frame": { "x": 0, "y": 0, "w": 80, "h": 74 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 80, "h": 74 },
+    "sourceSize": { "w": 80, "h": 74 },
+    "duration": 167
+   },
+   {
+    "filename": "a1_swing 1.aseprite",
+    "frame": { "x": 80, "y": 0, "w": 80, "h": 74 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 80, "h": 74 },
+    "sourceSize": { "w": 80, "h": 74 },
+    "duration": 83
+   },
+   {
+    "filename": "a1_swing 2.aseprite",
+    "frame": { "x": 160, "y": 0, "w": 80, "h": 74 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 80, "h": 74 },
+    "sourceSize": { "w": 80, "h": 74 },
+    "duration": 167
+   },
+   {
+    "filename": "a1_swing 3.aseprite",
+    "frame": { "x": 240, "y": 0, "w": 80, "h": 74 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 80, "h": 74 },
+    "sourceSize": { "w": 80, "h": 74 },
+    "duration": 83
+   },
+   {
+    "filename": "a1_swing 4.aseprite",
+    "frame": { "x": 320, "y": 0, "w": 80, "h": 74 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 80, "h": 74 },
+    "sourceSize": { "w": 80, "h": 74 },
+    "duration": 83
+   },
+   {
+    "filename": "a1_swing 5.aseprite",
+    "frame": { "x": 400, "y": 0, "w": 80, "h": 74 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 80, "h": 74 },
+    "sourceSize": { "w": 80, "h": 74 },
+    "duration": 167
+   },
+   {
+    "filename": "a1_swing 6.aseprite",
+    "frame": { "x": 480, "y": 0, "w": 80, "h": 74 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 80, "h": 74 },
+    "sourceSize": { "w": 80, "h": 74 },
+    "duration": 167
+   },
+   {
+    "filename": "a1_swing 7.aseprite",
+    "frame": { "x": 560, "y": 0, "w": 80, "h": 74 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 80, "h": 74 },
+    "sourceSize": { "w": 80, "h": 74 },
+    "duration": 83
+   }
+ ],
+ "meta": {
+  "app": "https://www.aseprite.org/",
+  "version": "1.3.18.6-x64",
+  "image": "a1_swing_ase_sheet.png",
+  "format": "I8",
+  "size": { "w": 640, "h": 74 },
+  "scale": "1",
+  "frameTags": [
+   { "name": "swing", "from": 0, "to": 7, "direction": "forward", "color": "#000000ff" }
+  ],
+  "layers": [
+   { "name": "cloak", "opacity": 255, "blendMode": "normal" },
+   { "name": "body_legs", "opacity": 255, "blendMode": "normal" },
+   { "name": "body_torso", "opacity": 255, "blendMode": "normal" },
+   { "name": "legs", "opacity": 255, "blendMode": "normal" },
+   { "name": "boots", "opacity": 255, "blendMode": "normal" },
+   { "name": "torso_gear", "opacity": 255, "blendMode": "normal" },
+   { "name": "helmet", "opacity": 255, "blendMode": "normal" },
+   { "name": "shield", "opacity": 255, "blendMode": "normal" },
+   { "name": "fx_smear", "opacity": 255, "blendMode": "normal" },
+   { "name": "near_arm", "opacity": 255, "blendMode": "normal" },
+   { "name": "arm_gear", "opacity": 255, "blendMode": "normal" },
+   { "name": "weapon", "opacity": 255, "blendMode": "normal" },
+   { "name": "fx_hit", "opacity": 255, "blendMode": "normal" }
+  ]
+ }
+}

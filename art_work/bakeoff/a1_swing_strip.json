@@ -1,0 +1,190 @@
+{
+ "frames": {
+  "a1_swing_0": {
+   "frame": {
+    "x": 0,
+    "y": 0,
+    "w": 80,
+    "h": 74
+   },
+   "rotated": false,
+   "trimmed": false,
+   "spriteSourceSize": {
+    "x": 0,
+    "y": 0,
+    "w": 80,
+    "h": 74
+   },
+   "sourceSize": {
+    "w": 80,
+    "h": 74
+   },
+   "duration": 167
+  },
+  "a1_swing_1": {
+   "frame": {
+    "x": 80,
+    "y": 0,
+    "w": 80,
+    "h": 74
+   },
+   "rotated": false,
+   "trimmed": false,
+   "spriteSourceSize": {
+    "x": 0,
+    "y": 0,
+    "w": 80,
+    "h": 74
+   },
+   "sourceSize": {
+    "w": 80,
+    "h": 74
+   },
+   "duration": 83
+  },
+  "a1_swing_2": {
+   "frame": {
+    "x": 160,
+    "y": 0,
+    "w": 80,
+    "h": 74
+   },
+   "rotated": false,
+   "trimmed": false,
+   "spriteSourceSize": {
+    "x": 0,
+    "y": 0,
+    "w": 80,
+    "h": 74
+   },
+   "sourceSize": {
+    "w": 80,
+    "h": 74
+   },
+   "duration": 167
+  },
+  "a1_swing_3": {
+   "frame": {
+    "x": 240,
+    "y": 0,
+    "w": 80,
+    "h": 74
+   },
+   "rotated": false,
+   "trimmed": false,
+   "spriteSourceSize": {
+    "x": 0,
+    "y": 0,
+    "w": 80,
+    "h": 74
+   },
+   "sourceSize": {
+    "w": 80,
+    "h": 74
+   },
+   "duration": 83
+  },
+  "a1_swing_4": {
+   "frame": {
+    "x": 320,
+    "y": 0,
+    "w": 80,
+    "h": 74
+   },
+   "rotated": false,
+   "trimmed": false,
+   "spriteSourceSize": {
+    "x": 0,
+    "y": 0,
+    "w": 80,
+    "h": 74
+   },
+   "sourceSize": {
+    "w": 80,
+    "h": 74
+   },
+   "duration": 83
+  },
+  "a1_swing_5": {
+   "frame": {
+    "x": 400,
+    "y": 0,
+    "w": 80,
+    "h": 74
+   },
+   "rotated": false,
+   "trimmed": false,
+   "spriteSourceSize": {
+    "x": 0,
+    "y": 0,
+    "w": 80,
+    "h": 74
+   },
+   "sourceSize": {
+    "w": 80,
+    "h": 74
+   },
+   "duration": 167
+  },
+  "a1_swing_6": {
+   "frame": {
+    "x": 480,
+    "y": 0,
+    "w": 80,
+    "h": 74
+   },
+   "rotated": false,
+   "trimmed": false,
+   "spriteSourceSize": {
+    "x": 0,
+    "y": 0,
+    "w": 80,
+    "h": 74
+   },
+   "sourceSize": {
+    "w": 80,
+    "h": 74
+   },
+   "duration": 167
+  },
+  "a1_swing_7": {
+   "frame": {
+    "x": 560,
+    "y": 0,
+    "w": 80,
+    "h": 74
+   },
+   "rotated": false,
+   "trimmed": false,
+   "spriteSourceSize": {
+    "x": 0,
+    "y": 0,
+    "w": 80,
+    "h": 74
+   },
+   "sourceSize": {
+    "w": 80,
+    "h": 74
+   },
+   "duration": 83
+  }
+ },
+ "meta": {
+  "app": "pxl",
+  "image": "a1_swing.png",
+  "format": "RGBA8888",
+  "size": {
+   "w": 640,
+   "h": 74
+  },
+  "scale": "1",
+  "frameTags": [
+   {
+    "name": "a1_swing",
+    "from": 0,
+    "to": 7,
+    "direction": "forward"
+   }
+  ]
+ }
+}

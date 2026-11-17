@@ -1,0 +1,2 @@
+# Bearded axe, pass 6: one stray pixel in the butt cap that only showed in bronze.
+row 33 4 133

@@ -16,3 +16,5 @@ art_work/out/
 art_work/**/out/
 art_work/local_refs/
 art_work/bakeoff/study/
+
+__pycache__/

@@ -1,0 +1,7 @@
+# Bearded axe, pass 4: edits to the layer already in a1_doll.aseprite.
+# Seen in pass 3: the axe reads, with a clear gap to the helmet. The haft is three flat
+# stripes with a visible kink where it leans. So: an iron collar across the kink, and
+# the top of the haft lit one step lighter where it stands above the head.
+row 13 3 1234
+row 14 4 012
+px 4 1 y
