@@ -840,6 +840,16 @@ Under discussion since 2026-11-17. Nothing is decided.
   mood and for big, detailed item pictures in inventory slots of different sizes.
   He finds Stoneshard's heads too big, so the figure is taller with a smaller head.
   Three test figures were drawn that day; no item pictures yet.
+- Style, in his words later the same day: he likes Dead Cells, Stoneshard, Dungreed
+  and Stardew Valley, "things that have a blockier style but are still expressive",
+  and wants something that "feels like Battle Brothers but looks more like these,
+  like chunkier pixel art". He does not want to copy Stoneshard directly, and said
+  it is "hard to put this into words". He added: "i'd want it to be a bit grim,
+  dark, fantasy-focused". Reading: big confident shapes and strong
+  silhouettes over fine detail; expression through pose and silhouette; a grim,
+  worn, mercenary mood with a muted base palette and a few saturated accents.
+  Chunkiness on screen comes from how far the camera is zoomed in as much as from
+  the drawing: the games he names show small sprites large.
 - Facing, decided by Ákos on 2026-11-17: figures face left or right, never the
   camera, as in Stoneshard ("the main problem is that stoneshard's stuff always
   looks to one side, and we should do that too"). One drawing faces right and is
