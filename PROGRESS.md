@@ -50,7 +50,7 @@ exit test are in section 7 of the plan; the durability rules are in section 8.
 
 | # | Step | Status |
 |---|---|---|
-| 1 | One combatant base with teams for the player, enemies and companions; one authority for whose turn it is; the combat loop out of `world.gd` | Started |
+| 1 | One combatant base with teams for the player, enemies and companions; one authority for whose turn it is; the combat loop out of `world.gd` | Being built on branch `phase-2-step-1` by a background agent (started 2026-11-17). Not yet reviewed or merged into `phase-2-combat-core`. If the session that started it has ended: look at `git log phase-2-combat-core..phase-2-step-1`, run the checks on that branch, review, then merge |
 | 2 | Turn resources (movement, action, bonus action, reaction) and the action bar: Attack with the equipped weapon, Dash, Disengage, Dodge, End Turn | |
 | 3 | Ranged attacks: range, line of sight, targeting, hit chance shown before committing | |
 | 4 | One damage pipeline with types, resistance, vulnerability and hooks; 5e armour class; armour and material data reworked so materials add no stats | |
