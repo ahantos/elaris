@@ -899,7 +899,10 @@ Under discussion since 2026-11-17. Nothing is decided.
   better". The figure was drawn as a standing paper doll, not built to move. What
   it needs is a rig: the body cut at the joints with a pivot for each piece, the
   normally hidden parts drawn in full, gear attached to pieces by anchor points,
-  and each action defined once as poses for the whole body, legs included.
+  and each action defined once as poses for the whole body, legs included. He also
+  saw that "sword bends": it was redrawn by hand at each angle, so its length and
+  shape change between frames. A weapon must be drawn once per fixed angle from one
+  master, at the same length, and the rig picks the angle.
 - What produced it, as opposed to the plain figures before: the theory applied
   deliberately; several rounds of looking at the rendered result on a review sheet
   (four sizes on two floor colours, a greyscale copy, a silhouette, a mirror, and
