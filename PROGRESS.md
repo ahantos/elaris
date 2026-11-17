@@ -22,6 +22,10 @@ called `CURRENT_WORK.md` until Phase 1. The plan it tracks is in section 7 of
 
 ## Waiting on Ákos
 
+0. **Review `docs/GEAR_FANTASY_PROPOSAL.md`.** A proposal, nothing decided: whether
+   gear, loot and maintenance become the centre of the game, at one of three levels.
+   Crafting interests him; he is not sure about a full pivot. It ends with six
+   questions for him. Phase 2 is the same whichever level he picks.
 1. **Play the Phase 1 build:** menu, new game, save, load, die, load again. Say what
    feels wrong.
 2. **His durability system.** Direction is set (erosion, special attention to crits,

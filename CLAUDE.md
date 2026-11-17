@@ -9,6 +9,8 @@ Pitch: "Hades meets Battle Brothers meets classic D&D".
 - `docs/ARCHITECTURE_CONTRACTS.md` - ids, schemas and rules every system follows.
 - `PROGRESS.md` - where the work is right now and what is waiting on Ákos. Update it
   whenever the state changes.
+- `docs/GEAR_FANTASY_PROPOSAL.md` - an open proposal to make gear the centre of the
+  game. Not decided; do not build towards it until Ákos answers it.
 
 ## State in one paragraph
 A working combat prototype with a real shell around it: main menu, character creation,
