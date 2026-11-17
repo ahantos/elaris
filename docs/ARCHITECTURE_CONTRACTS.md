@@ -376,7 +376,7 @@ crisis `{crisis_id, display_name, phases: [{phase: int, name, description}]}`.
   `combatant.choose_action(action_id)`, which asks the controller. Above the buttons
   it shows the turn resources of whoever holds the turn. A new action needs an id in
   the controller, a button in the scene and a title in the bar; the bar holds no
-  rules of its own.
+  rules of its own. A click on the bottom bar is not a click on the map.
 - After any UI change, run the screenshot tour and look at the pictures.
 
 ## 6. Art

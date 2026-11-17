@@ -308,6 +308,16 @@ func _press(keycode: Key):
 		event.pressed = pressed
 		root.push_input(event)
 
+func _click(screen_pos: Vector2):
+	"""Send a real left click, press and release, through the viewport"""
+	for pressed in [true, false]:
+		var event := InputEventMouseButton.new()
+		event.button_index = MOUSE_BUTTON_LEFT
+		event.pressed = pressed
+		event.position = screen_pos
+		event.global_position = screen_pos
+		root.push_input(event, true)  # already in the viewport's own coordinates
+
 func _check_debug_keys(world):
 	var game = _mgr("GameManager")
 	var ui = _mgr("UIManager")
@@ -1192,6 +1202,14 @@ func _check_actions(world):
 		"key 1 starts aiming the Attack action, and the bar shows it", bar._hint.text)
 	_press(KEY_1)
 	check(not player.attack_mode, "key 1 again puts the attack away")
+	_press(KEY_1)
+	notes.clear()
+	_click(attack_button.get_global_rect().get_center())
+	await _frames(1)
+	check(notes.is_empty() and not player.is_moving and not player.is_path_selected,
+		"a click on the action bar is not a click on the map behind it", str(notes))
+	check(not player.attack_mode, "clicking the Attack button while aiming puts the attack away")
+	player.attack_mode = false
 	_press(KEY_3)
 	await _frames(1)
 	check(sheet.visible, "key 3, Use Item, opens the pack")

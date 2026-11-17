@@ -190,6 +190,9 @@ func _input(event):
 	if is_dying:
 		return  # the dead take no input
 	if event is InputEventMouseButton:
+		# A click on the bottom bar is for the bar, not for the map behind it
+		if _is_over_hud(event.position):
+			return
 		if event.button_index == MOUSE_BUTTON_LEFT and event.pressed:
 			var click_pos = get_global_mouse_position()
 			var click_grid = world_to_grid(click_pos)
@@ -261,6 +264,12 @@ func _input(event):
 				print("Attack cancelled.")
 				queue_redraw()
 				get_viewport().set_input_as_handled()
+
+func _is_over_hud(screen_pos: Vector2) -> bool:
+	"""True when a point of the screen is on the bottom bar"""
+	var world = _get_world()
+	var hud = world.get("bottom_ui") if world != null else null
+	return hud != null and is_instance_valid(hud) and hud.get_global_rect().has_point(screen_pos)
 
 func choose_action(action_id: String):
 	"""The player picked an action, on the action bar or with its number key.
