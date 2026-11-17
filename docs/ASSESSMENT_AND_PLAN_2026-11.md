@@ -538,11 +538,17 @@ should matter what it is made of.
   the item's value; the numbers belong to Phase 4.
 - Wear marks, for the fixed loss he asked for: every piece used in a fight gains
   marks by the length of the fight, and enough marks cost a notch. This replaces
-  the d6 roll for long fights. How marks scale with length is being settled: one
-  mark, or two past round 3 (my first version), or one per two rounds (his).
-- Hardness: he wants it and left the design to me. Proposed: hardness is the break
-  threshold number from his tables, rescaled so the categories share one scale
-  (as written, some leathers and cloths come out harder than steel).
+  the d6 roll for long fights. Settled: one mark for every two rounds, rounded up
+  (1-2 rounds one mark, 3-4 two, 5-6 three). A weapon counts as used if it
+  attacked, armour or a shield if it was attacked; spares in the pack get none.
+- Marks per notch is a dial, not a decision. Equal to hardness (steel 5) is the
+  starting value and is probably too fast: with fights of three to four rounds a
+  steel sword would lose a notch about every two fights and be broken within one
+  run. Roughly three times hardness fits the target better. The simulator sets it.
+- Hardness: he wants it, left the design to me, and agreed to the rescaling and to
+  creatures having one. Hardness is the break threshold number from his tables,
+  rescaled so the categories share one scale (as written, some leathers and cloths
+  come out harder than steel).
   - A piece loses a notch when its wear marks reach its hardness (copper 3,
     steel 5, adamantite 10).
   - When two pieces meet (a crit against armour or a shield, a sunder, a natural 1
