@@ -495,9 +495,12 @@ His requirements, which outrank any single rule below:
 - Masterforged adds one notch. Each plus of magic adds one.
 - Each lost notch costs at once: -1 to hit for a weapon, -1 AC for body armour and
   helmets, never below the wearer's unarmoured AC.
-- Shields keep their full bonus until the last notch goes. Light armour should do
-  the same, because leather gives only +1 AC and one notch would wipe it out.
-  (Proposed; he did not object.)
+- Shields and light armour keep their full bonus until the last notch goes. He
+  confirmed this for light armour: leather gives only +1 AC and one notch would
+  wipe it out.
+- Medium and heavy armour lose 1 AC per lost notch, and whatever bonus is left goes
+  when the last notch goes. Proposed and not yet answered: they always give at
+  least +1 until they break, because hide and a chain shirt have small bonuses.
 - At zero notches the piece is broken: no bonus, and a weapon cannot attack. It is
   never destroyed.
 
@@ -546,9 +549,8 @@ His requirements, which outrank any single rule below:
 #### Magic and craftsmanship
 
 - More notches, as above. +2 and +3 gear wears like everything else.
-- Magic gear also has a chance to ignore a lost notch: +1 25%, +2 50%, +3 75% (dials).
-- That it is both together is my reading of two of his answers. He did not object;
-  confirm before building.
+- Magic gear also has a chance to ignore a lost notch. He confirmed both together
+  and wants the chance low. Starting values: +1 5%, +2 10%, +3 15% (dials).
 
 #### Debuffs
 
@@ -615,8 +617,10 @@ His requirements, which outrank any single rule below:
   by zone, not all at once.
 - A material sets the notch count, hardness, price, weight and a trait. In his
   system it does not change the damage die or the armour class; the game's current
-  materials add +1 to +3 to both. Dropping those bonuses is my recommendation and
-  he did not object; confirm before the item data is reworked.
+  materials add +1 to +3 to both. He confirmed those bonuses go: materials "should
+  absolutely stop adding any stats. materials are for the durability and hardness
+  rules not gameplay changes." Whether that also rules out material traits (silver
+  against undead, mythril at half weight) has been asked and not yet answered.
 
 #### How it is shown
 
@@ -638,11 +642,15 @@ His requirements, which outrank any single rule below:
 
 None of these blocks the Phase 2 hooks.
 
-- The three confirmations marked above: magic gives both notches and a resist
-  chance; materials stop adding damage and AC; light armour keeps its bonus until
-  the last notch.
+- Medium and heavy armour: at least +1 until broken (proposed above).
+- Material traits: kept, or out along with the stat bonuses.
 - Whether the magic resist chance also applies to a notch lost through marks.
-- What scrap a kit needs: the same material, or anything in the same category.
+  Proposed: yes, one rule for any lost notch.
+- What scrap a kit needs. Proposed: the same kind (metal, wood, leather, cloth) and
+  at least as hard as the piece, so steel scrap patches bronze but copper cannot
+  patch adamantite.
+- Which slots wear: weapons, shields, body armour and helmets, as in the first
+  sketch.
 - The run target.
 - Resting rules. A separate discussion; it includes whether anything clears marks.
 
