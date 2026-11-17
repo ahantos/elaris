@@ -29,17 +29,41 @@ called `CURRENT_WORK.md` until Phase 1. The plan it tracks is in section 7 of
    questions for him. Phase 2 is the same whichever level he picks.
 1. **Play the Phase 1 build:** menu, new game, save, load, die, load again. Say what
    feels wrong.
-2. **His durability system.** Direction is set (erosion, special attention to crits,
-   scaled by material rarity and magic level), but the rules will be based on the
-   system he designed for his homebrew D&D campaign, which also has passive
-   degradation by combat length, and notch counts that rise with magic bonus and
-   with the material itself. He will bring it and has a lot of input to add. The
-   rules in section 8 of the plan are a provisional sketch, not the design.
+2. **Durability rules.** Ákos supplied his homebrew system on 2026-11-17 (see
+   "Homebrew source document" below). He wants it streamlined while keeping the
+   feeling: gear should matter, and it should matter what it is made of. The
+   streamlining is under discussion and nothing is settled. The first open question
+   is pace: does a steel sword visibly wear within one dungeon run, or over several?
+   The rules in section 8 of the plan are still a provisional sketch, not the design.
 3. **Go for Phase 2.** Everything in it except the durability rules can be built
    without that input; the damage pipeline gets the hooks durability needs.
 4. **Merge:** whether Phases 0 and 1 go into `main`. (Both branches are on origin.)
 5. `tilesets/TX Tileset Stone Ground.png` is unused and its licence is not recorded.
    Delete it?
+
+## Homebrew source document
+
+`C:\Users\Akos\Downloads\Elaris Gameplay.md` is Ákos's tabletop supplement: 10,154
+lines, 775 KB, outside the repo. It holds many systems; which of them the game needs
+is to be discussed one by one. One read call cannot take the whole file, so read it
+in parts by line range. Nothing prevents reading all of it.
+
+What has been read, as of 2026-11-17:
+
+| Lines | Section | Read |
+|---|---|---|
+| 1–260 | Blacksmithing: Stormfire, Deepfrost, Bloodiron, Stoneshaper, start of Dreadblack | Yes |
+| 261–429 | Blacksmithing: the remaining forging techniques | No |
+| 430–503 | Blacksmithing: Pyrestone Smelting, Worldforged Smiths | Yes |
+| 504–3230 | Leatherworking, Tailoring, Alchemy, Craftsmanship, Cooking, Glassblowing, Jewelcrafting, Masonry, Poisoner | No |
+| 3231–3290 | Metallurgy: opening only | Yes |
+| 3291–3545 | Metallurgy (the rest), Woodworking | No |
+| 3546–3644 | Resting System | Yes |
+| 3645–6900 | Travel Pacing, Travel Roleplay, Travel D100s | No |
+| 6901–7561 | Durability rules; materials tables (metal, wood, cloth, leather, stone, gems, herbs); enchantment materials; magic and masterforged gear; weapon and armour states; arrows; trinkets | Yes, in full |
+| 7562–9185 | Legendary Items | No |
+| 9186–9348 | Finds table, Loot D100 tables | No |
+| 9349–10154 | Tea, coffee, tobacco, alcohol, sweets, drugs, diseases, weather | No |
 
 ## What exists now
 
