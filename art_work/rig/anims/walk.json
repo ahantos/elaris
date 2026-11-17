@@ -1,0 +1,107 @@
+{
+ "format": "elaris-anim/1",
+ "name": "walk",
+ "loop": true,
+ "canvas": { "w": 64, "h": 56, "origin": [ 16, 6 ] },
+ "travel": [
+  5,
+  6,
+  5,
+  5,
+  6,
+  5
+ ],
+ "planted": { "far": [ [ 0, 1, 2, 3 ] ], "near": [ [ 3, 4, 5, 0 ] ] },
+ "frames": [
+  {
+   "ms": 100,
+   "pieces": {
+    "hips": { "dy": 1 },
+    "torso": { "dx": 1 },
+    "near_thigh": { "a": 27, "dx": 1 },
+    "near_shin": { "a": 27, "dx": 1, "dy": 1 },
+    "far_thigh": { "a": -27 },
+    "far_shin": { "a": -27, "dx": -1, "dy": 1 },
+    "near_upper_arm": { "a": 0 },
+    "near_forearm": { "a": -27 },
+    "far_upper_arm": { "dx": 1 },
+    "head": { "dy": -1 },
+    "cloak_lower": { "dx": -1, "dy": -1 }
+   }
+  },
+  {
+   "ms": 100,
+   "pieces": {
+    "hips": { "dy": 2 },
+    "torso": { "dx": 1 },
+    "near_thigh": { "a": -27 },
+    "near_shin": { "a": 45 },
+    "far_thigh": { "a": -27 },
+    "far_shin": { "a": 0, "dx": -1, "dy": -1 },
+    "near_upper_arm": { "a": 0, "dx": 1 },
+    "near_forearm": { "a": 0 },
+    "head": { "dy": -1 },
+    "cloak_lower": { "dx": -1, "dy": -1 }
+   }
+  },
+  {
+   "ms": 100,
+   "pieces": {
+    "torso": { "dx": 1 },
+    "near_thigh": { "a": -45 },
+    "near_shin": { "a": 27, "dx": 1 },
+    "far_thigh": { "a": 0 },
+    "far_shin": { "a": 27, "dx": 1, "dy": 1 },
+    "near_upper_arm": { "a": 0, "dx": -1 },
+    "near_forearm": { "a": 0 },
+    "head": { "dy": 1 },
+    "cloak_lower": { "dy": 1 }
+   }
+  },
+  {
+   "ms": 100,
+   "pieces": {
+    "hips": { "dy": 1 },
+    "torso": { "dx": 1 },
+    "near_thigh": { "a": -27 },
+    "near_shin": { "a": -27, "dy": 1 },
+    "far_thigh": { "a": 27 },
+    "far_shin": { "a": 27 },
+    "near_upper_arm": { "a": 27 },
+    "near_forearm": { "a": 0 },
+    "far_upper_arm": { "dx": -1 },
+    "head": { "dy": -1 },
+    "cloak_lower": { "dx": -1, "dy": -1 }
+   }
+  },
+  {
+   "ms": 100,
+   "pieces": {
+    "hips": { "dy": 2 },
+    "torso": { "dx": 1 },
+    "near_thigh": { "a": -27 },
+    "near_shin": { "a": 0, "dy": -1 },
+    "far_thigh": { "a": -27 },
+    "far_shin": { "a": 45, "dx": -1, "dy": -1 },
+    "near_upper_arm": { "a": 0, "dx": -1 },
+    "near_forearm": { "a": 0 },
+    "head": { "dy": -1 },
+    "cloak_lower": { "dx": -1, "dy": -1 }
+   }
+  },
+  {
+   "ms": 100,
+   "pieces": {
+    "torso": { "dx": 1 },
+    "near_thigh": { "a": 0, "dx": -1 },
+    "near_shin": { "a": 0, "dx": -1 },
+    "far_thigh": { "a": -45 },
+    "far_shin": { "a": 27, "dy": 1 },
+    "near_upper_arm": { "a": 0, "dx": 1 },
+    "near_forearm": { "a": 0 },
+    "head": { "dy": 1 },
+    "cloak_lower": { "dy": 1 }
+   }
+  }
+ ]
+}

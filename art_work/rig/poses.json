@@ -1,0 +1,113 @@
+{
+ "rest": {},
+ "arm_raised": {
+  "hips": {
+   "dx": -1,
+   "dy": 1
+  },
+  "torso": {
+   "dx": -1
+  },
+  "head": {
+   "dx": 1
+  },
+  "near_upper_arm": {
+   "a": 180
+  },
+  "near_forearm": {
+   "a": 135
+  },
+  "weapon": {
+   "a": -63
+  },
+  "near_thigh": {
+   "a": -27
+  },
+  "near_shin": {
+   "a": 14
+  },
+  "far_thigh": {
+   "a": -27
+  },
+  "far_shin": {
+   "a": 14,
+   "dx": 1
+  }
+ },
+ "step_forward": {
+  "hips": {
+   "dy": 1
+  },
+  "torso": {
+   "dx": 1
+  },
+  "near_thigh": {
+   "a": 27,
+   "dx": 1
+  },
+  "near_shin": {
+   "a": 27,
+   "dx": 1,
+   "dy": 1
+  },
+  "far_thigh": {
+   "a": -27
+  },
+  "far_shin": {
+   "a": -27,
+   "dx": -1,
+   "dy": 1
+  },
+  "near_upper_arm": {
+   "a": 0
+  },
+  "near_forearm": {
+   "a": -27
+  },
+  "far_upper_arm": {
+   "dx": 1
+  },
+  "head": {
+   "dy": -1
+  },
+  "cloak_lower": {
+   "dx": -1,
+   "dy": -1
+  }
+ },
+ "strike": {
+  "hips": {
+   "dx": 4,
+   "dy": 1
+  },
+  "torso": {
+   "dx": 2
+  },
+  "near_upper_arm": {
+   "a": -63
+  },
+  "near_forearm": {
+   "a": -90
+  },
+  "weapon": {
+   "a": 90
+  },
+  "cloak_lower": {
+   "dx": -2
+  },
+  "near_thigh": {
+   "a": 0
+  },
+  "near_shin": {
+   "a": 27,
+   "dx": 1
+  },
+  "far_thigh": {
+   "a": -14
+  },
+  "far_shin": {
+   "a": 0,
+   "dy": -1
+  }
+ }
+}

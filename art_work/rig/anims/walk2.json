@@ -1,0 +1,114 @@
+{
+ "format": "elaris-anim/1",
+ "name": "walk2",
+ "loop": true,
+ "canvas": { "w": 64, "h": 56, "origin": [ 16, 6 ] },
+ "travel": [
+  4,
+  4,
+  4,
+  4,
+  4,
+  4,
+  4,
+  4
+ ],
+ "planted": { "far": [ [ 0, 1, 2, 3, 4 ] ], "near": [ [ 4, 5, 6, 7, 0 ] ] },
+ "frames": [
+  {
+   "ms": 90,
+   "pieces": {
+    "hips": { "dy": 1 },
+    "far_thigh": { "a": -27, "dx": -4 },
+    "far_shin": { "a": -27, "dy": 1 },
+    "near_thigh": { "a": 14, "dx": 4 },
+    "near_shin": { "a": 27, "dx": -1 },
+    "near_upper_arm": { "dx": 1 },
+    "far_upper_arm": { "dx": -1 },
+    "head": { "dy": -1 },
+    "cloak_lower": { "dy": -1 },
+    "skirt": { "dy": -1 }
+   }
+  },
+  {
+   "ms": 90,
+   "pieces": {
+    "hips": { "dy": 1 },
+    "far_thigh": { "a": -27, "dx": -4 },
+    "far_shin": { "a": 0, "dx": 1 },
+    "near_thigh": { "a": -14, "dx": 4 },
+    "near_shin": { "a": 45, "dx": 1, "dy": 1 },
+    "near_upper_arm": { "dx": 1 }
+   }
+  },
+  {
+   "ms": 90,
+   "pieces": {
+    "far_thigh": { "a": 0, "dx": -4 },
+    "far_shin": { "a": 0 },
+    "near_thigh": { "a": -27, "dx": 4 },
+    "near_shin": { "a": 27, "dx": 1, "dy": -1 },
+    "head": { "dy": 1 },
+    "cloak_lower": { "dy": 1 },
+    "skirt": { "dy": 1 }
+   }
+  },
+  {
+   "ms": 90,
+   "pieces": {
+    "far_thigh": { "a": 0, "dx": -4 },
+    "far_shin": { "a": 14, "dx": -1 },
+    "near_thigh": { "a": -27, "dx": 4 },
+    "near_shin": { "a": 0, "dx": 1 }
+   }
+  },
+  {
+   "ms": 90,
+   "pieces": {
+    "hips": { "dy": 1 },
+    "far_thigh": { "a": 14, "dx": -4 },
+    "far_shin": { "a": 27, "dx": -1 },
+    "near_thigh": { "a": -27, "dx": 4 },
+    "near_shin": { "a": -14, "dx": 1 },
+    "near_upper_arm": { "dx": -1 },
+    "far_upper_arm": { "dx": 1 },
+    "head": { "dy": -1 },
+    "cloak_lower": { "dy": -1 },
+    "skirt": { "dx": 1, "dy": -1 }
+   }
+  },
+  {
+   "ms": 90,
+   "pieces": {
+    "hips": { "dy": 1 },
+    "far_thigh": { "a": -14, "dx": -4 },
+    "far_shin": { "a": 45, "dx": 1 },
+    "near_thigh": { "a": -27, "dx": 4 },
+    "near_shin": { "a": 0 },
+    "near_upper_arm": { "dx": -1 },
+    "skirt": { "dx": 1 }
+   }
+  },
+  {
+   "ms": 90,
+   "pieces": {
+    "far_thigh": { "a": -27, "dx": -4, "dy": -1 },
+    "far_shin": { "a": 14, "dy": -1 },
+    "near_thigh": { "a": 0, "dx": 4 },
+    "near_shin": { "a": 0 },
+    "head": { "dy": 1 },
+    "cloak_lower": { "dy": 1 },
+    "skirt": { "dx": 1, "dy": 1 }
+   }
+  },
+  {
+   "ms": 90,
+   "pieces": {
+    "far_thigh": { "a": -27, "dx": -4 },
+    "far_shin": { "a": -14, "dx": -1 },
+    "near_thigh": { "a": 0, "dx": 4 },
+    "near_shin": { "a": 14, "dx": -1 }
+   }
+  }
+ ]
+}

@@ -1,0 +1,33 @@
+{
+ "_comment": "Effect pictures (built by pxl from fx.px.js and fx_gen.px.js). 'origin' is the pixel of the picture that is put on the x, y an animation frame gives. Written by tools/make_anims.py.",
+ "fx": {
+  "hit_0": {
+   "sprite": "fx__hit_0",
+   "origin": [
+    5,
+    5
+   ]
+  },
+  "hit_1": {
+   "sprite": "fx__hit_1",
+   "origin": [
+    7,
+    6
+   ]
+  },
+  "hit_2": {
+   "sprite": "fx__hit_2",
+   "origin": [
+    7,
+    7
+   ]
+  },
+  "smear": {
+   "sprite": "fx__smear",
+   "origin": [
+    43,
+    43
+   ]
+  }
+ }
+}

@@ -1,0 +1,152 @@
+{
+ "format": "elaris-anim/1",
+ "name": "swing",
+ "loop": true,
+ "canvas": { "w": 112, "h": 84, "origin": [ 34, 32 ] },
+ "planted": { "near": [ [ 0, 1, 2, 3, 4, 5, 6, 7, 8 ] ], "far": [ [ 0, 1, 2 ], [ 4, 5, 6 ], [ 8, 0 ] ] },
+ "frames": [
+  {
+   "ms": 100,
+   "pieces": {
+    "near_thigh": { "a": 0 },
+    "near_shin": { "a": 0 },
+    "far_thigh": { "a": 0 },
+    "far_shin": { "a": 0 }
+   }
+  },
+  {
+   "ms": 100,
+   "pieces": {
+    "hips": { "dx": -1, "dy": 1 },
+    "torso": { "dx": -1 },
+    "head": { "dx": 1 },
+    "near_upper_arm": { "a": 0, "dx": -1 },
+    "near_forearm": { "a": -135 },
+    "weapon": { "a": -27 },
+    "far_upper_arm": { "dx": 1 },
+    "cloak_lower": { "dx": 1 },
+    "near_thigh": { "a": -27 },
+    "near_shin": { "a": 14 },
+    "far_thigh": { "a": -27 },
+    "far_shin": { "a": 14, "dx": 1 }
+   }
+  },
+  {
+   "ms": 170,
+   "pieces": {
+    "hips": { "dx": -2, "dy": 1 },
+    "torso": { "dx": -1 },
+    "head": { "dx": 1 },
+    "near_upper_arm": { "a": 180, "dx": -1 },
+    "near_forearm": { "a": 135 },
+    "weapon": { "a": -63 },
+    "far_upper_arm": { "a": -27 },
+    "near_thigh": { "a": -14 },
+    "near_shin": { "a": 0, "dy": -1 },
+    "far_thigh": { "a": -14 },
+    "far_shin": { "a": 0, "dy": -1 }
+   }
+  },
+  {
+   "ms": 50,
+   "pieces": {
+    "hips": { "dx": 1 },
+    "torso": { "dx": 1 },
+    "near_upper_arm": { "a": -90 },
+    "near_forearm": { "a": -117 },
+    "weapon": { "a": 45 },
+    "cloak_lower": { "dx": -1 },
+    "near_thigh": { "a": -14 },
+    "near_shin": { "a": 14 },
+    "far_thigh": { "a": -45 },
+    "far_shin": { "a": 14, "dy": 1 }
+   },
+   "fx": [
+    { "name": "smear", "x": 11, "y": 15, "z": 79, "needs": "weapon" }
+   ]
+  },
+  {
+   "ms": 130,
+   "pieces": {
+    "hips": { "dx": 4, "dy": 1 },
+    "torso": { "dx": 2 },
+    "near_upper_arm": { "a": -63 },
+    "near_forearm": { "a": -90 },
+    "weapon": { "a": 90 },
+    "cloak_lower": { "dx": -2 },
+    "near_thigh": { "a": 0 },
+    "near_shin": { "a": 27, "dx": 1 },
+    "far_thigh": { "a": -14 },
+    "far_shin": { "a": 0, "dy": -1 }
+   },
+   "fx": [
+    { "name": "hit_0", "x": 48, "y": 21 }
+   ]
+  },
+  {
+   "ms": 90,
+   "pieces": {
+    "hips": { "dx": 4, "dy": 2 },
+    "torso": { "dx": 2 },
+    "head": { "dy": 1 },
+    "near_upper_arm": { "a": -45 },
+    "near_forearm": { "a": -63 },
+    "weapon": { "a": 117 },
+    "near_thigh": { "a": 0 },
+    "near_shin": { "a": 27, "dx": 1, "dy": -1 },
+    "far_thigh": { "a": -45 },
+    "far_shin": { "a": 14, "dy": 1 }
+   },
+   "fx": [
+    { "name": "hit_1", "x": 49, "y": 21 }
+   ]
+  },
+  {
+   "ms": 110,
+   "pieces": {
+    "hips": { "dx": 3, "dy": 1 },
+    "torso": { "dx": 1 },
+    "near_upper_arm": { "a": -27 },
+    "near_forearm": { "a": -45 },
+    "weapon": { "a": 90 },
+    "cloak_lower": { "dx": 1 },
+    "near_thigh": { "a": -14 },
+    "near_shin": { "a": 27 },
+    "far_thigh": { "a": -27 },
+    "far_shin": { "a": 0 }
+   },
+   "fx": [
+    { "name": "hit_2", "x": 49, "y": 22 }
+   ]
+  },
+  {
+   "ms": 120,
+   "pieces": {
+    "hips": { "dx": 2 },
+    "torso": { "dx": 1 },
+    "near_upper_arm": { "a": 0 },
+    "near_forearm": { "a": -27 },
+    "weapon": { "a": 63 },
+    "cloak_lower": { "dx": 1 },
+    "near_thigh": { "a": 0 },
+    "near_shin": { "a": 14, "dx": 1 },
+    "far_thigh": { "a": -27 },
+    "far_shin": { "a": 14, "dx": 1 }
+   }
+  },
+  {
+   "ms": 110,
+   "pieces": {
+    "hips": { "dx": 1 },
+    "near_upper_arm": { "a": 0 },
+    "near_forearm": { "a": 0 },
+    "weapon": { "a": 27 },
+    "cloak_lower": { "dx": 1 },
+    "near_thigh": { "a": -14 },
+    "near_shin": { "a": 14 },
+    "far_thigh": { "a": -14 },
+    "far_shin": { "a": 14 }
+   }
+  }
+ ]
+}

@@ -1,0 +1,82 @@
+{
+ "format": "elaris-anim/1",
+ "name": "idle2",
+ "loop": true,
+ "canvas": { "w": 48, "h": 56, "origin": [ 8, 6 ] },
+ "planted": { "near": [ [ 0, 1, 2, 3, 4, 5 ] ], "far": [ [ 0, 1, 2, 3, 4, 5 ] ] },
+ "frames": [
+  {
+   "ms": 430,
+   "pieces": {
+    "near_thigh": { "a": 0 },
+    "near_shin": { "a": 0 },
+    "far_thigh": { "a": 0 },
+    "far_shin": { "a": 0 }
+   }
+  },
+  {
+   "ms": 130,
+   "pieces": {
+    "torso": { "dy": -1 },
+    "head": { "dy": 1 },
+    "cloak_lower": { "dy": 1 },
+    "near_forearm": { "dy": 1 },
+    "far_forearm": { "dy": 1 },
+    "near_thigh": { "a": 0 },
+    "near_shin": { "a": 0 },
+    "far_thigh": { "a": 0 },
+    "far_shin": { "a": 0 }
+   }
+  },
+  {
+   "ms": 130,
+   "pieces": {
+    "hips": { "dy": 1 },
+    "torso": { "dy": -2 },
+    "skirt": { "dy": -1 },
+    "near_forearm": { "dy": 1 },
+    "far_forearm": { "dy": 1 },
+    "near_thigh": { "a": 0 },
+    "near_shin": { "a": 0, "dy": -1 },
+    "far_thigh": { "a": 0 },
+    "far_shin": { "a": 0, "dy": -1 }
+   }
+  },
+  {
+   "ms": 430,
+   "pieces": {
+    "hips": { "dy": 1 },
+    "torso": { "dy": -2 },
+    "near_forearm": { "dy": 1 },
+    "far_forearm": { "dy": 1 },
+    "near_thigh": { "a": 0 },
+    "near_shin": { "a": 0, "dy": -1 },
+    "far_thigh": { "a": 0 },
+    "far_shin": { "a": 0, "dy": -1 }
+   }
+  },
+  {
+   "ms": 130,
+   "pieces": {
+    "hips": { "dy": 1 },
+    "torso": { "dy": -1 },
+    "head": { "dy": -1 },
+    "cloak_lower": { "dy": -1 },
+    "near_thigh": { "a": 0 },
+    "near_shin": { "a": 0, "dy": -1 },
+    "far_thigh": { "a": 0 },
+    "far_shin": { "a": 0, "dy": -1 }
+   }
+  },
+  {
+   "ms": 130,
+   "pieces": {
+    "skirt": { "dy": 1 },
+    "near_thigh": { "a": 0 },
+    "near_shin": { "a": 0 },
+    "far_thigh": { "a": 0 },
+    "far_shin": { "a": 0 }
+   }
+  }
+ ]
+}

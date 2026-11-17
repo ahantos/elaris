@@ -1,0 +1,173 @@
+final_swing_4x.gif: read back, 9 frames, 28 colours, every pixel and duration matches
+final_swing_1x.gif: read back, 9 frames, 28 colours, every pixel and duration matches
+---- full gear (full, steel)
+JOINTS  (overlap in pixels between a piece and its parent; joint point covered or not)
+  torso           least overlap  22 px (frame 4), joint pixels covered 4/4
+  head            least overlap  10 px (frame 0), joint pixels covered 4/4
+  skirt           least overlap  30 px (frame 0), joint pixels covered 4/4
+  cloak_upper     least overlap  51 px (frame 0), joint pixels covered 4/4
+  cloak_lower     least overlap  14 px (frame 4), joint pixels covered 4/4
+  far_upper_arm   least overlap   3 px (frame 1), joint pixels covered 4/4
+  far_forearm     least overlap   5 px (frame 2), joint pixels covered 4/4
+  shield          least overlap  23 px (frame 0), joint pixels covered 4/4
+  far_thigh       least overlap   5 px (frame 1), joint pixels covered 4/4
+  far_shin        least overlap   7 px (frame 3), joint pixels covered 4/4
+  near_thigh      least overlap   8 px (frame 1), joint pixels covered 4/4
+  near_shin       least overlap  15 px (frame 6), joint pixels covered 4/4
+  near_upper_arm  least overlap  21 px (frame 2), joint pixels covered 4/4
+  near_forearm    least overlap  15 px (frame 3), joint pixels covered 4/4
+  weapon          least overlap   6 px (frame 1), joint pixels covered 4/4
+JOINT LIMITS  (bend = a piece's angle minus its parent's; every joint has a range in rig.json)
+  far_upper_arm   bends  -27 ..   +0   (range -180 .. 45)
+  far_forearm     bends  -90 ..  -63   (range -155 .. 0)
+  shield          bends  +90 ..  +90   (range 60 .. 120)
+  far_thigh       bends  -45 ..   +0   (range -110 .. 30)
+  far_shin        bends   +0 ..  +59   (range 0 .. 150)
+  near_thigh      bends  -27 ..   +0   (range -110 .. 30)
+  near_shin       bends   +0 ..  +41   (range 0 .. 150)
+  near_upper_arm  bends  -90 .. +180   (range -180 .. 45)
+  near_forearm    bends -135 ..   +0   (range -155 .. 0)
+  weapon          bends   +0 .. +180   (range -30 .. 180)
+  every joint inside its range in every frame
+WEAPON LENGTH along its axis (rest pose first)
+  angle   0: length 33.0, width 8.0, 122 px
+  angle -63: length 33.2 (+0.2), width 9.0, 118 px (-3%)
+  angle -27: length 33.6 (+0.6), width 9.0, 122 px (+0%)
+  angle  27: length 33.2 (+0.2), width 9.0, 120 px (-2%)
+  angle  45: length 32.8 (-0.2), width 9.5, 127 px (+4%)
+  angle  63: length 33.6 (+0.6), width 9.0, 116 px (-5%)
+  angle  90: length 33.0 (+0.0), width 8.0, 122 px (+0%)
+  angle 117: length 33.2 (+0.2), width 9.0, 119 px (-2%)
+PLANTED FEET  (sole point in world space = figure position + root travel so far)
+  near frames [0, 1, 2, 3, 4, 5, 6, 7, 8] world [(12, 47), (12, 47), (12, 47), (12, 47), (12, 47), (12, 47), (12, 47), (12, 47), (12, 47)]  moved 0,0 px
+  far  frames [0, 1, 2]        world [(21, 46), (21, 46), (21, 46)]  moved 0,0 px
+  far  frames [4, 5, 6]        world [(27, 46), (27, 46), (27, 46)]  moved 0,0 px
+  far  frames [8, 0]           world [(21, 46), (21, 46)]  moved 0,0 px
+  near sole per frame (figure coords): [(12, 47), (12, 47), (12, 47), (12, 47), (12, 47), (12, 47), (12, 47), (12, 47), (12, 47)]
+  far sole per frame (figure coords): [(21, 46), (21, 46), (21, 46), (24, 44), (27, 46), (27, 46), (27, 46), (24, 45), (21, 46)]
+PATHS  (figure coordinates; step = distance to the next frame; turn = change of heading)
+  tip: 0:(5,0) 1:(0,-8) 2:(-25,-11) 3:(44,-7) 4:(56,21) 5:(50,39) 6:(48,28) 7:(38,15) 8:(19,3)
+    steps: 9.4 25.2 69.1 30.5 19.0 11.2 16.4 22.5 14.3
+    turns: -51 +176 +63 +42 +151 -27 -20 -20
+    note: the path doubles back at frame 2 (+176 degrees)
+    note: the path doubles back at frame 5 (+151 degrees)
+  hand: 0:(6,29) 1:(13,18) 2:(1,2) 3:(25,14) 4:(28,22) 5:(24,27) 6:(19,28) 7:(12,29) 8:(7,29)
+    steps: 13.0 20.0 26.8 8.5 6.4 5.1 7.1 5.0 1.0
+    turns: -69 +153 +43 +59 +40 +3 +8 -
+    note: the path doubles back at frame 2 (+153 degrees)
+FLATS  largest one-colour square: 3 x 3 (frame 1, at (36, 56))
+RESULT  all checks pass
+final_swing_nohelm_noshield_4x.gif: read back, 9 frames, 26 colours, every pixel and duration matches
+---- helmet and shield off (full-helmet-shield, steel)
+JOINTS  (overlap in pixels between a piece and its parent; joint point covered or not)
+  torso           least overlap  22 px (frame 4), joint pixels covered 4/4
+  head            least overlap  10 px (frame 0), joint pixels covered 4/4
+  skirt           least overlap  30 px (frame 0), joint pixels covered 4/4
+  cloak_upper     least overlap  51 px (frame 0), joint pixels covered 4/4
+  cloak_lower     least overlap  14 px (frame 4), joint pixels covered 4/4
+  far_upper_arm   least overlap   3 px (frame 1), joint pixels covered 4/4
+  far_forearm     least overlap   5 px (frame 2), joint pixels covered 4/4
+  far_thigh       least overlap   5 px (frame 1), joint pixels covered 4/4
+  far_shin        least overlap   7 px (frame 3), joint pixels covered 4/4
+  near_thigh      least overlap   8 px (frame 1), joint pixels covered 4/4
+  near_shin       least overlap  15 px (frame 6), joint pixels covered 4/4
+  near_upper_arm  least overlap  21 px (frame 2), joint pixels covered 4/4
+  near_forearm    least overlap  15 px (frame 3), joint pixels covered 4/4
+  weapon          least overlap   6 px (frame 1), joint pixels covered 4/4
+JOINT LIMITS  (bend = a piece's angle minus its parent's; every joint has a range in rig.json)
+  far_upper_arm   bends  -27 ..   +0   (range -180 .. 45)
+  far_forearm     bends  -90 ..  -63   (range -155 .. 0)
+  far_thigh       bends  -45 ..   +0   (range -110 .. 30)
+  far_shin        bends   +0 ..  +59   (range 0 .. 150)
+  near_thigh      bends  -27 ..   +0   (range -110 .. 30)
+  near_shin       bends   +0 ..  +41   (range 0 .. 150)
+  near_upper_arm  bends  -90 .. +180   (range -180 .. 45)
+  near_forearm    bends -135 ..   +0   (range -155 .. 0)
+  weapon          bends   +0 .. +180   (range -30 .. 180)
+  every joint inside its range in every frame
+WEAPON LENGTH along its axis (rest pose first)
+  angle   0: length 33.0, width 8.0, 122 px
+  angle -63: length 33.2 (+0.2), width 9.0, 118 px (-3%)
+  angle -27: length 33.6 (+0.6), width 9.0, 122 px (+0%)
+  angle  27: length 33.2 (+0.2), width 9.0, 120 px (-2%)
+  angle  45: length 32.8 (-0.2), width 9.5, 127 px (+4%)
+  angle  63: length 33.6 (+0.6), width 9.0, 116 px (-5%)
+  angle  90: length 33.0 (+0.0), width 8.0, 122 px (+0%)
+  angle 117: length 33.2 (+0.2), width 9.0, 119 px (-2%)
+PLANTED FEET  (sole point in world space = figure position + root travel so far)
+  near frames [0, 1, 2, 3, 4, 5, 6, 7, 8] world [(12, 47), (12, 47), (12, 47), (12, 47), (12, 47), (12, 47), (12, 47), (12, 47), (12, 47)]  moved 0,0 px
+  far  frames [0, 1, 2]        world [(21, 46), (21, 46), (21, 46)]  moved 0,0 px
+  far  frames [4, 5, 6]        world [(27, 46), (27, 46), (27, 46)]  moved 0,0 px
+  far  frames [8, 0]           world [(21, 46), (21, 46)]  moved 0,0 px
+  near sole per frame (figure coords): [(12, 47), (12, 47), (12, 47), (12, 47), (12, 47), (12, 47), (12, 47), (12, 47), (12, 47)]
+  far sole per frame (figure coords): [(21, 46), (21, 46), (21, 46), (24, 44), (27, 46), (27, 46), (27, 46), (24, 45), (21, 46)]
+PATHS  (figure coordinates; step = distance to the next frame; turn = change of heading)
+  tip: 0:(5,0) 1:(0,-8) 2:(-25,-11) 3:(44,-7) 4:(56,21) 5:(50,39) 6:(48,28) 7:(38,15) 8:(19,3)
+    steps: 9.4 25.2 69.1 30.5 19.0 11.2 16.4 22.5 14.3
+    turns: -51 +176 +63 +42 +151 -27 -20 -20
+    note: the path doubles back at frame 2 (+176 degrees)
+    note: the path doubles back at frame 5 (+151 degrees)
+  hand: 0:(6,29) 1:(13,18) 2:(1,2) 3:(25,14) 4:(28,22) 5:(24,27) 6:(19,28) 7:(12,29) 8:(7,29)
+    steps: 13.0 20.0 26.8 8.5 6.4 5.1 7.1 5.0 1.0
+    turns: -69 +153 +43 +59 +40 +3 +8 -
+    note: the path doubles back at frame 2 (+153 degrees)
+FLATS  largest one-colour square: 3 x 3 (frame 1, at (36, 56))
+RESULT  all checks pass
+final_swing_bronze_4x.gif: read back, 9 frames, 29 colours, every pixel and duration matches
+---- bronze (full, bronze)
+JOINTS  (overlap in pixels between a piece and its parent; joint point covered or not)
+  torso           least overlap  22 px (frame 4), joint pixels covered 4/4
+  head            least overlap  10 px (frame 0), joint pixels covered 4/4
+  skirt           least overlap  30 px (frame 0), joint pixels covered 4/4
+  cloak_upper     least overlap  51 px (frame 0), joint pixels covered 4/4
+  cloak_lower     least overlap  14 px (frame 4), joint pixels covered 4/4
+  far_upper_arm   least overlap   3 px (frame 1), joint pixels covered 4/4
+  far_forearm     least overlap   5 px (frame 2), joint pixels covered 4/4
+  shield          least overlap  23 px (frame 0), joint pixels covered 4/4
+  far_thigh       least overlap   5 px (frame 1), joint pixels covered 4/4
+  far_shin        least overlap   7 px (frame 3), joint pixels covered 4/4
+  near_thigh      least overlap   8 px (frame 1), joint pixels covered 4/4
+  near_shin       least overlap  15 px (frame 6), joint pixels covered 4/4
+  near_upper_arm  least overlap  21 px (frame 2), joint pixels covered 4/4
+  near_forearm    least overlap  15 px (frame 3), joint pixels covered 4/4
+  weapon          least overlap   6 px (frame 1), joint pixels covered 4/4
+JOINT LIMITS  (bend = a piece's angle minus its parent's; every joint has a range in rig.json)
+  far_upper_arm   bends  -27 ..   +0   (range -180 .. 45)
+  far_forearm     bends  -90 ..  -63   (range -155 .. 0)
+  shield          bends  +90 ..  +90   (range 60 .. 120)
+  far_thigh       bends  -45 ..   +0   (range -110 .. 30)
+  far_shin        bends   +0 ..  +59   (range 0 .. 150)
+  near_thigh      bends  -27 ..   +0   (range -110 .. 30)
+  near_shin       bends   +0 ..  +41   (range 0 .. 150)
+  near_upper_arm  bends  -90 .. +180   (range -180 .. 45)
+  near_forearm    bends -135 ..   +0   (range -155 .. 0)
+  weapon          bends   +0 .. +180   (range -30 .. 180)
+  every joint inside its range in every frame
+WEAPON LENGTH along its axis (rest pose first)
+  angle   0: length 33.0, width 8.0, 122 px
+  angle -63: length 33.2 (+0.2), width 9.0, 118 px (-3%)
+  angle -27: length 33.6 (+0.6), width 9.0, 122 px (+0%)
+  angle  27: length 33.2 (+0.2), width 9.0, 120 px (-2%)
+  angle  45: length 32.8 (-0.2), width 9.5, 127 px (+4%)
+  angle  63: length 33.6 (+0.6), width 9.0, 116 px (-5%)
+  angle  90: length 33.0 (+0.0), width 8.0, 122 px (+0%)
+  angle 117: length 33.2 (+0.2), width 9.0, 119 px (-2%)
+PLANTED FEET  (sole point in world space = figure position + root travel so far)
+  near frames [0, 1, 2, 3, 4, 5, 6, 7, 8] world [(12, 47), (12, 47), (12, 47), (12, 47), (12, 47), (12, 47), (12, 47), (12, 47), (12, 47)]  moved 0,0 px
+  far  frames [0, 1, 2]        world [(21, 46), (21, 46), (21, 46)]  moved 0,0 px
+  far  frames [4, 5, 6]        world [(27, 46), (27, 46), (27, 46)]  moved 0,0 px
+  far  frames [8, 0]           world [(21, 46), (21, 46)]  moved 0,0 px
+  near sole per frame (figure coords): [(12, 47), (12, 47), (12, 47), (12, 47), (12, 47), (12, 47), (12, 47), (12, 47), (12, 47)]
+  far sole per frame (figure coords): [(21, 46), (21, 46), (21, 46), (24, 44), (27, 46), (27, 46), (27, 46), (24, 45), (21, 46)]
+PATHS  (figure coordinates; step = distance to the next frame; turn = change of heading)
+  tip: 0:(5,0) 1:(0,-8) 2:(-25,-11) 3:(44,-7) 4:(56,21) 5:(50,39) 6:(48,28) 7:(38,15) 8:(19,3)
+    steps: 9.4 25.2 69.1 30.5 19.0 11.2 16.4 22.5 14.3
+    turns: -51 +176 +63 +42 +151 -27 -20 -20
+    note: the path doubles back at frame 2 (+176 degrees)
+    note: the path doubles back at frame 5 (+151 degrees)
+  hand: 0:(6,29) 1:(13,18) 2:(1,2) 3:(25,14) 4:(28,22) 5:(24,27) 6:(19,28) 7:(12,29) 8:(7,29)
+    steps: 13.0 20.0 26.8 8.5 6.4 5.1 7.1 5.0 1.0
+    turns: -69 +153 +43 +59 +40 +3 +8 -
+    note: the path doubles back at frame 2 (+153 degrees)
+FLATS  largest one-colour square: 3 x 3 (frame 1, at (36, 56))
+RESULT  all checks pass

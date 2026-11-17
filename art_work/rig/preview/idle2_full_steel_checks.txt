@@ -1,0 +1,39 @@
+idle2  gear=full material=steel  frames=6  total=1380 ms
+idle2_full_steel_4x.gif: read back, 6 frames, 25 colours, every pixel and duration matches
+idle2_full_steel_1x.gif: read back, 6 frames, 25 colours, every pixel and duration matches
+JOINTS  (overlap in pixels between a piece and its parent; joint point covered or not)
+  torso           least overlap   7 px (frame 2), joint pixels covered 4/4
+  head            least overlap   3 px (frame 4), joint pixels covered 4/4
+  skirt           least overlap  20 px (frame 5), joint pixels covered 4/4
+  cloak_upper     least overlap  51 px (frame 0), joint pixels covered 4/4
+  cloak_lower     least overlap   9 px (frame 1), joint pixels covered 4/4
+  far_upper_arm   least overlap  10 px (frame 0), joint pixels covered 4/4
+  far_forearm     least overlap   5 px (frame 1), joint pixels covered 4/4
+  shield          least overlap  23 px (frame 0), joint pixels covered 4/4
+  far_thigh       least overlap   6 px (frame 0), joint pixels covered 4/4
+  far_shin        least overlap  13 px (frame 0), joint pixels covered 4/4
+  near_thigh      least overlap   9 px (frame 0), joint pixels covered 4/4
+  near_shin       least overlap  19 px (frame 0), joint pixels covered 4/4
+  near_upper_arm  least overlap  30 px (frame 0), joint pixels covered 4/4
+  near_forearm    least overlap  12 px (frame 1), joint pixels covered 4/4
+  weapon          least overlap  23 px (frame 0), joint pixels covered 4/4
+JOINT LIMITS  (bend = a piece's angle minus its parent's; every joint has a range in rig.json)
+  far_forearm     bends  -90 ..  -90   (range -155 .. 0)
+  shield          bends  +90 ..  +90   (range 60 .. 120)
+  every joint inside its range in every frame
+WEAPON LENGTH along its axis (rest pose first)
+  angle   0: length 33.0, width 8.0, 122 px
+PLANTED FEET  (sole point in world space = figure position + root travel so far)
+  near frames [0, 1, 2, 3, 4, 5] world [(12, 47), (12, 47), (12, 47), (12, 47), (12, 47), (12, 47)]  moved 0,0 px
+  far  frames [0, 1, 2, 3, 4, 5] world [(21, 46), (21, 46), (21, 46), (21, 46), (21, 46), (21, 46)]  moved 0,0 px
+  near sole per frame (figure coords): [(12, 47), (12, 47), (12, 47), (12, 47), (12, 47), (12, 47)]
+  far sole per frame (figure coords): [(21, 46), (21, 46), (21, 46), (21, 46), (21, 46), (21, 46)]
+PATHS  (figure coordinates; step = distance to the next frame; turn = change of heading)
+  tip: 0:(5,0) 1:(5,0) 2:(5,0) 3:(5,0) 4:(5,0) 5:(5,0)
+    steps: 0.0 0.0 0.0 0.0 0.0 0.0
+    turns: - - - - -
+  hand: 0:(6,29) 1:(6,29) 2:(6,29) 3:(6,29) 4:(6,29) 5:(6,29)
+    steps: 0.0 0.0 0.0 0.0 0.0 0.0
+    turns: - - - - -
+FLATS  largest one-colour square: 2 x 2 (frame 0, at (23, 9))
+RESULT  all checks pass

@@ -81,20 +81,31 @@ of the plan under "Own art: how it gets made"; this is only where things stand.
 - **Method: settled** by a bake-off (`art_work/bakeoff/`). Drawn with the `pxl`
   tool by an agent that does nothing else, applying `docs/art/PIXEL_ART_THEORY.md`
   in rounds of render, look and fix. Aseprite is not part of the pipeline.
-- **Animation rig: in progress** in `art_work/rig/` (not committed yet), by a
-  background agent started 2026-11-17. Ákos is shown each part when it is finished,
-  never mid-way, and judges motion by watching, which the agent cannot do.
-  - Done and seen: the parts and pivots (`final_rig.png`); joint ranges with a
-    check, after he spotted an elbow bending backwards; a first idle ("isn't bad")
-    and a second with the lower body moving (`final_idle2`, not yet judged); a
-    first walk, which he found "choppy" and "a little silly", moving too much.
-  - Still to come from that agent: a calmer second walk (`final_walk2`), then the
-    attack swing.
+- **Animation rig: first version finished** 2026-11-17, in `art_work/rig/`. Its
+  `README.md` describes the data format and how to add gear or an animation. Ákos
+  is shown each part when it is finished, never mid-way, and judges motion by
+  watching, which the agent cannot do.
+  - What exists: sixteen pieces with pivots and joint ranges (`rig.json`,
+    `atlas.png`); five animations as pose data (`anims/`: idle, idle2, walk,
+    walk2, swing); a preview tool with checks (no joint opens, joints inside their
+    ranges, weapon length constant, planted feet still). All checks pass. The
+    agent's own verdict: correct, readable pose sequences with almost no hand
+    polish, not commercial quality.
+  - His verdicts so far: the first idle "isn't bad", and would be better with the
+    lower body moving (idle2 does that; not yet judged); the first walk was
+    "choppy" and "a little silly", moving too much (walk2 halves the movement and
+    uses eight frames; not yet judged); the swing on the rig not yet judged. He
+    caught an elbow bending backwards, which led to the joint ranges.
   - **His open decision:** he expects a rig drawn as fully separate parts from the
-    start to be better than this one, where head, torso and hips are still slices
-    of the standing figure. After he has seen the second walk and the swing, if he
-    still says so, build that rig and compare the same three animations. The
-    pivots, joint ranges, gear attachment, angle set and data format carry over.
+    start to be better than this one, where the limbs are separate drawings but
+    head, torso and hips are still slices of the standing figure. He said he would
+    decide after seeing the animations. The agent's account of what that would
+    change: it fixes the shoulder and hip sockets, borrowed shadows on the torso,
+    thigh tops showing beside the hips, and gives a neck and hair that can lag; it
+    does not fix a torso twist (that needs two or three extra drawn views in any
+    rig), the rough machine-turned limbs, or any timing question. The data format,
+    tools, checks, angle set, joint ranges, all eight limb parts and the five
+    animation files carry over.
 - Step 5 of Phase 2 puts worn gear on the map figure and will use the rig's data.
 
 ## Homebrew source document

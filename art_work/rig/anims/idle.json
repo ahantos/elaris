@@ -1,0 +1,38 @@
+{
+ "format": "elaris-anim/1",
+ "name": "idle",
+ "loop": true,
+ "canvas": { "w": 48, "h": 56, "origin": [ 8, 6 ] },
+ "planted": { "near": [ [ 0, 1, 2, 3 ] ], "far": [ [ 0, 1, 2, 3 ] ] },
+ "frames": [
+  {
+   "ms": 520,
+   "pieces": {}
+  },
+  {
+   "ms": 180,
+   "pieces": {
+    "torso": { "dy": -1 },
+    "head": { "dy": 1 },
+    "near_forearm": { "dy": 1 },
+    "far_forearm": { "dy": 1 },
+    "cloak_lower": { "dy": 1 }
+   }
+  },
+  {
+   "ms": 520,
+   "pieces": {
+    "torso": { "dy": -1 },
+    "near_forearm": { "dy": 1 },
+    "far_forearm": { "dy": 1 }
+   }
+  },
+  {
+   "ms": 180,
+   "pieces": {
+    "head": { "dy": -1 },
+    "cloak_lower": { "dy": -1 }
+   }
+  }
+ ]
+}

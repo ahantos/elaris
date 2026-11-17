@@ -1,0 +1,129 @@
+final_walk2_4x.gif: read back, 8 frames, 25 colours, every pixel and duration matches
+final_walk2_1x.gif: read back, 8 frames, 25 colours, every pixel and duration matches
+---- full gear (full, steel)
+JOINTS  (overlap in pixels between a piece and its parent; joint point covered or not)
+  torso           least overlap  25 px (frame 0), joint pixels covered 4/4
+  head            least overlap   3 px (frame 0), joint pixels covered 4/4
+  skirt           least overlap  19 px (frame 6), joint pixels covered 4/4
+  cloak_upper     least overlap  51 px (frame 0), joint pixels covered 4/4
+  cloak_lower     least overlap   9 px (frame 2), joint pixels covered 4/4
+  far_upper_arm   least overlap   3 px (frame 4), joint pixels covered 4/4
+  far_forearm     least overlap   7 px (frame 0), joint pixels covered 4/4
+  shield          least overlap  23 px (frame 0), joint pixels covered 4/4
+  far_thigh       least overlap   7 px (frame 4), joint pixels covered 4/4
+  far_shin        least overlap   6 px (frame 0), joint pixels covered 4/4
+  near_thigh      least overlap   8 px (frame 2), joint pixels covered 4/4
+  near_shin       least overlap  10 px (frame 0), joint pixels covered 4/4
+  near_upper_arm  least overlap  22 px (frame 4), joint pixels covered 4/4
+  near_forearm    least overlap  17 px (frame 0), joint pixels covered 4/4
+  weapon          least overlap  23 px (frame 0), joint pixels covered 4/4
+JOINT LIMITS  (bend = a piece's angle minus its parent's; every joint has a range in rig.json)
+  far_forearm     bends  -90 ..  -90   (range -155 .. 0)
+  shield          bends  +90 ..  +90   (range 60 .. 120)
+  far_thigh       bends  -27 ..  +14   (range -110 .. 30)
+  far_shin        bends   +0 ..  +59   (range 0 .. 150)
+  near_thigh      bends  -27 ..  +14   (range -110 .. 30)
+  near_shin       bends   +0 ..  +59   (range 0 .. 150)
+  every joint inside its range in every frame
+WEAPON LENGTH along its axis (rest pose first)
+  angle   0: length 33.0, width 8.0, 122 px
+PLANTED FEET  (sole point in world space = figure position + root travel so far)
+  far  frames [0, 1, 2, 3, 4]  world [(25, 46), (25, 46), (25, 46), (25, 46), (25, 46)]  moved 0,0 px
+  near frames [4, 5, 6, 7, 0]  world [(40, 47), (40, 47), (40, 47), (40, 47), (40, 47)]  moved 0,0 px
+  near sole per frame (figure coords): [(8, 47), (11, 45), (16, 44), (21, 46), (24, 47), (20, 47), (16, 47), (12, 47)]
+  far sole per frame (figure coords): [(25, 46), (21, 46), (17, 46), (13, 46), (9, 46), (12, 44), (17, 43), (22, 45)]
+  root travel per frame: [4, 4, 4, 4, 4, 4, 4, 4] (sum 32)
+PATHS  (figure coordinates; step = distance to the next frame; turn = change of heading)
+  tip: 0:(6,1) 1:(6,1) 2:(5,0) 3:(5,0) 4:(4,1) 5:(4,1) 6:(5,0) 7:(5,0)
+    steps: 0.0 1.4 0.0 1.4 0.0 1.4 0.0 1.4
+    turns: - - - - - - -
+  hand: 0:(7,30) 1:(7,30) 2:(6,29) 3:(6,29) 4:(5,30) 5:(5,30) 6:(6,29) 7:(6,29)
+    steps: 0.0 1.4 0.0 1.4 0.0 1.4 0.0 1.4
+    turns: - - - - - - -
+FLATS  largest one-colour square: 3 x 3 (frame 1, at (28, 40))
+RESULT  all checks pass
+final_walk2_nohelm_noshield_4x.gif: read back, 8 frames, 23 colours, every pixel and duration matches
+---- helmet and shield off (full-helmet-shield, steel)
+JOINTS  (overlap in pixels between a piece and its parent; joint point covered or not)
+  torso           least overlap  25 px (frame 0), joint pixels covered 4/4
+  head            least overlap   3 px (frame 0), joint pixels covered 4/4
+  skirt           least overlap  19 px (frame 6), joint pixels covered 4/4
+  cloak_upper     least overlap  51 px (frame 0), joint pixels covered 4/4
+  cloak_lower     least overlap   9 px (frame 2), joint pixels covered 4/4
+  far_upper_arm   least overlap   3 px (frame 4), joint pixels covered 4/4
+  far_forearm     least overlap   7 px (frame 0), joint pixels covered 4/4
+  far_thigh       least overlap   7 px (frame 4), joint pixels covered 4/4
+  far_shin        least overlap   6 px (frame 0), joint pixels covered 4/4
+  near_thigh      least overlap   8 px (frame 2), joint pixels covered 4/4
+  near_shin       least overlap  10 px (frame 0), joint pixels covered 4/4
+  near_upper_arm  least overlap  22 px (frame 4), joint pixels covered 4/4
+  near_forearm    least overlap  17 px (frame 0), joint pixels covered 4/4
+  weapon          least overlap  23 px (frame 0), joint pixels covered 4/4
+JOINT LIMITS  (bend = a piece's angle minus its parent's; every joint has a range in rig.json)
+  far_forearm     bends  -90 ..  -90   (range -155 .. 0)
+  far_thigh       bends  -27 ..  +14   (range -110 .. 30)
+  far_shin        bends   +0 ..  +59   (range 0 .. 150)
+  near_thigh      bends  -27 ..  +14   (range -110 .. 30)
+  near_shin       bends   +0 ..  +59   (range 0 .. 150)
+  every joint inside its range in every frame
+WEAPON LENGTH along its axis (rest pose first)
+  angle   0: length 33.0, width 8.0, 122 px
+PLANTED FEET  (sole point in world space = figure position + root travel so far)
+  far  frames [0, 1, 2, 3, 4]  world [(25, 46), (25, 46), (25, 46), (25, 46), (25, 46)]  moved 0,0 px
+  near frames [4, 5, 6, 7, 0]  world [(40, 47), (40, 47), (40, 47), (40, 47), (40, 47)]  moved 0,0 px
+  near sole per frame (figure coords): [(8, 47), (11, 45), (16, 44), (21, 46), (24, 47), (20, 47), (16, 47), (12, 47)]
+  far sole per frame (figure coords): [(25, 46), (21, 46), (17, 46), (13, 46), (9, 46), (12, 44), (17, 43), (22, 45)]
+  root travel per frame: [4, 4, 4, 4, 4, 4, 4, 4] (sum 32)
+PATHS  (figure coordinates; step = distance to the next frame; turn = change of heading)
+  tip: 0:(6,1) 1:(6,1) 2:(5,0) 3:(5,0) 4:(4,1) 5:(4,1) 6:(5,0) 7:(5,0)
+    steps: 0.0 1.4 0.0 1.4 0.0 1.4 0.0 1.4
+    turns: - - - - - - -
+  hand: 0:(7,30) 1:(7,30) 2:(6,29) 3:(6,29) 4:(5,30) 5:(5,30) 6:(6,29) 7:(6,29)
+    steps: 0.0 1.4 0.0 1.4 0.0 1.4 0.0 1.4
+    turns: - - - - - - -
+FLATS  largest one-colour square: 3 x 3 (frame 1, at (28, 40))
+RESULT  all checks pass
+final_walk2_bronze_4x.gif: read back, 8 frames, 25 colours, every pixel and duration matches
+---- bronze (full, bronze)
+JOINTS  (overlap in pixels between a piece and its parent; joint point covered or not)
+  torso           least overlap  25 px (frame 0), joint pixels covered 4/4
+  head            least overlap   3 px (frame 0), joint pixels covered 4/4
+  skirt           least overlap  19 px (frame 6), joint pixels covered 4/4
+  cloak_upper     least overlap  51 px (frame 0), joint pixels covered 4/4
+  cloak_lower     least overlap   9 px (frame 2), joint pixels covered 4/4
+  far_upper_arm   least overlap   3 px (frame 4), joint pixels covered 4/4
+  far_forearm     least overlap   7 px (frame 0), joint pixels covered 4/4
+  shield          least overlap  23 px (frame 0), joint pixels covered 4/4
+  far_thigh       least overlap   7 px (frame 4), joint pixels covered 4/4
+  far_shin        least overlap   6 px (frame 0), joint pixels covered 4/4
+  near_thigh      least overlap   8 px (frame 2), joint pixels covered 4/4
+  near_shin       least overlap  10 px (frame 0), joint pixels covered 4/4
+  near_upper_arm  least overlap  22 px (frame 4), joint pixels covered 4/4
+  near_forearm    least overlap  17 px (frame 0), joint pixels covered 4/4
+  weapon          least overlap  23 px (frame 0), joint pixels covered 4/4
+JOINT LIMITS  (bend = a piece's angle minus its parent's; every joint has a range in rig.json)
+  far_forearm     bends  -90 ..  -90   (range -155 .. 0)
+  shield          bends  +90 ..  +90   (range 60 .. 120)
+  far_thigh       bends  -27 ..  +14   (range -110 .. 30)
+  far_shin        bends   +0 ..  +59   (range 0 .. 150)
+  near_thigh      bends  -27 ..  +14   (range -110 .. 30)
+  near_shin       bends   +0 ..  +59   (range 0 .. 150)
+  every joint inside its range in every frame
+WEAPON LENGTH along its axis (rest pose first)
+  angle   0: length 33.0, width 8.0, 122 px
+PLANTED FEET  (sole point in world space = figure position + root travel so far)
+  far  frames [0, 1, 2, 3, 4]  world [(25, 46), (25, 46), (25, 46), (25, 46), (25, 46)]  moved 0,0 px
+  near frames [4, 5, 6, 7, 0]  world [(40, 47), (40, 47), (40, 47), (40, 47), (40, 47)]  moved 0,0 px
+  near sole per frame (figure coords): [(8, 47), (11, 45), (16, 44), (21, 46), (24, 47), (20, 47), (16, 47), (12, 47)]
+  far sole per frame (figure coords): [(25, 46), (21, 46), (17, 46), (13, 46), (9, 46), (12, 44), (17, 43), (22, 45)]
+  root travel per frame: [4, 4, 4, 4, 4, 4, 4, 4] (sum 32)
+PATHS  (figure coordinates; step = distance to the next frame; turn = change of heading)
+  tip: 0:(6,1) 1:(6,1) 2:(5,0) 3:(5,0) 4:(4,1) 5:(4,1) 6:(5,0) 7:(5,0)
+    steps: 0.0 1.4 0.0 1.4 0.0 1.4 0.0 1.4
+    turns: - - - - - - -
+  hand: 0:(7,30) 1:(7,30) 2:(6,29) 3:(6,29) 4:(5,30) 5:(5,30) 6:(6,29) 7:(6,29)
+    steps: 0.0 1.4 0.0 1.4 0.0 1.4 0.0 1.4
+    turns: - - - - - - -
+FLATS  largest one-colour square: 3 x 3 (frame 1, at (28, 40))
+RESULT  all checks pass
+final_walk2_travel_4x.gif: read back, 16 frames, 25 colours, every pixel and duration matches

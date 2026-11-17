@@ -1,0 +1,84 @@
+{
+  "_comment": "Hand-written source of the rig. tools/bake.py reads this and the master pictures (out/sprites, built by pxl from rig.px.js) and writes rig.json + atlas.png, which is what the game loads. 'canvas' is the size of a piece's master picture (limbs have small canvases of their own; the rest are drawn in place on the 32 x 48 figure). 'centre' is the piece's rotation centre in its own canvas, 'at' is the point on the PARENT's canvas where that centre sits. Coordinates are in pixel units (pixel x covers x..x+1): 8.5 is the middle of pixel 8, 10.0 is the line between pixels 9 and 10. 'rest' is the angle of the piece in the rest pose. 'range' is how far the joint may bend: the allowed values of (this piece's angle minus its parent's angle), in degrees, clockwise positive on the right-facing figure. A limb's angle 0 is hanging straight down, so an elbow's range -155..0 means the forearm may fold toward the front but never behind the upper arm, and a knee's 0..150 means the shin may fold back but never forward.",
+  "figure": { "w": 32, "h": 48, "ground_y": 47, "facing": "right" },
+  "angle_degrees": { "14": 14.036, "27": 26.565, "63": 63.435, "117": 116.565, "153": 153.435 },
+  "pieces": [
+    { "name": "hips", "parent": null, "centre": [16.5, 26.5], "at": [16.5, 26.5], "angles": [0] },
+    { "name": "torso", "parent": "hips", "centre": [16.5, 24.5], "at": [16.5, 24.5], "range": [-20, 20], "angles": [0] },
+    { "name": "head", "parent": "torso", "centre": [16.5, 12.5], "at": [16.5, 12.5], "range": [-20, 20], "angles": [0] },
+
+    { "name": "skirt", "parent": "hips", "centre": [16.5, 26.5], "at": [16.5, 26.5], "angles": [0], "slot": "legs" },
+
+    { "name": "cloak_upper", "parent": "torso", "centre": [9.5, 13.5], "at": [9.5, 13.5], "angles": [0], "slot": "cloak" },
+    { "name": "cloak_lower", "parent": "cloak_upper", "centre": [8.5, 27.5], "at": [8.5, 27.5], "angles": [0], "slot": "cloak" },
+
+    { "name": "far_upper_arm", "parent": "torso", "canvas": [6, 8], "centre": [3.0, 2.0], "at": [23.0, 16.0],
+      "range": [-180, 45], "angles": [0, 27, 45, -27, -45] },
+    { "name": "far_forearm", "parent": "far_upper_arm", "canvas": [4, 7], "centre": [2.0, 1.0], "at": [3.0, 6.0],
+      "rest": -90, "range": [-155, 0], "angles": [-90, -63, -45, -117, -135], "anchors": { "fist": [2.0, 5.0] } },
+    { "name": "shield", "parent": "far_forearm", "centre": [27.0, 20.0], "at": [2.0, 5.0],
+      "range": [60, 120], "angles": [0, 27, -27], "slot": "shield" },
+
+    { "name": "far_thigh", "parent": "hips", "canvas": [8, 12], "centre": [3.0, 2.0], "at": [20.0, 28.0],
+      "range": [-110, 30], "angles": [0, 14, 27, -14, -27, -45, -63] },
+    { "name": "far_shin", "parent": "far_thigh", "canvas": [8, 13], "centre": [3.0, 2.0], "at": [4.0, 10.0],
+      "range": [0, 150], "angles": [0, 14, 27, 45, 63, 90, -14, -27, -45], "anchors": { "sole": [3.5, 12.5] } },
+    { "name": "near_thigh", "parent": "hips", "canvas": [8, 13], "centre": [4.0, 2.0], "at": [13.0, 28.0],
+      "range": [-110, 30], "angles": [0, 14, 27, -14, -27, -45, -63] },
+    { "name": "near_shin", "parent": "near_thigh", "canvas": [10, 14], "centre": [5.0, 2.0], "at": [4.0, 10.0],
+      "range": [0, 150], "angles": [0, 14, 27, 45, 63, 90, -14, -27, -45], "anchors": { "sole": [4.5, 13.5] } },
+
+    { "name": "near_upper_arm", "parent": "torso", "canvas": [8, 11], "centre": [4.0, 2.0], "at": [9.0, 15.0],
+      "range": [-180, 45], "angles": [0, 27, 45, 180, -27, -45, -63, -90, -117, -135, -153],
+      "relit": [45, 180] },
+    { "name": "near_forearm", "parent": "near_upper_arm", "canvas": [8, 12], "centre": [5.0, 2.0], "at": [4.0, 8.0],
+      "range": [-155, 0], "angles": [0, 27, 45, 63, 90, 117, 135, 153, 180, -27, -45, -63, -90, -117, -135, -153],
+      "relit": [45, 63, 90, 117, 135, 153, 180],
+      "anchors": { "hand": [2.0, 10.0] } },
+    { "name": "weapon", "parent": "near_forearm", "centre": [6.0, 29.0], "at": [2.0, 10.0],
+      "range": [-30, 180], "angles": [0, 27, 45, 63, 90, 117, 135, 153, 180, -27, -45, -63, -90, -117, -135, -153], "slot": "weapon",
+      "relit": [45, 63, 90, 117, 135, 153, 180, -153],
+      "anchors": { "tip": [5.5, 0.5], "pommel": [6.0, 32.5] } }
+  ],
+  "body": [
+    { "sprite": "body__far_upper_arm", "piece": "far_upper_arm", "z": 20 },
+    { "sprite": "body__far_forearm", "piece": "far_forearm", "z": 22 },
+    { "sprite": "body__far_shin", "piece": "far_shin", "z": 30 },
+    { "sprite": "body__far_thigh", "piece": "far_thigh", "z": 32 },
+    { "sprite": "body__torso", "piece": "torso", "z": 40 },
+    { "sprite": "body__near_shin", "piece": "near_shin", "z": 42 },
+    { "sprite": "body__near_thigh", "piece": "near_thigh", "z": 44 },
+    { "sprite": "body__hips", "piece": "hips", "z": 48 },
+    { "sprite": "body__head", "piece": "head", "z": 50 },
+    { "sprite": "body__near_upper_arm", "piece": "near_upper_arm", "z": 70 },
+    { "sprite": "body__near_forearm", "piece": "near_forearm", "z": 72 },
+    { "sprite": "body__near_hand", "piece": "near_forearm", "z": 82 }
+  ],
+  "slots": ["cloak", "legs", "boots", "torso_gear", "helmet", "shield", "arm_gear", "weapon"],
+  "gear": {
+    "wolf_cloak": { "slot": "cloak", "layers": [
+      { "sprite": "wolf_cloak__cloak_lower", "piece": "cloak_lower", "z": 10 },
+      { "sprite": "wolf_cloak__cloak_upper", "piece": "cloak_upper", "z": 12 } ] },
+    "fur_kilt": { "slot": "legs", "metal": true, "layers": [
+      { "sprite": "fur_kilt__skirt", "piece": "skirt", "z": 52 },
+      { "sprite": "fur_kilt__hips", "piece": "hips", "z": 53 } ] },
+    "fur_boots": { "slot": "boots", "layers": [
+      { "sprite": "fur_boots__far_shin", "piece": "far_shin", "z": 34 },
+      { "sprite": "fur_boots__near_shin", "piece": "near_shin", "z": 46 } ] },
+    "baldric": { "slot": "torso_gear", "metal": true, "layers": [
+      { "sprite": "baldric__torso", "piece": "torso", "z": 54 } ] },
+    "iron_cap": { "slot": "helmet", "metal": true, "layers": [
+      { "sprite": "iron_cap__head", "piece": "head", "z": 56 } ] },
+    "round_shield": { "slot": "shield", "metal": true, "layers": [
+      { "sprite": "round_shield__shield", "piece": "shield", "z": 60 } ] },
+    "fur_bracer": { "slot": "arm_gear", "metal": true, "layers": [
+      { "sprite": "fur_bracer__torso", "piece": "torso", "z": 71 },
+      { "sprite": "fur_bracer__near_forearm", "piece": "near_forearm", "z": 76 } ] },
+    "broad_sword": { "slot": "weapon", "metal": true, "layers": [
+      { "sprite": "broad_sword__weapon", "piece": "weapon", "z": 80, "bars": [ { "rect": [1, 25, 9, 27] } ] } ] }
+  },
+  "materials": {
+    "steel": ["#0f1a28", "#202e37", "#3d4f56", "#819796", "#c7cfcc", "#f1f2ec"],
+    "bronze": ["#24141c", "#4c2a26", "#774528", "#a06c34", "#c9984f", "#ecd6a2"]
+  }
+}
