@@ -894,15 +894,6 @@ func get_combatant_at(grid_pos: Vector2i) -> Combatant:
 			return combatant
 	return null
 
-func get_enemy_at_position(grid_pos: Vector2i) -> Enemy:
-	"""Get enemy at grid position"""
-	for enemy in enemies:
-		if not is_instance_valid(enemy):
-			continue
-		if enemy.get_grid_position() == grid_pos:
-			return enemy
-	return null
-
 func is_tile_occupied(grid_pos: Vector2i, exclude = null) -> bool:
 	"""True when a combatant other than `exclude` stands on the tile. Called for
 	every tile a pathfinder looks at, so it walks the lists without copying them."""

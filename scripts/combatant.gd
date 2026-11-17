@@ -68,6 +68,47 @@ func _get_world():
 	return world_node
 
 # ============================================================================
+# OTHER COMBATANTS
+# ============================================================================
+
+func get_hostiles() -> Array[Combatant]:
+	"""Every living combatant in the world that is on another team"""
+	var hostiles: Array[Combatant] = []
+	var world = _get_world()
+	if world == null or not world.has_method("get_combatants"):
+		return hostiles
+	for other in world.get_combatants():
+		if other.is_alive() and is_hostile_to(other):
+			hostiles.append(other)
+	return hostiles
+
+func get_ally_positions() -> Array:
+	"""Tiles of the living combatants on this one's team (flanking partners for
+	attack rolls)"""
+	var positions: Array = []
+	var world = _get_world()
+	if world == null or not world.has_method("get_combatants"):
+		return positions
+	for other in world.get_combatants():
+		if other != self and other.team == team and other.is_alive():
+			positions.append(other.get_grid_position())
+	return positions
+
+func _check_opportunity_attacks(from_tile: Vector2i, to_tile: Vector2i):
+	"""Stepping out of a hostile's melee reach (adjacent to from_tile but not to
+	to_tile) provokes its opportunity attack. CombatManager self-gates the
+	reaction (once per round, status effects, exact adjacency) - just call it."""
+	if not in_combat():
+		return
+	for hostile in get_hostiles():
+		var hostile_pos = hostile.get_grid_position()
+		if CombatGrid.get_distance_tiles(hostile_pos, from_tile) == 1 and CombatGrid.get_distance_tiles(hostile_pos, to_tile) > 1:
+			CombatManager.trigger_opportunity_attack(hostile, self)
+			# Stop checking if a reaction dropped us
+			if not is_alive():
+				return
+
+# ============================================================================
 # GRID
 # ============================================================================
 

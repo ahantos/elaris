@@ -330,6 +330,7 @@ func _check_companions(world):
 			"a companion is a combatant on the party team")
 		check(kaelen.tile_size == 32 and world.get_combatants().has(kaelen) and not world.player.is_walkable(kaelen.grid_position),
 			"a companion stands on the 32px grid and occupies its tile")
+		_check_hostility(world, kaelen)
 
 	var sword: Dictionary = items.create_item_instance("iron_longsword")
 	inv.add_item(sword)
@@ -358,6 +359,26 @@ func _check_companions(world):
 	comp.dismiss("kaelen")
 	comp.dismiss("lyra")
 	await _wait(0.2)
+
+func _check_hostility(world, companion):
+	"""Who counts as an enemy is decided by team, for targeting, allies and area spells"""
+	var spells = _mgr("SpellManager")
+	var player = world.player
+	var enemy = world.enemies[0]
+	check(companion.get_hostiles().has(enemy) and not companion.get_hostiles().has(player)
+		and enemy.get_hostiles().has(player) and enemy.get_hostiles().has(companion)
+		and player.get_hostiles().size() == world.enemies.size(),
+		"each combatant's hostiles are the living combatants of the other team")
+	check(player.get_ally_positions() == [companion.grid_position] and enemy.get_ally_positions().size() == world.enemies.size() - 1,
+		"allies are the rest of a combatant's own team", str(player.get_ally_positions()))
+	check(player._hostile_at(enemy.grid_position) == enemy and player._hostile_at(companion.grid_position) == null
+		and player._hostile_at(player.grid_position) == null,
+		"the player can only aim attacks and enemy spells at a hostile combatant")
+	var around_player: Array = spells._resolve_area_targets(player, player.grid_position, 3)
+	var around_enemy: Array = spells._resolve_area_targets(player, enemy.grid_position, 0)
+	check(around_player.has(player) and not around_player.has(companion) and around_enemy == [enemy],
+		"an area spell takes the caster and its hostiles, and spares the caster's side",
+		"%d near the player, %d on the enemy" % [around_player.size(), around_enemy.size()])
 
 func _check_loot_safety(world):
 	var inv = _mgr("InventoryManager")

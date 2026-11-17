@@ -116,11 +116,7 @@ func take_turn():
 	if is_moving or not is_alive():
 		return
 
-	var world = _get_world()
-	if not is_instance_valid(world):
-		return
-
-	var enemies: Array = world.enemies.filter(func(e): return is_instance_valid(e) and e.is_alive())
+	var enemies: Array[Combatant] = get_hostiles()
 	if enemies.is_empty():
 		return
 
@@ -134,6 +130,8 @@ func take_turn():
 	if nearest == null:
 		return
 
+	# A companion's move provokes no opportunity attacks yet: nothing may hurt
+	# one until companions have death rules
 	var path = find_path(grid_position, _adjacent_tile_toward(nearest.grid_position))
 	if path.size() >= 2:
 		grid_position = path[1]

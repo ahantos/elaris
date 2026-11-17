@@ -202,19 +202,17 @@ func _input(event):
 
 			# Check if in attack mode
 			if attack_mode:
-				var world = _get_world()
-				if world:
-					var clicked_enemy = world.get_enemy_at_position(click_grid)
-					if clicked_enemy:
-						# Check if adjacent
-						var dx = abs(grid_position.x - click_grid.x)
-						var dy = abs(grid_position.y - click_grid.y)
-						if dx <= 1 and dy <= 1 and (dx + dy) > 0:
-							attack_enemy(clicked_enemy, selected_attack_type)
-						else:
-							print("Enemy is too far away! Must be adjacent.")
+				var clicked_enemy = _hostile_at(click_grid)
+				if clicked_enemy:
+					# Check if adjacent
+					var dx = abs(grid_position.x - click_grid.x)
+					var dy = abs(grid_position.y - click_grid.y)
+					if dx <= 1 and dy <= 1 and (dx + dy) > 0:
+						attack_enemy(clicked_enemy, selected_attack_type)
 					else:
-						print("No enemy at that location.")
+						print("Enemy is too far away! Must be adjacent.")
+				else:
+					print("No enemy at that location.")
 				attack_mode = false
 				selected_attack_type = ""
 				queue_redraw()
@@ -592,9 +590,19 @@ func create_temp_weapon(attack_type: String) -> ItemData:
 	
 	return weapon
 
-func attack_enemy(enemy: Enemy, attack_type: String):
-	"""Attack an adjacent enemy with animation (REFACTORED)"""
-	if not enemy or not turn_based_mode:
+func _hostile_at(grid_pos: Vector2i) -> Combatant:
+	"""The living hostile combatant on a tile, or null"""
+	var world = _get_world()
+	if not world:
+		return null
+	var target = world.get_combatant_at(grid_pos)
+	if target != null and target.is_alive() and is_hostile_to(target):
+		return target
+	return null
+
+func attack_enemy(enemy: Combatant, attack_type: String):
+	"""Attack an adjacent hostile combatant with animation"""
+	if not enemy or not turn_based_mode or not is_hostile_to(enemy):
 		return
 
 	if has_attacked_this_turn:
@@ -631,8 +639,8 @@ func attack_enemy(enemy: Enemy, attack_type: String):
 		return
 
 	# Roll attack using CombatManager (nodes unlock status effects, cover and
-	# AC mods; companion positions enable flanking advantage)
-	var result = CombatManager.roll_attack(stats, enemy.stats, weapon, false, false, self, enemy, _companion_positions())
+	# AC mods; allies' positions enable flanking advantage)
+	var result = CombatManager.roll_attack(stats, enemy.stats, weapon, false, false, self, enemy, get_ally_positions())
 	if result.is_empty():
 		queue_redraw()
 		return
@@ -696,7 +704,7 @@ func _handle_pending_spell_click(click_grid: Vector2i):
 
 	match target_type:
 		"enemy":
-			var clicked_enemy = world.get_enemy_at_position(click_grid) if world else null
+			var clicked_enemy = _hostile_at(click_grid)
 			if clicked_enemy == null:
 				EventBus.ui_notification.emit("No enemy there - click a target for %s." % str(spell.get("display_name", pending)), "warning")
 				return
@@ -769,44 +777,8 @@ func _spawn_spell_popups(result: Dictionary):
 			DamagePopup.spawn_miss_popup_at(parent, popup_pos)
 
 # ============================================================================
-# COMBAT MOVEMENT HOOKS (opportunity attacks, allies, loot pickup)
+# MOVEMENT HOOKS (loot pickup)
 # ============================================================================
-
-func _companion_positions() -> Array:
-	"""Grid positions of living party companions (flanking allies for attack rolls)"""
-	var positions: Array = []
-	var world = _get_world()
-	if not world:
-		return positions
-	var nodes = world.get("companion_nodes")
-	if not (nodes is Dictionary):
-		return positions
-	for node in nodes.values():
-		if node != null and is_instance_valid(node) and node.get("stats") != null and node.stats.is_alive():
-			positions.append(node.get_grid_position())
-	return positions
-
-func _check_opportunity_attacks(from_tile: Vector2i, to_tile: Vector2i):
-	"""Stepping out of an enemy's melee reach (adjacent to from_tile but not
-	to_tile) provokes its opportunity attack. CombatManager self-gates the
-	reaction (once per round, status effects, exact adjacency) - just call it."""
-	var world = _get_world()
-	if not world or not world.in_combat:
-		return
-	var hostiles = world.get("enemies")
-	if not (hostiles is Array):
-		return
-	for enemy in hostiles:
-		if enemy == null or not is_instance_valid(enemy) or enemy.get("is_dying"):
-			continue
-		if enemy.get("stats") == null or not enemy.stats.is_alive():
-			continue
-		var enemy_pos = enemy.get_grid_position()
-		if CombatGrid.get_distance_tiles(enemy_pos, from_tile) == 1 and CombatGrid.get_distance_tiles(enemy_pos, to_tile) > 1:
-			CombatManager.trigger_opportunity_attack(enemy, self)
-			# Stop checking if a reaction dropped us
-			if is_dying or not stats or not stats.is_alive():
-				return
 
 func _check_ground_pickup():
 	"""Pick up any ground loot on the tile the player now occupies"""

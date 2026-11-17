@@ -120,7 +120,7 @@ func take_turn():
 	# Start moving (movement is capped to moves_budget_this_turn in _physics_process)
 	path_index = 1
 
-	# Leaving the player's melee reach provokes an opportunity attack
+	# Leaving a hostile's melee reach provokes an opportunity attack
 	_check_opportunity_attacks(grid_position, path[path_index])
 	if is_dying or not stats or not stats.is_alive():
 		path.clear()
@@ -135,19 +135,6 @@ func _finish_turn_effects():
 	if is_dying or not stats or not stats.is_alive():
 		return
 	StatusEffectManager.process_turn_end(self)
-
-func _check_opportunity_attacks(from_tile: Vector2i, to_tile: Vector2i):
-	"""Stepping out of the player's melee reach (adjacent to from_tile but not
-	to_tile) provokes their opportunity attack. CombatManager self-gates the
-	reaction (once per round, status effects, exact adjacency) - just call it."""
-	var world = _get_world()
-	if not world or not world.in_combat:
-		return
-	if not is_instance_valid(player) or not player.stats or not player.stats.is_alive():
-		return
-	var player_pos = player.get_grid_position()
-	if CombatGrid.get_distance_tiles(player_pos, from_tile) == 1 and CombatGrid.get_distance_tiles(player_pos, to_tile) > 1:
-		CombatManager.trigger_opportunity_attack(player, self)
 
 func create_temp_weapon() -> ItemData:
 	"""Create temporary weapon for enemy (TEMPORARY - Phase 2 will give enemies real weapons)"""
@@ -265,7 +252,7 @@ func _physics_process(delta):
 			
 			# Check if should continue moving
 			if path_index < path.size() and path_index <= moves_budget_this_turn:
-				# Leaving the player's melee reach provokes an opportunity attack
+				# Leaving a hostile's melee reach provokes an opportunity attack
 				_check_opportunity_attacks(grid_position, path[path_index])
 				if is_dying or not stats or not stats.is_alive():
 					is_moving = false
