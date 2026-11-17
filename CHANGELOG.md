@@ -4,6 +4,40 @@ All notable changes and session notes documented here.
 
 ---
 
+## [Session - November 17, 2026] - Phase 2, step 1: Combatant Base and Turn Authority
+
+Phase 2 (combat core) started on branch `phase-2-combat-core`. This is the first of
+ten steps; `PROGRESS.md` lists them.
+
+### Changed
+- The player, enemies and companions share one base, `Combatant`
+  (`scripts/combatant.gd`): team, grid position, movement, hit points, damage flash,
+  the HP bar and a single pathfinder. Each had its own copy before.
+- One authority decides whose turn it is: `CombatController`
+  (`scripts/combat_controller.gd`), owned by the World scene as `world.combat`. It
+  starts and ends fights, rolls initiative, hands out turns and counts rounds. The
+  combat loop left `world.gd`, which went from 1120 lines to 881.
+- Companions roll initiative and take their own turn. They appear in the initiative
+  bar with a green frame, and the banner names whose turn it is.
+- Hostility is decided by team wherever it was hard-coded as "the enemies against
+  the player": spell targeting, opportunity attacks, the initiative bar.
+- The initiative tracker and the turn banner only display what the controller says.
+
+### Fixed
+- On anyone else's turn the player can no longer attack, cast, move or end the turn.
+  Pressing SPACE during an enemy turn no longer burns a turn off the player's effects.
+- A combatant that dies on its own turn no longer makes the next one skip.
+- Removing a dead combatant from the order no longer shifts whose turn it is.
+- Companions can no longer path through or onto an enemy's tile.
+
+### Checks
+- 193 smoke checks, up from 154: teams, companions in the initiative order, the turn
+  gate, death on a combatant's own turn, and a fight ending when one side is gone.
+- Each check run keeps its saves in its own scratch folder, so two runs at once
+  (two working copies) no longer make each other's save checks fail.
+
+---
+
 ## [Session - November 16, 2026] - Phase 1: Game Shell and State
 
 ### Art

@@ -18,8 +18,8 @@ called `CURRENT_WORK.md` until Phase 1. The plan it tracks is in section 7 of
   `main`; `main` is still the June commit. The durability design commits on
   `phase-1-game-shell` after that push, and all of `phase-2-combat-core`, are
   local only.
-- `tools\run_checks.bat` passes at the Phase 1 commit: 154 smoke checks, no engine
-  errors, 27 screenshots.
+- `tools\run_checks.bat` passes at the step 1 merge on `phase-2-combat-core`: 193
+  smoke checks, no engine errors, 27 screenshots.
 - Standing agreement since 2026-11-16: commit as work proceeds, on the phase branch.
   Push and merge only when Ákos asks.
 
@@ -54,7 +54,7 @@ exit test are in section 7 of the plan; the durability rules are in section 8.
 
 | # | Step | Status |
 |---|---|---|
-| 1 | One combatant base with teams for the player, enemies and companions; one authority for whose turn it is; the combat loop out of `world.gd` | Being built on branch `phase-2-step-1` by a background agent (started 2026-11-17). Not yet reviewed or merged into `phase-2-combat-core`. If the session that started it has ended: look at `git log phase-2-combat-core..phase-2-step-1`, run the checks on that branch, review, then merge |
+| 1 | One combatant base with teams for the player, enemies and companions; one authority for whose turn it is; the combat loop out of `world.gd` | Done 2026-11-17. Built on `phase-2-step-1`, reviewed, merged. Not yet played by Ákos |
 | 2 | Turn resources (movement, action, bonus action, reaction) and the action bar: Attack with the equipped weapon, Dash, Disengage, Dodge, End Turn | |
 | 3 | Ranged attacks: range, line of sight, targeting, hit chance shown before committing | |
 | 4 | One damage pipeline with types, resistance, vulnerability and hooks; 5e armour class; armour and material data reworked so materials add no stats | |
@@ -129,9 +129,20 @@ pulling the combat loop out of `world.gd`. Scope and exit test are in the plan.
 
 ## Known and deliberately left for later
 
-- The player can attack or cast during enemy turns (Phase 2, turn authority).
-- A combatant that dies on its own turn makes the next one skip (Phase 2).
-- Area spells always include the caster; self-buffs expire a round early (Phase 2 / 5).
+- Potions, scrolls and wands can be used from the character sheet at any time,
+  enemy turns included, at no action cost (step 2, turn resources).
+- Companions (step 7): the AI picks the nearest hostile in the whole dungeon, even
+  one outside the fight; a companion walks its whole path in one turn, with no
+  movement budget; it attacks unarmed, without status effects, cover or flanking;
+  nothing can damage one yet, and the death path would treat it as an enemy.
+- An enemy that moves and then attacks runs its end-of-turn effects before the blow
+  lands (step 2).
+- The combat log names combatants by their node names ("Goblin_18", "Character")
+  (step 8).
+- Fights still start around the single player character; co-op will need a party
+  leader instead (after the first playable).
+- Area spells always include the caster; self-buffs expire a round early; spells
+  aimed at an ally still resolve on the caster (Phase 2 / 5).
 - Combat starts through walls (Phase 2, perception).
 - The main quest stops at its second objective; no quest is completable (Phase 4).
 - Dialogue rewards repeat; talk objectives complete on any dialogue end (Phase 4).
