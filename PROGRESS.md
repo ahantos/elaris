@@ -14,7 +14,8 @@ called `CURRENT_WORK.md` until Phase 1. The plan it tracks is in section 7 of
 | 1. Game shell and state | Done. Committed on `phase-1-game-shell`, which builds on Phase 0. Not yet played by Ákos |
 | 2. Combat core | Next. Waiting for Ákos's go, and for his durability system (below) |
 
-- Nothing is pushed and nothing is merged into `main`. `main` is still the June commit.
+- Both phase branches were pushed to origin on 2026-11-17. Nothing is merged into
+  `main`; `main` is still the June commit.
 - `tools\run_checks.bat` passes at the Phase 1 commit: 154 smoke checks, no engine
   errors, 27 screenshots.
 - Standing agreement since 2026-11-16: commit as work proceeds, on the phase branch.
@@ -36,7 +37,7 @@ called `CURRENT_WORK.md` until Phase 1. The plan it tracks is in section 7 of
    rules in section 8 of the plan are a provisional sketch, not the design.
 3. **Go for Phase 2.** Everything in it except the durability rules can be built
    without that input; the damage pipeline gets the hooks durability needs.
-4. **Merge and push:** whether Phases 0 and 1 go into `main`, and whether to push.
+4. **Merge:** whether Phases 0 and 1 go into `main`. (Both branches are on origin.)
 5. `tilesets/TX Tileset Stone Ground.png` is unused and its licence is not recorded.
    Delete it?
 
