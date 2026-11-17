@@ -469,6 +469,21 @@ Made by Ákos on 2026-11-16.
 | 7 | Names and lore | Deferred. The code's names stay until decided: Brackenford / Dawnwatch / Mournstead and Merchants' Guild / Order of the Dawn / Gravewardens. The design doc says Ironhold / Silverwood / Blackstone Keep and Royal Guard / Thieves Guild / Order of Light, and refers to a campaign setting that is not written down in the repo |
 | 8 | Multiplayer | Co-op is wanted. Ákos, 2026-11-17: "multiplayer does come in here. i want coop", reversing the decision of the day before to shelve it. It grew out of his doubt that one player wants to control four characters: in co-op each player runs one party member. Online with friends, four players at most, one per party member. The first playable does not need it. Details below |
 
+### Weapons in hand
+
+Decided by Ákos on 2026-11-17, after step 3 of Phase 2 let the Attack action follow
+the target between the main-hand weapon and a separate ranged slot.
+
+- A character has two weapon sets, each with a main hand and an off hand. One set is
+  in use at a time. "Two sets of weapons, swappable by spending an action."
+- Swapping sets costs the action in a fight and is free outside one.
+- A bow or crossbow cannot be fired with a shield equipped. A two-handed weapon
+  fills both hands of its set, so the rule follows from the sets.
+- Attack uses the set in hand. A character holding a sword and shield has to swap
+  before shooting.
+- The separate `ranged` equipment slot goes; saves move its item into the second
+  set.
+
 ### Co-op
 
 Decided by Ákos on 2026-11-17. Not designed beyond this.
@@ -569,6 +584,11 @@ His requirements, which outrank any single rule below:
 | Within 1 either way | The normal notch |
 | Struck piece harder by 2 or more | No notch, one mark instead |
 
+- The rescaling, chosen by me under his delegation: multiply the break threshold by
+  1.0 for metal, 0.6 for wood, 0.5 for leather and 0.4 for cloth, round to the
+  nearest whole number, minimum 1. That puts ironwood level with steel (5), oak
+  and ash with wrought iron (3), cowhide and boiled leather at 3, and wool, fine
+  linen and silk at 2.
 - Acid and rust ignore hardness. They go by material traits (mythril rustproof,
   tantalum acid-resistant).
 - Creatures have a hardness for natural weapons and for hide, set in the bestiary.
