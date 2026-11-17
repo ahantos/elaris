@@ -878,8 +878,9 @@ Under discussion since 2026-11-17. Nothing is decided.
   reference alone, in six rounds of render, look and fix, is the first figure Ákos
   responded to strongly: "oh my god that looks amazing" and "i actually love the
   art style of the barbarian". It is saved as `art_work/barbarian/a1.px.js`, with
-  its review sheet beside it. Until he says otherwise, new figures and gear match
-  it: a wide range from dark to light, hard shadows under overhangs, each material
+  its review sheet beside it. It is the favourite so far, not a decision: "i
+  still wanna look at the other things, including the blocky version". What
+  defines its look: a wide range from dark to light, hard shadows under overhangs, each material
   told apart by its contrast, six tones per material (contour, deep shadow,
   shadow, base, light, highlight), one shared blue-purple near-black, and light
   from above and slightly in front.
