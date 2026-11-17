@@ -58,7 +58,7 @@ exit test are in section 7 of the plan; the durability rules are in section 8.
 | 2 | Turn resources (movement, action, bonus action, reaction) and the action bar: Attack with the equipped weapon, Dash, Disengage, Dodge, End Turn | |
 | 3 | Ranged attacks: range, line of sight, targeting, hit chance shown before committing | |
 | 4 | One damage pipeline with types, resistance, vulnerability and hooks; 5e armour class; armour and material data reworked so materials add no stats | |
-| 5 | Durability as designed: notches, marks, blows, hardness, debuffs, buffs, field kits and scrap, ageing, the segmented bar | |
+| 5 | Durability as designed: notches, marks, blows, hardness, debuffs, buffs, field kits and scrap, ageing, the segmented bar. Also, agreed 2026-11-17: the figure on the map shows what the character is wearing, assembled from layers (the placeholder set has layers for body, legs, boots, gloves, cloak, head and both hands; none for shoulder, wrist or waist), so a broken or missing piece is visible | |
 | 6 | Bestiary as data (goblin, skeleton, bandit, wolf, one boss); behaviours (rusher, archer, caster, pack); perception by line of sight; encounters by budget | |
 | 7 | Companions as party combatants that enemies target, driven by the same behaviours. Settle here, by Ákos playing both, whether companions default to player control or to acting on their own (he wondered on 2026-11-17 whether anyone wants to control four characters, then left the decision as it stands; my lean is AI by default because fights are frequent and small) | |
 | 8 | Readability: movement range, valid targets, status icons, a working turn-order bar, faster enemy turns | |
