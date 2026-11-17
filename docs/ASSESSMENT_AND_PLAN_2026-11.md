@@ -626,6 +626,10 @@ Shoulder, back, wrist, hands, waist, legs and feet. Agreed 2026-11-17.
 - The smith restores everything for gold: a set fraction of the item's value. The
   numbers belong to Phase 4, with the shops.
 - Any repair of a piece clears its debuffs.
+- Only the smith's full repair clears wear marks. A field kit restores a notch and
+  leaves the marks; a rest never touches gear. (Agreed 2026-11-17. It keeps marks
+  plain, gives the smith something a kit cannot do, and avoids paying for a full
+  repair and losing a notch in the next fight.)
 - Looted gear arrives worn.
 - His concern, which the rules above answer in three ways: a system like this can
   "eat all the gold all the time". Hardness means good gear barely wears against
@@ -735,13 +739,21 @@ Agreed so far:
 - The game gets a real day and night clock ("we will definitely need a real day and
   night clock"). His rules run on hours and days, so rests can use them as written,
   and weather and travel will run on the same clock later.
+- Exhaustion keeps his four causes: no food for a day, no drink for a day, no sleep
+  (24 hours without a long rest), and exposure (harsh conditions or being
+  underdressed, with a Constitution save). It uses 5e's six levels.
+- A character gains no more than one level of exhaustion per day, however many
+  causes apply. Without this one bad day could give four levels. Several causes at
+  once may make the saves harder.
+- Nothing about resting clears wear marks; only the smith's full repair does (see
+  Durability, Repair).
 
 Open:
 
-- What causes exhaustion. His rules stack several causes (no food, no water, bad
-  sleep, weather); the concern is a spiral. He wants to talk it through.
+- How exhaustion is removed: a night's rest with food and drink removes one level,
+  either in any proper camp (5e's rule; put to him as the recommendation) or only
+  at an inn (how his text reads). A rough camp removes none either way.
 - Which phase the day and night clock is built in. It is not part of Phase 2.
-- Whether anything clears wear marks. Nothing does today.
 - Travel fatigue waits for the world map (Phase 4).
 - The drinks, food and other consumables sections of his document are unread.
 
