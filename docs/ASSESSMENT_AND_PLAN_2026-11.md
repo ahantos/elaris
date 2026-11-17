@@ -560,30 +560,38 @@ should matter what it is made of.
 - Damage states. Settled: a lost notch carries a name for its cause (chipped,
   dulled, dented, torn) with no extra rule, and **cracked** is in: a blow that
   takes two or more notches at once cracks the piece; the next crit against it, or
-  natural 1 with it, breaks it outright; only a forge mends it. He is not attached
-  to any of his twelve states but wants more states than cracked and corroded
-  ("i'd want MORE").
+  natural 1 with it, breaks it outright. (It was first agreed as forge-only; that
+  went with the rule below that ordinary repair clears every debuff.) He is not
+  attached to any of his twelve states but wants more of them ("i'd want MORE").
 - His rule for states: **a state never has anything to do with wear marks.** It
   may interact with notches. Marks stay a plain counter driven only by the length
   of fights. For the same reason a state does not change hardness, since hardness
   sets how many marks cost a notch. (My first list broke this: dull and loose
   keyed off marks, corroded doubled them, fitted produced them, scorched lowered
   hardness. He rejected it.)
-- Proposed states under that rule, not yet answered, in three families:
-  - Damage: cracked; breached (armour, from a piercing crit: enemies crit on 19-20
-    against the wearer until that notch is repaired); corroded (metal, from acid
-    and rust: loses one more notch after every fight until cleaned with oil);
-    scorched (fire: one maximum notch gone until reworked at a forge); brittle
-    (cold: any blow that takes a notch takes one extra, until thawed by a fire);
-    soaked (leather, cloth, bowstrings: weight and bow accuracy); drained (magic
-    bonus suppressed until recharged).
-  - Care, prepared at camp and worn off in use: honed (+1 damage until the weapon
-    next loses a notch), oiled (shrugs off the next corrosion or soaking), fitted
-    (ignores the first notch it would lose).
-  - History, earned and erased by a reforge: blooded, tempered, named.
-  Each state must do something a notch cannot, have a cause the player can see
-  coming, and have one cure. States are built as their causes arrive (elemental
-  damage in Phase 5, water in Phase 3, camp with the resting rules).
+- What he wants from states, in his words: "a debuff and buff system, not to give
+  players another thing to do. their regular repairing and shit should clear
+  debuffs, and the buffs should be hard earned and stay forever until reforged."
+  So: no state has its own cure, timer or supply; there is no care or upkeep
+  family; ordinary repair of a piece clears its debuffs; buffs are permanent and
+  only a reforge erases them. (My two earlier lists gave states their own cures
+  and added camp-prepared states. He rejected both as the wrong flavour.)
+- Proposed under that, not yet answered:
+  - A debuff arrives only with a lost notch, so there is always something to
+    repair, and repairing the piece clears it. Each is one penalty. First set, by
+    what caused the notch: cracked (two or more notches in one blow: breaks on the
+    next crit against it or natural 1 with it); breached (armour, piercing crit:
+    enemies crit on 19-20 against the wearer); dented (armour and shields,
+    bludgeoning crit: one tile less movement); torn (leather and cloth, slashing
+    crit: hits on the wearer deal +1 damage); chipped (weapons, natural 1: -1
+    damage). Scorched, brittle and corroded follow the same pattern when fire,
+    cold and acid damage arrive.
+  - Buffs come from his own list with the upkeep removed, earned by what the piece
+    has lived through and tracked by the game: Battle-Honed (weapon, many kills
+    without ever breaking: +1 to hit); Blood-Forged (weapon, many kills of one
+    kind of creature: +1 damage against that kind); Mage-Touched (weapon, kills of
+    spellcasters: +1 damage against them); Dragon-Hardened (armour, survived a
+    breath weapon: +1 AC against fire and cold). Thresholds are dials.
 - Working target for one dungeon run, proposed and not yet confirmed by him: cheap
   gear breaks unless repaired or swapped, steel comes home damaged, the best gear
   comes home merely worn.
