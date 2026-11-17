@@ -854,6 +854,21 @@ Under discussion since 2026-11-17. Nothing is decided.
   animation moves the sections so the gear rides along. His other project
   (DesnutsGodot) does only the weapon half of this, with grip points on an
   animated body sprite.
+- After the fourth test Ákos judged that hand-placing pixels this way "will probably
+  not work" without extra work, and suggested a skill built from Stoneshard images
+  or an existing pixel-art skill. Existing ones, found 2026-11-17 (READMEs read,
+  code not yet):
+  - `Gamezxz/pixel-art-studio` (skill, MIT): the agent writes a Pillow script that
+    places every pixel, renders a preview, critiques and redraws; palette locking,
+    layers, and a script that turns reference images into a style card. No editor
+    needed. Closest fit. It has nothing for layered gear or side views.
+  - `diivi/aseprite-mcp` and `with-pebbly/aseprite-ai-artist` (MCP servers, MIT):
+    drive Aseprite, including viewing the canvas. Both need Aseprite.
+  - Anthropic's own skills repository has no pixel-art skill.
+  - What these tools agree matters: render, look and fix in passes; a locked
+    palette typed as rows of palette characters; references turned into written
+    rules. Clean references are needed: the store screenshots are compressed.
+  Nothing is installed. Third-party code gets read before it is run.
 - AI art tools, researched 2026-11-17:
   - Google Stitch and Claude Design are interface design tools. Neither makes
     sprites.
