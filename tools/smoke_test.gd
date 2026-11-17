@@ -1273,7 +1273,6 @@ func _check_actions(world):
 		check(not punches.is_empty() and punches[0][2].weapon_name == "Unarmed strike" and punches[0][2].damage_type == "bludgeoning"
 			and punches[0][2].damage == max(1, 1 + kaelen.stats.get_str_modifier()),
 			"a companion with nothing equipped attacks through the same request, with an unarmed strike")
-		comp.dismiss("kaelen")
 
 	# --- the fight ends; outside one nothing is spent ---
 	combat_mgr.apply_damage(goblin, 9999, combat_mgr.DamageType.PHYSICAL, player, false)
@@ -1292,6 +1291,50 @@ func _check_actions(world):
 	check(bar._turn_label.text == "Exploring" and not bar._action_label.visible and attack_button.disabled
 		and attack_button.get_reason() == "Not in combat" and not bar.get_button("use_item").disabled,
 		"outside a fight the bar offers what can still be done: no action economy, items still usable")
+
+	# --- outside a fight a move is still a request, with no movement to count ---
+	var stroll_to: Vector2i = player.grid_position
+	for tile in _open_tiles_near(world, player.grid_position, 4, 6, 12):
+		var clear := true
+		for enemy in world.enemies:
+			if is_instance_valid(enemy) and enemy.is_alive() and Vector2(enemy.grid_position - tile).length() < 14.0:
+				clear = false
+		if clear:
+			stroll_to = tile
+			break
+	check(stroll_to != player.grid_position, "test setup: somewhere to walk to, well away from any enemy")
+	taken.clear()
+	var strolled: bool = await _walk(player, stroll_to)
+	var stroll: Array = taken.filter(func(entry): return entry[0] == player and entry[1] == "move")
+	check(strolled and not world.in_combat and stroll.size() == 1 and stroll[0][2].steps >= 4 and player.movement_left == 0,
+		"outside a fight a move is still a request to the controller, and needs no movement", "%d requests" % stroll.size())
+	if kaelen != null and is_instance_valid(kaelen):
+		var near_enough = func(): return not kaelen.is_moving and Vector2(kaelen.grid_position - player.grid_position).length() < 3.0
+		var caught_up: bool = await _until(near_enough, 8.0)
+		var follow: Array = taken.filter(func(entry): return entry[0] == kaelen and entry[1] == "move")
+		check(caught_up and not follow.is_empty(), "outside a fight a companion follows the player, asking for its moves", "%d requests" % follow.size())
+		comp.dismiss("kaelen")
+		await _wait(0.2)
+
+	# --- the turn mode outside a fight counts movement out, and nothing else ---
+	var beside: Array = _open_tiles_near(world, player.grid_position, 1, 1, 1)
+	player.toggle_turn_based_mode()
+	var granted: int = player.movement_left
+	if not beside.is_empty():
+		await _walk(player, beside[0])
+	var after_step: int = player.movement_left
+	await _frames(2)
+	var mode_shown: String = "%s | %s" % [bar._turn_label.text, bar._movement_label.text]
+	var end_open: bool = not bar.get_button("end_turn").disabled
+	var dodge_in_turn_mode: Dictionary = controller.request_action(player, "dodge")
+	_press(KEY_SPACE)
+	check(player.turn_based_mode and not world.in_combat and granted == 6 and after_step == 5 and player.movement_left == 6,
+		"in the turn mode outside a fight a turn's movement is counted out, and SPACE starts a new turn",
+		"%d, %d, %d" % [granted, after_step, player.movement_left])
+	check(mode_shown == "Turn mode | Movement 5 / 6" and end_open and not dodge_in_turn_mode.ok and not player.action_used,
+		"the turn mode has no action economy: End Turn is open, Dodge is not", mode_shown)
+	player.toggle_turn_based_mode()
+	check(not player.turn_based_mode, "test teardown: back to free movement")
 
 	controller.action_taken.disconnect(on_action)
 	bus.damage_dealt.disconnect(on_damage)
