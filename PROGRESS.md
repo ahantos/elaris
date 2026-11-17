@@ -41,8 +41,8 @@ called `CURRENT_WORK.md` until Phase 1. The plan it tracks is in section 7 of
    homebrew resting system has been read (see the table below).
 3b. **Co-op.** Decided 2026-11-17: online with friends, four players at most, one
    per party member, not needed for the first playable. The rules that keep new
-   code ready for it are in section 8 of the plan under "Co-op". Still his to
-   answer: whether to do a small two-player test right after Phase 2.
+   code ready for it are in section 8 of the plan under "Co-op". No networking
+   work before the first playable; he turned down an early two-player test.
 4. **Merge:** whether Phases 0 and 1 go into `main`. (Both branches are on origin.)
 5. `tilesets/TX Tileset Stone Ground.png` is unused and its licence is not recorded.
    Delete it?

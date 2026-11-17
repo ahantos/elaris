@@ -486,9 +486,10 @@ Decided by Ákos on 2026-11-17. Not designed beyond this.
   2. Every action is a request that the turn authority approves and applies. Input
      code never changes game state directly.
   3. Dice are rolled by the authority, never in interface or input code.
-- Proposed and not yet confirmed: a small two-player test right after Phase 2 (two
-  copies of the game fighting one encounter together), to prove the approach before
-  more systems are built on top of it.
+- No networking work of any kind before the first playable. A small two-player
+  test right after Phase 2 was proposed and he turned it down: "coop can wait
+  entirely until after the first playable". The three rules above are the only
+  co-op work until then.
 
 ### Durability
 
