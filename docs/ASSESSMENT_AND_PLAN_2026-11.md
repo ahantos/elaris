@@ -888,6 +888,18 @@ Under discussion since 2026-11-17. Nothing is decided.
 - The first item picture in that style is a longsword, 32 by 96
   (`art_work/items/longsword.px.js`). Ákos: "the sword is amazing", "it's stocky",
   "this is a very solid base". A slimmer blade is being drawn.
+- He chose the slimmer sword with the hilt adjusted to match ("the sword is great.
+  don't worry, we can iron out small details").
+- First animation, a sword swing for the barbarian in eight frames, made by moving
+  his existing layers in whole pixels with a few newly drawn pieces. Ákos: the
+  problems the agent listed are visible (the arm slides instead of bending, a plain
+  slab of cloak shows where the arm was, the return snaps), and "the upper body
+  moves, but the bottom stays, and it looks weird". His verdict: "this isn't a bad
+  first pass, but we'd need some systematic preparations for animations to be
+  better". The figure was drawn as a standing paper doll, not built to move. What
+  it needs is a rig: the body cut at the joints with a pivot for each piece, the
+  normally hidden parts drawn in full, gear attached to pieces by anchor points,
+  and each action defined once as poses for the whole body, legs included.
 - What produced it, as opposed to the plain figures before: the theory applied
   deliberately; several rounds of looking at the rendered result on a review sheet
   (four sizes on two floor colours, a greyscale copy, a silhouette, a mirror, and
