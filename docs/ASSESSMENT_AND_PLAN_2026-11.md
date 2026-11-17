@@ -533,8 +533,12 @@ His requirements, which outrank any single rule below:
 - The count comes from the material: the durability score in his tables divided by
   about 8. Copper 2, bronze 3, steel 4, Damascus steel 5, mythril 6, adamantite 8.
 - Masterforged adds one notch. Each plus of magic adds one.
-- Every second lost notch costs -1: to hit for a weapon, AC for body armour and
-  helmets. The first lost notch is free, the second costs, and so on. Never below
+- Helmets give no armour class. Ákos, 2026-11-17: "helmet +1 ac is a no-go" (a +1
+  had been put into step 4's brief to give a helmet something to lose). The head
+  slot is treated like the secondary armour slots below: it wears, it can take a
+  critical hit meant for the body armour, and it adds nothing to armour class.
+- Every second lost notch costs -1: to hit for a weapon, AC for body armour. The
+  first lost notch is free, the second costs, and so on. Never below
   the wearer's unarmoured AC. (He found -1 for every notch too harsh, for armour
   and weapons alike. Steel chain mail goes 16, 16, 15, 15, then broken at 10.)
 - Shields and light armour keep their full bonus until the last notch goes. He
