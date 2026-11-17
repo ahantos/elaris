@@ -102,10 +102,11 @@ a system as working because its manager runs; check that a player can reach it.
 ## Decisions already made (2026-11-16)
 Weapon-based action bar replaces the three attack buttons. The player controls each
 party member, with an AI option. Towns are a screen, with a world map of locations.
-Durability is a core mechanic: erosion with special attention to critical hits, scaled
-by material rarity and magic level. The rules will be based on Ákos's own homebrew
-system (which also has passive wear by combat length); section 8 of the plan holds
-only a provisional sketch until he supplies it. Do not treat that sketch as settled. Levels 1-5 first. Art is
+Durability is a core mechanic. Its design was settled on 2026-11-17 from Ákos's own
+homebrew system and is in section 8 of the plan: notches per material, wear marks by
+the length of fights, hardness, debuffs and buffs, repair by kit or smith, ageing.
+The numbers are dials for the Phase 2 simulator. Two rules of his to keep: a state
+never touches wear marks, and durability adds no chore beyond repair. Levels 1-5 first. Art is
 32x32, own art later, DCSS CC0 tiles as placeholders. Multiplayer is shelved. Names
 and lore are deferred. Details in section 8 of the plan.
 

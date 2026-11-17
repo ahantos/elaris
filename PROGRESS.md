@@ -12,10 +12,11 @@ called `CURRENT_WORK.md` until Phase 1. The plan it tracks is in section 7 of
 |---|---|
 | 0. Truthful baseline | Done. Committed on `phase-0-truthful-baseline` |
 | 1. Game shell and state | Done. Committed on `phase-1-game-shell`, which builds on Phase 0. Not yet played by Ákos |
-| 2. Combat core | Next. Waiting for Ákos's go, and for his durability system (below) |
+| 2. Combat core | Next. Waiting for Ákos's go. The durability design is settled |
 
 - Both phase branches were pushed to origin on 2026-11-17. Nothing is merged into
-  `main`; `main` is still the June commit.
+  `main`; `main` is still the June commit. The documentation commits made after
+  that push (the durability design) are local only.
 - `tools\run_checks.bat` passes at the Phase 1 commit: 154 smoke checks, no engine
   errors, 27 screenshots.
 - Standing agreement since 2026-11-16: commit as work proceeds, on the phase branch.
@@ -29,14 +30,17 @@ called `CURRENT_WORK.md` until Phase 1. The plan it tracks is in section 7 of
    questions for him. Phase 2 is the same whichever level he picks.
 1. **Play the Phase 1 build:** menu, new game, save, load, die, load again. Say what
    feels wrong.
-2. **Durability rules.** Ákos supplied his homebrew system on 2026-11-17 (see
-   "Homebrew source document" below). He wants it streamlined while keeping the
-   feeling: gear should matter, and it should matter what it is made of. The
-   streamlining is under discussion and nothing is settled. The first open question
-   is pace: does a steel sword visibly wear within one dungeon run, or over several?
-   The rules in section 8 of the plan are still a provisional sketch, not the design.
-3. **Go for Phase 2.** Everything in it except the durability rules can be built
-   without that input; the damage pipeline gets the hooks durability needs.
+2. **Durability: small confirmations.** The design was settled with him on
+   2026-11-17 from his homebrew system and is written up in section 8 of the plan.
+   What is left is listed there under "Still to confirm or decide": three points he
+   did not object to but did not explicitly confirm (magic gives both extra notches
+   and a resist chance; materials stop adding damage and AC; light armour keeps its
+   bonus until the last notch), the target for one dungeon run, and what scrap a
+   field kit needs. None of it blocks Phase 2.
+3. **Go for Phase 2.** All of it can now be built, durability included. The numbers
+   are tuned in the simulator once it exists.
+3a. **Resting rules.** He wants them; a separate discussion, not started. His
+   homebrew resting system has been read (see the table below).
 4. **Merge:** whether Phases 0 and 1 go into `main`. (Both branches are on origin.)
 5. `tilesets/TX Tileset Stone Ground.png` is unused and its licence is not recorded.
    Delete it?

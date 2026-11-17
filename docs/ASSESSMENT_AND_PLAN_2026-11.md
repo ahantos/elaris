@@ -463,7 +463,7 @@ Made by Ákos on 2026-11-16.
 | 1 | Combat input | Weapon-based action bar. The light / medium / heavy buttons go |
 | 2 | Party in combat | The player controls each member on their turn, with an option to hand companions to AI |
 | 3 | Towns | Town screen plus a world map of locations |
-| 4 | Durability and repair | Keep. It is a core mechanic. Direction set 2026-11-17: shape B (erosion), with special attention to critical hits, scaled by material rarity and magic level. The actual rules will be based on the system Ákos designed for his homebrew D&D campaign, which he will bring. The sketch below is provisional |
+| 4 | Durability and repair | Keep. It is a core mechanic. Design settled 2026-11-17 from Ákos's homebrew system (below): notches per material, wear marks by the length of fights, critical hits and natural 1s taking notches, hardness, debuffs and buffs, repair by kit or smith, ageing. The numbers are tuned in the Phase 2 simulator |
 | 5 | Level range | 1–5 for now, with expansion planned (below). Nothing may hard-code 5 |
 | 6 | Art | Own art eventually, drawn at 32×32. Until then the Dungeon Crawl Stone Soup CC0 tiles as placeholders, wired so own art drops in by replacing files (below) |
 | 7 | Names and lore | Deferred. The code's names stay until decided: Brackenford / Dawnwatch / Mournstead and Merchants' Guild / Order of the Dawn / Gravewardens. The design doc says Ironhold / Silverwood / Blackstone Keep and Royal Guard / Thieves Guild / Order of Light, and refers to a campaign setting that is not written down in the repo |
@@ -471,261 +471,198 @@ Made by Ákos on 2026-11-16.
 
 ### Durability
 
-Status: direction set 2026-11-17, rules not final. Ákos chose shape B with special
-attention to critical hits, depending on material rarity and magic level. He has a
-durability system he designed for his homebrew D&D campaign and the game's rules will
-be based on that; he will supply it. It includes **passive degradation based on combat
-length**, which the sketch below does not have.
+Status: design settled with Ákos on 2026-11-17. It is his homebrew tabletop system
+(`PROGRESS.md` says where the source document is), streamlined in discussion because
+he found it "quite unbalanced" as it ran at the table. Numbers marked as dials are set
+by the Phase 2 combat simulator, not by argument.
 
-Until his system is in this document, nothing below is settled. Phase 2 builds the
-damage pipeline with the hooks durability needs and leaves the rules themselves for
-his input.
+#### What it is for
 
-#### What Ákos has specified so far
+His requirements, which outrank any single rule below:
 
-These are his and are fixed points for whatever the final rules become:
+- Gear should matter, "and it should matter what it's made of".
+- Wear shows inside a fight, with special attention to critical hits.
+- It adds no chore. The player's one upkeep action is repair. States are "a debuff
+  and buff system, not to give players another thing to do".
+- A state never has anything to do with wear marks. It may interact with notches.
 
-- Erosion (shape B), with special attention to critical hits: they cause extra
-  durability loss or a special effect.
-- Passive degradation as well, based on how long a fight lasts.
-- How many notches a piece has depends on more than rarity. A magic item has more
-  than a plain one (+1 more than +0, and so on), and an item of a better material
-  has more than one of a poorer material, material by material rather than by
-  rarity band.
-- The rest comes from the system he designed for his homebrew D&D campaign.
+#### Notches
 
-Added later on 2026-11-17, after he supplied that system (`PROGRESS.md` says where
-it is and which parts have been read). He called it "quite unbalanced" as it ran at
-the table and wants it streamlined, keeping the feeling: gear should matter, and it
-should matter what it is made of.
+- Weapons, shields, body armour and helmets have notches. Nothing else wears. (Which
+  slots wear is carried over from the first sketch and was not discussed again.)
+- The count comes from the material: the durability score in his tables divided by
+  about 8. Copper 2, bronze 3, steel 4, Damascus steel 5, mythril 6, adamantite 8.
+- Masterforged adds one notch. Each plus of magic adds one.
+- Each lost notch costs at once: -1 to hit for a weapon, -1 AC for body armour and
+  helmets, never below the wearer's unarmoured AC.
+- Shields keep their full bonus until the last notch goes. Light armour should do
+  the same, because leather gives only +1 AC and one notch would wipe it out.
+  (Proposed; he did not object.)
+- At zero notches the piece is broken: no bonus, and a weapon cannot attack. It is
+  never destroyed.
 
-- Pace is shape B's: gear wears visibly inside a fight.
-- Durability is counted in notches, as in the sketch below, but the count comes
-  from his material tables, material by material.
-- Effect of wear is the sketch's: each lost notch costs at once. The per-material
-  break threshold goes. (He first replaced it with a penalty range over the last
-  25% of durability for every piece, then preferred the sketch's version the same
-  day.)
-- Magic and craftsmanship work as in the sketch (a chance to resist a loss). +2 and
-  +3 gear wears too and may also get more notches. Whether he means both together
-  is to be confirmed.
-- Repair is the sketch's: a kit in the field, the smith for everything, loot
-  arrives worn.
-- Materials are his lists. The count rises heavily from today's 20.
-- The twelve named damage states and their separate repair methods get simplified.
-  How far is open.
-- Notch counts agreed: his durability score divided by about 8 (copper 2, bronze 3,
-  steel 4, Damascus steel 5, mythril 6, adamantite 8). Masterforged and each plus
-  of magic add one.
-- Wear events he accepts as fair: a crit against you takes a notch from the shield,
-  otherwise the armour (two from a two-handed or bludgeoning weapon); a natural 1
-  takes one from your weapon; your crit takes one from the enemy's shield or
-  armour; sunder, acid and rust take notches directly; long fights wear gear (the
-  proposal was a d6 roll per piece per round from round 4).
-- His reservation: a short fight with no crit and no natural 1 costs nothing, which
-  he finds a bit unrealistic. A small fixed loss per fight is to be worked out.
-- Repair cost: repairing a piece with more notches should cost more, but he expects
-  a system like this to "eat all the gold all the time". A better material must
-  give an advantage, and whether being more durable is advantage enough is open.
-- Ageing: his idea, accepted in this shape. An age counter, separate from the
-  durability notches, rises by one for each notch repaired, wherever and whenever
-  the repair happens. Every so many points the piece loses one maximum notch;
-  better materials take more points. A reforge clears the age, but the piece comes
-  back as a new item without its history. (He saw the appeal of weapons being
-  retired and worried players would find it frustrating; watch for that in play.)
-- Field repair is paid in kits and scrap salvaged from loot, not gold. Accepted
-  ("an amazing idea"). The smith is the gold route and charges a set fraction of
-  the item's value; the numbers belong to Phase 4.
-- Wear marks, for the fixed loss he asked for: every piece used in a fight gains
-  marks by the length of the fight, and enough marks cost a notch. This replaces
-  the d6 roll for long fights. Settled: one mark for every two rounds, rounded up
-  (1-2 rounds one mark, 3-4 two, 5-6 three). A weapon counts as used if it
-  attacked, armour or a shield if it was attacked; spares in the pack get none.
-- Marks per notch is a dial, not a decision. Equal to hardness (steel 5) is the
-  starting value and is probably too fast: with fights of three to four rounds a
-  steel sword would lose a notch about every two fights and be broken within one
-  run. Roughly three times hardness fits the target better. The simulator sets it.
-- Hardness: he wants it, left the design to me, and agreed to the rescaling and to
-  creatures having one. Hardness is the break threshold number from his tables,
-  rescaled so the categories share one scale (as written, some leathers and cloths
-  come out harder than steel).
-  - A piece loses a notch when its wear marks reach its hardness (copper 3,
-    steel 5, adamantite 10).
-  - When two pieces meet (a crit against armour or a shield, a sunder, a natural 1
-    measured against the target's armour or hide): striker harder by 2 or more,
-    one extra notch; within 1, the normal notch; struck piece harder by 2 or more,
-    a mark instead of a notch.
-  - Acid and rust ignore hardness; they go by material traits.
-  - Creatures get a hardness for natural weapons and hide in the bestiary.
-- Damage states. Settled: a lost notch carries a name for its cause (chipped,
-  dulled, dented, torn) with no extra rule, and **cracked** is in: a blow that
-  takes two or more notches at once cracks the piece; the next crit against it, or
-  natural 1 with it, breaks it outright. (It was first agreed as forge-only; that
-  went with the rule below that ordinary repair clears every debuff.) He is not
-  attached to any of his twelve states but wants more of them ("i'd want MORE").
-- His rule for states: **a state never has anything to do with wear marks.** It
-  may interact with notches. Marks stay a plain counter driven only by the length
-  of fights. For the same reason a state does not change hardness, since hardness
-  sets how many marks cost a notch. (My first list broke this: dull and loose
-  keyed off marks, corroded doubled them, fitted produced them, scorched lowered
-  hardness. He rejected it.)
-- What he wants from states, in his words: "a debuff and buff system, not to give
-  players another thing to do. their regular repairing and shit should clear
-  debuffs, and the buffs should be hard earned and stay forever until reforged."
-  So: no state has its own cure, timer or supply; there is no care or upkeep
-  family; ordinary repair of a piece clears its debuffs; buffs are permanent and
-  only a reforge erases them. (My two earlier lists gave states their own cures
-  and added camp-prepared states. He rejected both as the wrong flavour.)
-- Proposed under that, not yet answered:
-  - A debuff arrives only with a lost notch, so there is always something to
-    repair, and repairing the piece clears it. Each is one penalty. First set, by
-    what caused the notch: cracked (two or more notches in one blow: breaks on the
-    next crit against it or natural 1 with it); breached (armour, piercing crit:
-    enemies crit on 19-20 against the wearer); dented (armour and shields,
-    bludgeoning crit: one tile less movement); torn (leather and cloth, slashing
-    crit: hits on the wearer deal +1 damage); chipped (weapons, natural 1: -1
-    damage). Scorched, brittle and corroded follow the same pattern when fire,
-    cold and acid damage arrive.
-  - Buffs come from his own list with the upkeep removed, earned by what the piece
-    has lived through and tracked by the game: Battle-Honed (weapon, many kills
-    without ever breaking: +1 to hit); Blood-Forged (weapon, many kills of one
-    kind of creature: +1 damage against that kind); Mage-Touched (weapon, kills of
-    spellcasters: +1 damage against them); Dragon-Hardened (armour, survived a
-    breath weapon: +1 AC against fire and cold). Thresholds are dials.
+#### Steady wear: marks
+
+- Every piece used in a fight gains wear marks by the length of the fight: one mark
+  for every two rounds, rounded up (1-2 rounds one mark, 3-4 two, 5-6 three).
+- A weapon counts as used if it attacked; armour or a shield if it was attacked.
+  Spares in the pack get none.
+- When a piece's marks reach its limit it loses a notch and the marks start again.
+- The limit is the piece's hardness times a factor. The factor is a dial. At 1
+  (steel 5 marks) a steel sword loses a notch about every two fights and is broken
+  within one run; about 3 fits the target below better.
+- Marks are a plain counter. Nothing but the length of fights moves them.
+
+#### Sudden wear: blows
+
+| Event | Loss |
+|---|---|
+| A critical hit against you | 1 notch from your shield, otherwise your body armour; 2 from a two-handed or bludgeoning weapon |
+| Your natural 1 on an attack | 1 notch from your weapon |
+| Your critical hit on an armoured enemy | 1 notch from its shield or armour |
+| Sunder, acid, rust | Notches directly |
+
+#### Hardness
+
+- Every material has a hardness: the break threshold number from his tables (copper
+  3, bronze 4, steel 5, Damascus steel 6, adamantite 10), rescaled so metal, wood,
+  leather and cloth share one scale. As written, some leathers and cloths come out
+  harder than steel.
+- Hardness sets the marks limit (above).
+- When two pieces meet, compare them. This applies to a critical hit (the weapon
+  against the shield or armour it lands on), a sunder, and a natural 1 (your weapon
+  against the armour or hide of what you swung at).
+
+| Comparison | Result |
+|---|---|
+| Striker harder by 2 or more | One extra notch |
+| Within 1 either way | The normal notch |
+| Struck piece harder by 2 or more | No notch, one mark instead |
+
+- Acid and rust ignore hardness. They go by material traits (mythril rustproof,
+  tantalum acid-resistant).
+- Creatures have a hardness for natural weapons and for hide, set in the bestiary.
+
+#### Magic and craftsmanship
+
+- More notches, as above. +2 and +3 gear wears like everything else.
+- Magic gear also has a chance to ignore a lost notch: +1 25%, +2 50%, +3 75% (dials).
+- That it is both together is my reading of two of his answers. He did not object;
+  confirm before building.
+
+#### Debuffs
+
+- A debuff arrives only together with a lost notch, so there is always something to
+  repair. Repairing the piece clears its debuffs. No debuff has its own cure, timer
+  or supply.
+- Each is one penalty, decided by what took the notch.
+
+| Debuff | Applies to | Cause | Penalty |
+|---|---|---|---|
+| Cracked | Any piece | Two or more notches lost in one blow | Breaks on the next critical hit against it, or the next natural 1 with it |
+| Breached | Armour | A piercing critical hit | Enemies score critical hits on 19-20 against the wearer |
+| Dented | Armour, shields | A bludgeoning critical hit | One tile less movement |
+| Torn | Leather, cloth | A slashing critical hit | Hits on the wearer deal +1 damage |
+| Chipped | Weapons | A natural 1 | -1 damage |
+
+- Scorched, brittle and corroded follow the same pattern when fire, cold and acid
+  damage arrive (Phase 5 and the bestiary).
+- A lost notch with no debuff still carries a name for its cause (dulled, dented,
+  torn) as flavour only.
+
+#### Buffs
+
+- Hard earned, tracked by the game from what the piece has lived through, and
+  permanent. Only a reforge erases them. They need no upkeep.
+- First set, from his own list:
+
+| Buff | Applies to | Earned by | Bonus |
+|---|---|---|---|
+| Battle-Honed | Weapons | Many kills without ever breaking | +1 to hit |
+| Blood-Forged | Weapons | Many kills of one kind of creature | +1 damage against that kind |
+| Mage-Touched | Weapons | Kills of spellcasters | +1 damage against them |
+| Dragon-Hardened | Armour | Surviving a breath weapon | +1 AC against fire and cold |
+
+- How many kills count as "many" is a dial.
+
+#### Repair
+
+- A field kit restores one notch on one piece, out of combat. It is paid for in
+  kits and in scrap salvaged from loot, not gold.
+- The smith restores everything for gold: a set fraction of the item's value. The
+  numbers belong to Phase 4, with the shops.
+- Any repair of a piece clears its debuffs.
+- Looted gear arrives worn.
+- His concern, which the rules above answer in three ways: a system like this can
+  "eat all the gold all the time". Hardness means good gear barely wears against
+  lesser enemies; field repair costs scrap, not gold; and ageing carries part of the
+  long-term cost, so ordinary repair can stay cheap.
+
+#### Ageing
+
+- Every piece has an age counter, separate from its notches. It rises by one for
+  each notch repaired, wherever and whenever the repair happens.
+- Every so many points the piece loses one maximum notch. Better materials take more
+  points. (A dial.)
+- A reforge clears the age, but the piece comes back as a new item without its
+  history: its buffs are gone.
+- He saw the appeal of weapons being retired and worried players would find it
+  frustrating. Watch for that in play.
+
+#### Materials
+
+- His material lists replace the game's ladder of 20. They are added in stages, zone
+  by zone, not all at once.
+- A material sets the notch count, hardness, price, weight and a trait. In his
+  system it does not change the damage die or the armour class; the game's current
+  materials add +1 to +3 to both. Dropping those bonuses is my recommendation and
+  he did not object; confirm before the item data is reworked.
+
+#### How it is shown
+
+- A bar cut into segments. Each segment is a notch; the fill inside the current
+  segment is the wear marks.
+- Debuffs and buffs appear on the item's tooltip and on the character sheet.
+
+#### Target and dials
+
 - Working target for one dungeon run, proposed and not yet confirmed by him: cheap
   gear breaks unless repaired or swapped, steel comes home damaged, the best gear
   comes home merely worn.
-- Resting rules are needed, as a separate discussion.
+- Dials for the simulator: the marks factor; the divisor of 8; the hardness gap of
+  2; the extra notch for two-handed and bludgeoning weapons; the magic resist
+  chances; kills needed for each buff; age points per lost maximum notch; what a kit
+  restores; the smith's fraction.
 
-#### Provisional sketch (to be replaced by the homebrew system)
+#### Still to confirm or decide
 
-Written before Ákos mentioned his own system. Keep what fits it; drop the rest.
+None of these blocks the Phase 2 hooks.
 
-**Notches.** Weapons, shields, body armour and helmets have a small number of
-condition notches. Nothing else wears. Notches replace the unused 20-to-150 point
-durability value.
+- The three confirmations marked above: magic gives both notches and a resist
+  chance; materials stop adding damage and AC; light armour keeps its bonus until
+  the last notch.
+- Whether the magic resist chance also applies to a notch lost through marks.
+- What scrap a kit needs: the same material, or anything in the same category.
+- The run target.
+- Resting rules. A separate discussion; it includes whether anything clears marks.
 
-| Material tier | Notches |
-|---|---|
-| Common | 3 |
-| Uncommon | 4 |
-| Rare | 5 |
-| Epic | 6 |
-| Legendary | 7 |
+#### How this was arrived at
 
-Each level of craftsmanship quality adds one notch.
-(Superseded by Ákos's input above: the count must also rise with the magic bonus, and
-with the material itself rather than only its rarity tier. The sketch gave magic a
-chance to resist a loss instead of extra notches.)
+Three shapes were considered: upkeep across an expedition, erosion inside a fight, and
+ablative armour as in Battle Brothers. Ákos chose erosion. Armour stays 5e: it makes
+the wearer harder to hit and absorbs nothing. The option tables and my first sketch are
+in this file's history before 2026-11-17.
 
-**What wears gear: the extremes of the die.** Ordinary hits and misses never wear
-anything. Wear comes from natural 20s, natural 1s, and attacks aimed at gear.
-(Superseded: the homebrew system also wears gear passively, by how long a fight lasts.)
+Ideas he turned down, so they do not come back:
 
-- **You are critically hit:** your shield loses a notch if you carry one, otherwise
-  your body armour does. Shields exist to take that blow.
-- **You roll a natural 1 on an attack:** your weapon loses a notch.
-- **You critically hit an armoured enemy:** its shield or armour loses a notch, and
-  its AC drops for everyone attacking it after you.
-- **Gear-targeting attacks:** a Sunder action, and creatures whose attacks corrode
-  (rust, acid), strip notches directly.
-
-**Material, quality and magic decide how bad it is.**
-
-- **Heavier blow.** A critical hit from a two-handed or bludgeoning weapon strips two
-  notches instead of one.
-- **Tier advantage.** If the attacking weapon's material tier is above the tier of the
-  piece it damages, it strips one extra notch. A fine blade shears cheap armour.
-- **Ward.** Magic gear resists: +1 ignores a lost notch 25% of the time, +2 50%, +3 75%.
-- More notches for better material and better craftsmanship, as in the table.
-
-**What a lost notch costs.**
-
-- Body armour and helmets: −1 AC per lost notch, never below the wearer's unarmoured AC.
-- Weapons: −1 to hit per lost notch.
-- Shields: full bonus until the last notch goes. They are a buffer, not a slope.
-- At zero notches the piece is **broken**: no bonus, a weapon cannot attack. It is
-  never destroyed and can always be repaired.
-
-**Repair.**
-
-- A repair kit restores one notch on one piece, out of combat.
-- The smith restores everything for gold; the cost per notch rises with material tier.
-- Looted gear arrives with notches already missing.
-
-**Dials to tune by play.** Notch counts per tier; whether ordinary hits should ever
-wear gear; the extra notches for heavy weapons and tier advantage; ward percentages;
-kit strength and smith prices; whether helmets wear at all.
-
-**Special effects to try once the base works.**
-
-- *Shield sacrifice:* when critically hit, choose to let the shield take two notches
-  and turn the critical hit into a normal one.
-- *Crit effects by damage type:* slashing rends armour (the standard notch),
-  bludgeoning dents it harder or staggers, piercing finds the gap and bleeds instead
-  of damaging gear.
-- *Material properties:* adamantine armour that critical hits cannot notch, silver
-  that notches easily, and similar.
-- *Scars:* a piece that has been broken and repaired loses a notch for good.
-
-#### Background: the options considered
-
-Before Phase 1 the field existed on every item instance and material tiers set its
-maximum (20 to 150), but nothing ever wore and repair had no caller.
-
-**The underlying tension.** The two games the pitch names treat armour in opposite
-ways. In 5e, armour makes you harder to hit and absorbs nothing; the rules have no
-durability. In Battle Brothers, armour is a second health bar that is destroyed hit by
-hit, and that is where its durability system gets its weight. "Durability is core"
-means something different depending on which of those the game follows.
-
-**Three shapes it could take.**
-
-| | A. Upkeep | B. Erosion | C. Ablative |
-|---|---|---|---|
-| Armour does | Harder to hit (5e) | Harder to hit (5e) | Absorbs damage (Battle Brothers) |
-| Wear moves | Slowly, over an expedition | Fast, inside a single fight | Every hit |
-| Effect of wear | Nothing until a threshold, then a small penalty, then broken | Each lost notch is −1 AC or −1 to hit, immediately | Armour points gone means hits reach HP |
-| What the player does | Budgets for repairs, carries a spare, decides when to turn back | Reads the fight: shields splinter, long fights get dangerous, patches up between fights | Chooses weapons by armour damage, protects armour as a resource |
-| 5e maths and SRD monsters | Unchanged | Unchanged in form; AC drifts during a fight | Replaced; every stat block needs converting |
-| Risk | Can feel like a chore bar | More to track per fight | No longer "real 5e" |
-
-B has a precedent inside 5e itself: the SRD's rust monster and oozes give metal weapons
-and armour a cumulative −1 per corrosion until destroyed. B generalises that rule to
-ordinary combat.
-
-**Sub-questions that settle the design.**
-
-1. **Timescale.** Should gear visibly degrade within one fight, or across a whole
-   expedition? This is the main dial; it decides between A and B.
-2. **Armour's job.** Harder to hit, or absorbs damage? (C is the only shape that
-   breaks with 5e.)
-3. **What triggers wear.** Steady and predictable (every hit removes points), or
-   dice-driven events (a critical hit splits the shield, a natural 1 chips the blade,
-   an attack that only missed because of the armour dents it)?
-4. **Permanence.** Can an item be lost for good? Is everything fully repairable, or
-   does repeated breaking leave a permanent scar that lowers its maximum?
-5. **Player verbs.** Passive wear only, or also actions and enemies that target gear:
-   sundering a shield, acid, rust?
-6. **Magic and named items.** Exempt, slower, or the same as everything else?
-7. **Field repair.** Kits and camp, or town only? Does a tool proficiency matter?
-8. **Which slots.** Weapon, shield and body armour only, or all thirteen?
-
-**Outcome:** shape B. Pending the homebrew system, the sketch above answers the
-sub-questions as: wear inside a fight (1); armour makes you harder to hit (2); dice-driven
-triggers, critical hits above all (3); nothing destroyed, scars held back as a later
-option (4); sundering and corroding enemies are in (5); magic gear wears more slowly
-(6); kits in the field, the smith in town (7); weapon, shield, body armour and
-helmet (8).
-
-**These hold whatever the tuning:**
-
-- Wear runs through the Phase 2 damage pipeline, so it covers the whole party and can
-  be modified by materials, features and enchantments.
-- Repair lives with the smith, the forge and field kits (Phase 4). Looted gear arrives
-  worn. Material tier drives how much wear a piece can take and what repair costs.
-- State is readable at a glance: on tooltips, on the character sheet, and as a warning
-  before something fails.
+- A per-material break threshold, and a penalty range over the last 25% of
+  durability. He chose a cost per lost notch.
+- A d6 roll per piece for long fights. Wear marks replaced it, because a short fight
+  with no critical hit should still cost something.
+- Counting every swing. It is a points system under another name.
+- States that key off marks, change marks or change hardness.
+- States with their own cures (oil, a fire, a forge only) and states prepared at camp
+  (honed, oiled, fitted). They gave the player another thing to do.
 
 ### Level expansion
 
