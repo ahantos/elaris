@@ -214,7 +214,7 @@ func get_world_state() -> Dictionary:
 	biome give the layout back; the rest is what has changed since. Primitives only."""
 	var enemy_list: Array = []
 	for enemy in enemies:
-		if not is_instance_valid(enemy) or enemy.is_dying or enemy.stats == null or not enemy.stats.is_alive():
+		if not is_instance_valid(enemy) or not enemy.is_alive():
 			continue
 		enemy_list.append({
 			"type": enemy.enemy_type,
@@ -818,7 +818,7 @@ func find_enemy_spawn_position(rng: RandomNumberGenerator = null) -> Vector2i:
 		var pos = Vector2i(x, y)
 
 		if current_dungeon.dungeon_grid[y][x] == current_dungeon.TileType.FLOOR:
-			if pos.distance_to(player_pos) >= min_distance and not is_position_occupied_by_enemy(pos):
+			if pos.distance_to(player_pos) >= min_distance and not is_tile_occupied(pos):
 				return pos
 
 	return Vector2i(-1, -1)
@@ -873,6 +873,27 @@ func create_save_load_menu():
 	
 	print("SaveLoadMenu created successfully")
 
+func get_combatants() -> Array[Combatant]:
+	"""Every combatant body in the scene: the player, party companions and
+	enemies. The player's body stays after death - ask is_alive()."""
+	var combatants: Array[Combatant] = []
+	if is_instance_valid(player):
+		combatants.append(player)
+	for node in companion_nodes.values():
+		if is_instance_valid(node):
+			combatants.append(node)
+	for enemy in enemies:
+		if is_instance_valid(enemy):
+			combatants.append(enemy)
+	return combatants
+
+func get_combatant_at(grid_pos: Vector2i) -> Combatant:
+	"""The combatant standing on a tile, or null"""
+	for combatant in get_combatants():
+		if combatant.get_grid_position() == grid_pos:
+			return combatant
+	return null
+
 func get_enemy_at_position(grid_pos: Vector2i) -> Enemy:
 	"""Get enemy at grid position"""
 	for enemy in enemies:
@@ -882,14 +903,16 @@ func get_enemy_at_position(grid_pos: Vector2i) -> Enemy:
 			return enemy
 	return null
 
-func is_position_occupied_by_enemy(grid_pos: Vector2i, exclude_entity = null) -> bool:
-	"""Check if position is occupied by an enemy"""
+func is_tile_occupied(grid_pos: Vector2i, exclude = null) -> bool:
+	"""True when a combatant other than `exclude` stands on the tile. Called for
+	every tile a pathfinder looks at, so it walks the lists without copying them."""
+	if is_instance_valid(player) and player != exclude and player.grid_position == grid_pos:
+		return true
 	for enemy in enemies:
-		if enemy == exclude_entity:
-			continue
-		if not is_instance_valid(enemy):
-			continue
-		if enemy.get_grid_position() == grid_pos:
+		if enemy != exclude and is_instance_valid(enemy) and enemy.grid_position == grid_pos:
+			return true
+	for node in companion_nodes.values():
+		if node != exclude and is_instance_valid(node) and node.grid_position == grid_pos:
 			return true
 	return false
 
@@ -969,7 +992,7 @@ func drop_items_at_player(instances: Array, gold_amount: int = 0):
 
 # ============================================================================
 # COMPANIONS (recruit/dismiss -> scene nodes; combat turns run in
-# _run_companion_turns, occupancy via is_position_occupied_by_companion)
+# _run_companion_turns)
 # ============================================================================
 
 func _on_companion_recruited(companion_id: String):
@@ -996,8 +1019,6 @@ func _spawn_companion_node(companion_id: String):
 
 	node.dungeon_generator = current_dungeon
 	node.player = player
-	if is_instance_valid(player):
-		node.tile_size = player.tile_size  # companion.gd has no tileset auto-detect
 	add_child(node)
 	node.spawn_at(_find_companion_spawn_tile())
 	companion_nodes[companion_id] = node
@@ -1019,7 +1040,7 @@ func _find_companion_spawn_tile() -> Vector2i:
 	return player_pos  # degenerate fallback - everything around is blocked
 
 func _is_tile_free_for_companion(tile: Vector2i) -> bool:
-	"""Floor/door tile not occupied by the player, an enemy or another companion"""
+	"""Floor/door tile no combatant stands on"""
 	if not current_dungeon:
 		return false
 	if tile.x < 0 or tile.x >= current_dungeon.dungeon_width:
@@ -1029,25 +1050,7 @@ func _is_tile_free_for_companion(tile: Vector2i) -> bool:
 	var tile_type = current_dungeon.dungeon_grid[tile.y][tile.x]
 	if tile_type != current_dungeon.TileType.FLOOR and tile_type != current_dungeon.TileType.DOOR:
 		return false
-	if is_instance_valid(player) and player.get_grid_position() == tile:
-		return false
-	if is_position_occupied_by_enemy(tile):
-		return false
-	if is_position_occupied_by_companion(tile):
-		return false
-	return true
-
-func is_position_occupied_by_companion(grid_pos: Vector2i, exclude_entity = null) -> bool:
-	"""Check if position is occupied by a party companion (mirrors
-	is_position_occupied_by_enemy; used by player/enemy/companion walkability)"""
-	for node in companion_nodes.values():
-		if node == exclude_entity:
-			continue
-		if node == null or not is_instance_valid(node):
-			continue
-		if node.get_grid_position() == grid_pos:
-			return true
-	return false
+	return not is_tile_occupied(tile)
 
 func _resync_companion_nodes():
 	"""Clear all companion nodes and respawn the saved party next to the player
@@ -1086,7 +1089,7 @@ func _on_crisis_phase_changed(crisis_id: String, phase: int):
 func _player_alive() -> bool:
 	"""The player exists and can still act. The node is no longer freed on
 	death, so validity alone does not mean alive."""
-	return is_instance_valid(player) and not player.is_dying and player.stats != null and player.stats.is_alive()
+	return is_instance_valid(player) and player.is_alive()
 
 func _on_game_over():
 	"""The player died: stop the fight and offer a way back"""

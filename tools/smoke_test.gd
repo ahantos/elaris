@@ -128,6 +128,7 @@ func _run():
 	check(world.enemies.size() >= 1, "at least one enemy spawned")
 	check(world.current_dungeon.dungeon_grid[player.grid_position.y][player.grid_position.x] == 0,
 		"player stands on a floor tile")
+	_check_combatants(world)
 
 	await _check_layout(world)
 	await _check_notifications()
@@ -149,6 +150,33 @@ func _run():
 
 	_clear_test_saves()
 	_finish()
+
+# ---------------------------------------------------------------------------
+#  Combatants: one base for the player, enemies and companions
+# ---------------------------------------------------------------------------
+
+func _check_combatants(world):
+	var combatant = load("res://scripts/combatant.gd")
+	var player = world.player
+	var enemy = world.enemies[0]
+	check(is_instance_of(player, combatant) and is_instance_of(enemy, combatant),
+		"the player and enemies are combatants")
+	check(player.team == combatant.Team.PARTY and enemy.team == combatant.Team.HOSTILE,
+		"the player is on the party team and enemies on the hostile one", "%d / %d" % [player.team, enemy.team])
+	check(player.is_hostile_to(enemy) and enemy.is_hostile_to(player) and not player.is_hostile_to(player)
+		and not enemy.is_hostile_to(world.enemies[-1]), "hostility follows the team")
+	check(player.is_alive() and enemy.is_alive() and world.get_combatants().has(player) and world.get_combatants().has(enemy),
+		"the world lists the living combatants")
+	check(world.get_combatant_at(enemy.grid_position) == enemy and world.is_tile_occupied(enemy.grid_position)
+		and not world.is_tile_occupied(enemy.grid_position, enemy) and not player.is_walkable(enemy.grid_position)
+		and not enemy.is_walkable(player.grid_position),
+		"a combatant's tile is occupied for everyone but itself")
+	var there: Vector2i = _free_floor_near(world, player.grid_position, 3)
+	var route: Array = player.find_path(player.grid_position, there)
+	check(route.size() >= 4 and route[0] == player.grid_position and route[-1] == there
+		and enemy.find_path(enemy.grid_position, enemy.grid_position) == [enemy.grid_position]
+		and enemy.find_path(enemy.grid_position, player.grid_position) == [enemy.grid_position],
+		"the shared pathfinder finds a way to a free tile and none onto an occupied one", str(route))
 
 # ---------------------------------------------------------------------------
 #  Layout: every panel fills the screen and keeps its content on it
@@ -294,6 +322,14 @@ func _check_companions(world):
 	check(comp.recruit("kaelen"), "companion can be recruited")
 	await _wait(0.3)
 	check(world.companion_nodes.has("kaelen") and is_instance_valid(world.companion_nodes["kaelen"]), "recruited companion appears in the world")
+	if world.companion_nodes.has("kaelen"):
+		var combatant = load("res://scripts/combatant.gd")
+		var kaelen = world.companion_nodes["kaelen"]
+		check(is_instance_of(kaelen, combatant) and kaelen.team == combatant.Team.PARTY
+			and not kaelen.is_hostile_to(world.player) and kaelen.is_hostile_to(world.enemies[0]),
+			"a companion is a combatant on the party team")
+		check(kaelen.tile_size == 32 and world.get_combatants().has(kaelen) and not world.player.is_walkable(kaelen.grid_position),
+			"a companion stands on the 32px grid and occupies its tile")
 
 	var sword: Dictionary = items.create_item_instance("iron_longsword")
 	inv.add_item(sword)

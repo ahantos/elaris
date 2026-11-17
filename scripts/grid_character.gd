@@ -1,12 +1,9 @@
-# grid_character.gd - REFACTORED WITH CHARACTER STATS SYSTEM
-extends CharacterBody2D
+# grid_character.gd
+# The player: a Combatant driven by input. Click-to-move with a path preview,
+# WASD in exploration, the attack keys, spell targeting and the player's turn.
+extends Combatant
 class_name GridCharacter
 
-# Grid-based character with click-to-move, WASD movement, and data-driven stats
-
-@export var tile_size: int = 32
-@export var move_speed: float = 400.0  # Pixels per second (12.5 tiles on the 32px grid, as before)
-@export var dungeon_generator: DungeonGenerator
 @export var path_preview_color: Color = Color(0, 1, 0, 0.5)
 @export var waypoint_color: Color = Color(1, 1, 0, 0.8)
 
@@ -19,17 +16,10 @@ class_name GridCharacter
 var wasd_movement_enabled: bool = true
 var wasd_exploration_speed: float = 300.0  # Pixels per second for WASD movement (about 9 tiles)
 
-# CHARACTER STATS (NEW - data-driven)
-var stats: CharacterStats
-
 # Attack damage (will be replaced by weapon system in Phase 2)
 @export var light_attack_damage: int = 1
 @export var medium_attack_damage: int = 5
 @export var heavy_attack_damage: int = 10
-
-var grid_position: Vector2i = Vector2i(0, 0)
-var target_position: Vector2 = Vector2.ZERO
-var is_moving: bool = false
 
 # Pathfinding
 var path: Array[Vector2i] = []
@@ -57,17 +47,15 @@ var has_attacked_this_turn: bool = false
 # Turn management signal
 signal turn_ended
 
-# Cached world reference (avoids per-call scene tree lookups in hot paths)
-var world_node = null
-
-# Death guard (prevents double death handling)
-var is_dying: bool = false
-
 # Class id the sprite was last chosen for (see _refresh_sprite)
 var _sprite_class_id: String = ""
 
+func _init():
+	team = Team.PARTY
+	damage_flash_color = Color(1.5, 0.5, 0.5)
+
 func _ready():
-	z_index = 200
+	super._ready()
 
 	# Initialize character stats (NEW)
 	initialize_stats()
@@ -75,17 +63,8 @@ func _ready():
 	# Register with GameManager (NEW)
 	GameManager.set_player(self)
 
-	# Cache world reference (used in hot paths like is_walkable)
-	world_node = get_tree().root.get_node_or_null("World")
-
-	# Keep HP signal/visuals in sync when CombatManager applies damage directly to stats
-	EventBus.damage_dealt.connect(_on_damage_dealt_event)
 	EventBus.game_loaded.connect(_on_game_loaded)
-	
-	# Auto-detect tile size from dungeon's tilemap
-	if dungeon_generator and dungeon_generator.tilemap and dungeon_generator.tilemap.tile_set:
-		tile_size = int(dungeon_generator.tilemap.tile_set.tile_size.x)
-	
+
 	# Sprite for the character's class, drawn at one tile
 	_refresh_sprite()
 	
@@ -355,7 +334,7 @@ func recalculate_waypoint_path():
 	var current_pos = grid_position
 	
 	for waypoint in waypoints:
-		var segment = _calculate_straight_path(current_pos, waypoint)
+		var segment = find_path(current_pos, waypoint)
 		
 		if segment.size() <= 1:
 			var idx = waypoints.find(waypoint)
@@ -386,7 +365,7 @@ func show_path_preview(destination: Vector2i):
 	
 	waypoints.clear()
 	
-	preview_path = _calculate_straight_path(grid_position, destination)
+	preview_path = find_path(grid_position, destination)
 	full_preview_path = preview_path.duplicate()
 	
 	if preview_path.size() > 1:
@@ -578,158 +557,6 @@ func _physics_process(delta):
 				path_index = 0
 				queue_redraw()
 
-func _calculate_straight_path(from: Vector2i, to: Vector2i) -> Array[Vector2i]:
-	"""Calculate path using A* algorithm"""
-	if not is_walkable(to):
-		return [from]
-	
-	if from == to:
-		return [from]
-	
-	var open_set: Array[Vector2i] = [from]
-	var closed_set: Dictionary = {}
-	var came_from: Dictionary = {}
-	var g_score: Dictionary = {from: 0}
-	var f_score: Dictionary = {from: _heuristic(from, to)}
-	
-	while not open_set.is_empty():
-		var current = open_set[0]
-		var lowest_f = f_score.get(current, INF)
-		var current_idx = 0
-		
-		for i in range(open_set.size()):
-			var node = open_set[i]
-			var f = f_score.get(node, INF)
-			if f < lowest_f:
-				current = node
-				lowest_f = f
-				current_idx = i
-		
-		if current == to:
-			return _reconstruct_path(came_from, current)
-		
-		open_set.remove_at(current_idx)
-		closed_set[current] = true
-		
-		for neighbor in _get_neighbors(current):
-			if neighbor in closed_set:
-				continue
-			
-			if not is_walkable(neighbor):
-				continue
-			
-			var move_cost = 1.0
-			var dx = abs(neighbor.x - current.x)
-			var dy = abs(neighbor.y - current.y)
-			if dx + dy == 2:
-				move_cost = 1.414
-			
-			var tentative_g = g_score.get(current, INF) + move_cost
-			
-			if neighbor not in open_set:
-				open_set.append(neighbor)
-			elif tentative_g >= g_score.get(neighbor, INF):
-				continue
-			
-			came_from[neighbor] = current
-			g_score[neighbor] = tentative_g
-			f_score[neighbor] = tentative_g + _heuristic(neighbor, to)
-	
-	return [from]
-
-func _get_neighbors(pos: Vector2i) -> Array[Vector2i]:
-	"""Get 8 adjacent neighbors"""
-	var neighbors: Array[Vector2i] = []
-	
-	var cardinals = [
-		Vector2i(pos.x + 1, pos.y),
-		Vector2i(pos.x - 1, pos.y),
-		Vector2i(pos.x, pos.y + 1),
-		Vector2i(pos.x, pos.y - 1)
-	]
-	
-	var diagonals = [
-		Vector2i(pos.x + 1, pos.y + 1),
-		Vector2i(pos.x + 1, pos.y - 1),
-		Vector2i(pos.x - 1, pos.y + 1),
-		Vector2i(pos.x - 1, pos.y - 1)
-	]
-	
-	neighbors.append_array(cardinals)
-	
-	if is_walkable(Vector2i(pos.x + 1, pos.y)) and is_walkable(Vector2i(pos.x, pos.y + 1)):
-		neighbors.append(Vector2i(pos.x + 1, pos.y + 1))
-	if is_walkable(Vector2i(pos.x + 1, pos.y)) and is_walkable(Vector2i(pos.x, pos.y - 1)):
-		neighbors.append(Vector2i(pos.x + 1, pos.y - 1))
-	if is_walkable(Vector2i(pos.x - 1, pos.y)) and is_walkable(Vector2i(pos.x, pos.y + 1)):
-		neighbors.append(Vector2i(pos.x - 1, pos.y + 1))
-	if is_walkable(Vector2i(pos.x - 1, pos.y)) and is_walkable(Vector2i(pos.x, pos.y - 1)):
-		neighbors.append(Vector2i(pos.x - 1, pos.y - 1))
-	
-	return neighbors
-
-func _heuristic(a: Vector2i, b: Vector2i) -> int:
-	"""Diagonal distance heuristic"""
-	var dx = abs(a.x - b.x)
-	var dy = abs(a.y - b.y)
-	return max(dx, dy)
-
-func _reconstruct_path(came_from: Dictionary, current: Vector2i) -> Array[Vector2i]:
-	"""Reconstruct path from came_from dictionary"""
-	var path_result: Array[Vector2i] = [current]
-	while current in came_from:
-		current = came_from[current]
-		path_result.insert(0, current)
-	return path_result
-
-func _get_world():
-	"""Get the cached World node (re-resolves if missing/freed)"""
-	if not is_instance_valid(world_node):
-		world_node = get_tree().root.get_node_or_null("World")
-	return world_node
-
-func is_walkable(grid_pos: Vector2i) -> bool:
-	"""Check if a grid position is walkable"""
-	if not dungeon_generator:
-		return false
-
-	if grid_pos.x < 0 or grid_pos.x >= dungeon_generator.dungeon_width:
-		return false
-	if grid_pos.y < 0 or grid_pos.y >= dungeon_generator.dungeon_height:
-		return false
-
-	var tile_type = dungeon_generator.dungeon_grid[grid_pos.y][grid_pos.x]
-	var is_floor = tile_type == dungeon_generator.TileType.FLOOR or tile_type == dungeon_generator.TileType.DOOR
-
-	if not is_floor:
-		return false
-
-	var world = _get_world()
-	if world and world.has_method("is_position_occupied_by_enemy"):
-		if world.is_position_occupied_by_enemy(grid_pos, self):
-			return false
-
-	# Party companions block tiles too
-	if world and world.has_method("is_position_occupied_by_companion"):
-		if world.is_position_occupied_by_companion(grid_pos, self):
-			return false
-
-	return true
-
-func world_to_grid(world_pos: Vector2) -> Vector2i:
-	"""Convert world position to grid coordinates"""
-	return Vector2i(
-		int(world_pos.x / tile_size),
-		int(world_pos.y / tile_size)
-	)
-
-func grid_to_world(grid_pos: Vector2i) -> Vector2:
-	"""Convert grid coordinates to world position"""
-	return Vector2(
-		grid_pos.x * tile_size + tile_size / 2.0,
-		grid_pos.y * tile_size + tile_size / 2.0
-	)
-
 func teleport_to_grid(grid_pos: Vector2i):
 	"""Instantly teleport to a grid position"""
 	if is_walkable(grid_pos):
@@ -739,10 +566,6 @@ func teleport_to_grid(grid_pos: Vector2i):
 		is_moving = false
 		path.clear()
 		cancel_preview()
-
-func get_grid_position() -> Vector2i:
-	"""Get current grid position"""
-	return grid_position
 
 func stop_moving():
 	"""Stop current movement"""
@@ -839,16 +662,6 @@ func attack_enemy(enemy: Enemy, attack_type: String):
 		DamagePopup.spawn_miss_popup_at(get_parent(), popup_pos)
 
 	queue_redraw()
-
-func animate_attack(target_pos: Vector2):
-	"""Animate a quick lunge toward the target"""
-	var original_pos = global_position
-	var direction = (target_pos - original_pos).normalized()
-	var lunge_distance = tile_size * 0.5
-
-	var tween = create_tween()
-	tween.tween_property(self, "global_position", original_pos + direction * lunge_distance, 0.1)
-	tween.tween_property(self, "global_position", original_pos, 0.15)
 
 # ============================================================================
 # SPELLCASTING (pending casts readied via the spellbook panel)
@@ -1120,52 +933,30 @@ func get_turn_number() -> int:
 # ============================================================================
 
 func take_damage(amount: int):
-	"""Apply direct damage with visual effects (e.g. traps, hazards).
+	"""Direct damage (traps, hazards) also shows a number and updates the HUD.
 	NOTE: attacks should go through CombatManager.apply_damage instead."""
 	if not stats:
 		return
 
-	var still_alive = stats.take_damage(amount)
-	print("%s took %d damage! HP: %d/%d" % [name, amount, stats.current_hp, stats.max_hp])
-
-	# Spawn damage popup
 	var world = get_parent()
 	if world:
 		var popup_pos = global_position + Vector2(0, -tile_size * 0.8)
 		DamagePopup.spawn_damage_popup_at(world, popup_pos, amount, false)
 
-	# Flash effect
-	flash_damage()
-
-	# Emit event
+	super.take_damage(amount)
 	EventBus.player_hp_changed.emit(stats.current_hp, stats.max_hp)
 
-	queue_redraw()
-
-	if not still_alive:
-		# Route through CombatManager so death events stay consistent
-		CombatManager.handle_death(self)
-
-func _on_damage_dealt_event(_attacker, target, _amount, _is_critical):
-	"""Keep HP signal/visuals in sync when CombatManager applies damage to stats"""
+func _on_damage_dealt_event(attacker, target, amount, is_critical):
+	"""Keep the HP signal in sync when CombatManager applies damage to stats"""
+	super._on_damage_dealt_event(attacker, target, amount, is_critical)
 	if target == self and stats:
-		flash_damage()
 		EventBus.player_hp_changed.emit(stats.current_hp, stats.max_hp)
-		queue_redraw()
 
 func _on_game_loaded(_slot: int):
 	"""Re-emit HP after SaveManager restores stats directly"""
 	if stats:
 		EventBus.player_hp_changed.emit(stats.current_hp, stats.max_hp)
 	queue_redraw()
-
-func flash_damage():
-	"""Quick red flash when taking damage"""
-	var sprite = get_node_or_null("Sprite2D")
-	if sprite:
-		var tween = create_tween()
-		tween.tween_property(sprite, "modulate", Color(1.5, 0.5, 0.5), 0.1)
-		tween.tween_property(sprite, "modulate", Color.WHITE, 0.2)
 
 func heal(amount: int):
 	"""Heal HP with visual effects (REFACTORED)"""
@@ -1207,39 +998,6 @@ func die():
 	modulate = Color(1, 1, 1, 0.35)
 	queue_redraw()
 	GameManager.game_over()
-
-func get_hp() -> int:
-	"""Get current HP (REFACTORED)"""
-	return stats.current_hp if stats else 0
-
-func get_max_hp() -> int:
-	"""Get max HP (REFACTORED)"""
-	return stats.max_hp if stats else 0
-
-func draw_hp_bar():
-	"""Draw HP bar above the character (REFACTORED)"""
-	if not stats:
-		return
-	
-	# Narrower than a tile so neighbours' bars do not run together, and on whole
-	# pixels so the edges stay sharp at 2x
-	var bar_width = round(tile_size * 0.8)
-	var bar_height = 4.0
-	var bar_offset = Vector2(-bar_width / 2, -tile_size / 2.0 - bar_height - 3.0)
-	
-	# Background
-	draw_rect(Rect2(bar_offset, Vector2(bar_width, bar_height)), Color.BLACK)
-	
-	# Health bar
-	var hp_percent = stats.get_hp_percent()
-	var health_width = bar_width * hp_percent
-	var health_color = Color.GREEN.lerp(Color.RED, 1.0 - hp_percent)
-	
-	if health_width > 0:
-		draw_rect(Rect2(bar_offset, Vector2(health_width, bar_height)), health_color)
-	
-	# Border
-	draw_rect(Rect2(bar_offset, Vector2(bar_width, bar_height)), Color.WHITE, false, 1.0)
 
 # ============================================================================
 # LEVELING (NEW)
