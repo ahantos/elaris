@@ -126,6 +126,12 @@ func is_aiming_attack() -> bool:
 	"""True while the player is picking a target for this combatant's attack"""
 	return false
 
+func get_aim_preview() -> Dictionary:
+	"""While an attack is being aimed and the pointer rests on a hostile: what
+	the CombatController says attacking it would be (preview_attack). {}
+	otherwise."""
+	return {}
+
 func get_display_name() -> String:
 	"""What to call this combatant on screen"""
 	if stats != null and stats.character_name != "":

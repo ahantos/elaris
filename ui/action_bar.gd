@@ -21,7 +21,7 @@ const TITLES: Dictionary = {
 }
 
 const HINTS: Dictionary = {
-	CombatController.ACTION_ATTACK: "One attack with the weapon that suits the target: the melee weapon in hand on an adjacent enemy, the ranged weapon you carry on one further away. Pick it, then click the enemy. Takes your action.",
+	CombatController.ACTION_ATTACK: "One attack with the weapon that suits the target: the melee weapon in hand on an adjacent enemy, the ranged weapon you carry on one further away. Pick it, then click a marked enemy; resting the pointer on an enemy shows the chance to hit. Takes your action.",
 	CombatController.ACTION_CAST: "Open the spellbook and ready a spell, then click its target. Takes the action or bonus action the spell says.",
 	CombatController.ACTION_USE_ITEM: "Open the pack and right-click a potion, scroll or wand. Takes your action in a fight.",
 	CombatController.ACTION_DASH: "Move your speed again this turn. Takes your action.",
@@ -191,5 +191,21 @@ func _hint_text() -> String:
 	if pending != "":
 		return "%s readied: click its target. Esc cancels." % str(SpellDatabase.get_spell(pending).get("display_name", pending))
 	if combatant.is_aiming_attack():
-		return "Attack: click an enemy. Esc cancels."
+		return "Attack: click a marked enemy. %s. Esc cancels." % _reach_text()
 	return ""
+
+func _reach_text() -> String:
+	"""How far the combatant's attacks reach, in words: 'Iron Longsword on an
+	adjacent enemy, Oak Light Crossbow to 16 tiles (to 64 at disadvantage)'"""
+	var melee: Dictionary = CombatManager.get_melee_profile(combatant)
+	var ranged: Dictionary = CombatManager.get_ranged_profile(combatant)
+	var can_shoot: bool = not ranged.is_empty() and ranged.usable
+	var parts: Array[String] = []
+	if melee.weapon != null or not can_shoot:
+		parts.append("%s on an adjacent enemy" % str(melee.weapon_name))
+	if can_shoot:
+		var reach: String = "%s to %d tiles" % [str(ranged.weapon_name), int(ranged.range_normal)]
+		if int(ranged.range_max) > int(ranged.range_normal):
+			reach += " (to %d at disadvantage)" % int(ranged.range_max)
+		parts.append(reach)
+	return ", ".join(parts)

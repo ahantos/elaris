@@ -3,12 +3,21 @@
 # WASD in exploration, the action keys, attack and spell targeting and the
 # player's turn. What the input asks for in a fight - an attack, a move, a
 # cast, a dash - goes to the CombatController as a request; nothing here rolls
-# a die or spends a turn resource.
+# a die or spends a turn resource. While an attack is aimed it draws what the
+# controller says: who can be attacked, how far the weapons reach, and (through
+# ui/attack_preview.gd) what attacking the enemy under the pointer would be.
 extends Combatant
 class_name GridCharacter
 
 @export var path_preview_color: Color = Color(0, 1, 0, 0.5)
 @export var waypoint_color: Color = Color(1, 1, 0, 0.8)
+
+# Aiming an attack: the reach of the melee weapon, the range of the ranged one,
+# an enemy that can be attacked, one that cannot
+const AIM_REACH_COLOR := Color(1.0, 0.6, 0.1)
+const AIM_RANGE_COLOR := Color(0.45, 0.75, 1.0)
+const AIM_TARGET_COLOR := Color(1.0, 0.85, 0.2)
+const AIM_BLOCKED_COLOR := Color(1.0, 0.3, 0.25)
 
 # Turn-based system
 @export_group("Turn-Based Settings")
@@ -37,6 +46,13 @@ var turn_number: int = 0
 # True while the player is picking a target for the Attack action
 var attack_mode: bool = false
 
+# What the CombatController says while an attack is aimed, kept for drawing:
+# the hostiles that can be attacked, the hostile under the pointer, and what
+# attacking that one would be (CombatController.preview_attack)
+var _aim_targets: Array[Combatant] = []
+var _aim_hover: Combatant = null
+var _aim_preview: Dictionary = {}
+
 # Class id the sprite was last chosen for (see _refresh_sprite)
 var _sprite_class_id: String = ""
 
@@ -53,6 +69,16 @@ func is_taking_turns() -> bool:
 
 func is_aiming_attack() -> bool:
 	return attack_mode
+
+func get_aim_preview() -> Dictionary:
+	return _aim_preview if attack_mode else {}
+
+func get_aim_targets() -> Array[Combatant]:
+	"""While an attack is aimed: the hostiles marked as targets"""
+	var targets: Array[Combatant] = []
+	if attack_mode:
+		targets.assign(_aim_targets.filter(func(target): return is_instance_valid(target)))
+	return targets
 
 func _ready():
 	super._ready()
@@ -122,6 +148,12 @@ func _process(delta):
 	# The sprite follows the character's class
 	if stats and stats.class_id != _sprite_class_id:
 		_refresh_sprite()
+
+	# Aiming an attack: the markers follow the pointer and the fight
+	if attack_mode:
+		_update_aim(_pointer_tile())
+	elif _aim_hover != null or not _aim_targets.is_empty():
+		_update_aim(Vector2i(-1, -1))
 
 	# WASD movement (only in exploration mode)
 	if wasd_movement_enabled and not turn_based_mode and not is_dying:
@@ -205,15 +237,7 @@ func _input(event):
 
 			# Aiming the Attack action: the click names the target
 			if attack_mode:
-				attack_mode = false
-				var target = _hostile_at(click_grid)
-				if target == null:
-					EventBus.ui_notification.emit("No enemy there.", "warning")
-				else:
-					var result: Dictionary = request_action(CombatController.ACTION_ATTACK, {"target": target})
-					if not result.ok:
-						EventBus.ui_notification.emit(str(result.reason), "warning")
-				queue_redraw()
+				_handle_attack_click(click_grid)
 				return
 
 			if ctrl_held:
@@ -270,6 +294,102 @@ func _is_over_hud(screen_pos: Vector2) -> bool:
 	var world = _get_world()
 	var hud = world.get("bottom_ui") if world != null else null
 	return hud != null and is_instance_valid(hud) and hud.get_global_rect().has_point(screen_pos)
+
+# ============================================================================
+# AIMING AN ATTACK
+# ============================================================================
+
+func _handle_attack_click(click_grid: Vector2i):
+	"""The click names the target of the attack being aimed; the
+	CombatController decides whether it can be attacked. A click on an enemy
+	that cannot be says why and leaves the attack selected while someone else
+	can still be attacked; a click on no enemy at all puts the attack away."""
+	var target = _hostile_at(click_grid)
+	if target == null:
+		attack_mode = false
+		EventBus.ui_notification.emit("No enemy there.", "warning")
+	else:
+		var result: Dictionary = request_action(CombatController.ACTION_ATTACK, {"target": target})
+		if result.ok:
+			attack_mode = false
+		else:
+			EventBus.ui_notification.emit(str(result.reason), "warning")
+			var combat = _get_combat()
+			attack_mode = combat != null and combat.check_action(self, CombatController.ACTION_ATTACK).ok
+	queue_redraw()
+
+func _pointer_tile() -> Vector2i:
+	"""The tile under the mouse pointer; no tile at all while the pointer is on
+	the bottom bar"""
+	if _is_over_hud(get_viewport().get_mouse_position()):
+		return Vector2i(-1, -1)
+	return world_to_grid(get_global_mouse_position())
+
+func _update_aim(pointer_tile: Vector2i):
+	"""Ask the CombatController what there is to show while an attack is aimed:
+	who can be attacked, and what attacking the hostile under the pointer would
+	be. Nothing is decided here."""
+	var combat = _get_combat()
+	_aim_targets.clear()
+	_aim_hover = null
+	_aim_preview = {}
+	if attack_mode and combat != null:
+		_aim_targets = combat.get_attack_targets(self)
+		_aim_hover = _hostile_at(pointer_tile)
+		if _aim_hover != null:
+			_aim_preview = combat.preview_attack(self, _aim_hover)
+	queue_redraw()
+
+func _draw_aim():
+	"""What an aimed attack looks like on the map: the tiles the melee weapon
+	reaches, how far the ranged weapon shoots plainly and at most, a marker on
+	every enemy that can be attacked, and the enemy under the pointer picked
+	out - in red when it cannot be attacked."""
+	var half := Vector2(tile_size / 2.0, tile_size / 2.0)
+	var tile := Vector2(tile_size, tile_size)
+
+	var crosshair_size: float = tile_size * 1.5
+	draw_line(Vector2(-crosshair_size, 0), Vector2(crosshair_size, 0), AIM_REACH_COLOR, 3.0)
+	draw_line(Vector2(0, -crosshair_size), Vector2(0, crosshair_size), AIM_REACH_COLOR, 3.0)
+
+	for dx in range(-1, 2):
+		for dy in range(-1, 2):
+			if dx != 0 or dy != 0:
+				draw_rect(Rect2(Vector2(dx, dy) * tile_size - half, tile), Color(AIM_REACH_COLOR, 0.3), false, 2.0)
+
+	var ranged: Dictionary = CombatManager.get_ranged_profile(self)
+	if not ranged.is_empty() and ranged.usable:
+		_draw_range_outline(int(ranged.range_normal), Color(AIM_RANGE_COLOR, 0.6), 2.0)
+		if int(ranged.range_max) > int(ranged.range_normal):
+			_draw_range_outline(int(ranged.range_max), Color(AIM_RANGE_COLOR, 0.3), 1.0)
+
+	for target in _aim_targets:
+		if is_instance_valid(target) and target != _aim_hover:
+			_draw_target_corners(grid_to_world(target.get_grid_position()) - position, AIM_TARGET_COLOR, 2.0)
+
+	if is_instance_valid(_aim_hover):
+		var centre: Vector2 = grid_to_world(_aim_hover.get_grid_position()) - position
+		if _aim_preview.get("ok", false):
+			draw_dashed_line(Vector2.ZERO, centre, Color(AIM_TARGET_COLOR, 0.7), 1.5, 6.0)
+			draw_rect(Rect2(centre - half, tile), AIM_TARGET_COLOR, false, 2.0)
+			_draw_target_corners(centre, AIM_TARGET_COLOR, 4.0)
+		else:
+			draw_rect(Rect2(centre - half, tile), AIM_BLOCKED_COLOR, false, 2.0)
+			draw_line(centre - half, centre + half, AIM_BLOCKED_COLOR, 2.0)
+
+func _draw_range_outline(tiles: int, color: Color, width: float):
+	"""The square of tiles within a distance: distance counts diagonals as one"""
+	var extent: float = (tiles + 0.5) * tile_size
+	draw_rect(Rect2(Vector2(-extent, -extent), Vector2(extent, extent) * 2.0), color, false, width)
+
+func _draw_target_corners(centre: Vector2, color: Color, width: float):
+	"""Brackets on the four corners of a tile"""
+	var reach: float = tile_size / 2.0
+	var arm: float = tile_size * 0.3
+	for corner in [Vector2(-1, -1), Vector2(1, -1), Vector2(1, 1), Vector2(-1, 1)]:
+		var point: Vector2 = centre + corner * reach
+		draw_line(point, point - Vector2(corner.x * arm, 0), color, width)
+		draw_line(point, point - Vector2(0, corner.y * arm), color, width)
 
 func choose_action(action_id: String):
 	"""The player picked an action, on the action bar or with its number key.
@@ -460,20 +580,9 @@ func _draw():
 	if turn_based_mode:
 		draw_hp_bar()
 	
-	# Aiming an attack: crosshairs, and the tiles a melee attack reaches
+	# Aiming an attack: reach, range and who can be attacked
 	if attack_mode:
-		var attack_color = Color(1.0, 0.6, 0.1)
-		var crosshair_size = tile_size * 1.5
-		draw_line(Vector2(-crosshair_size, 0), Vector2(crosshair_size, 0), attack_color, 3.0)
-		draw_line(Vector2(0, -crosshair_size), Vector2(0, crosshair_size), attack_color, 3.0)
-
-		for dx in range(-1, 2):
-			for dy in range(-1, 2):
-				if dx == 0 and dy == 0:
-					continue
-				var offset = Vector2(dx * tile_size, dy * tile_size)
-				draw_rect(Rect2(offset - Vector2(tile_size/2, tile_size/2), Vector2(tile_size, tile_size)),
-					Color(attack_color.r, attack_color.g, attack_color.b, 0.3), false, 2.0)
+		_draw_aim()
 
 	# Draw preview path
 	if not is_moving and (is_path_selected or waypoints.size() > 0) and full_preview_path.size() > 1:

@@ -108,7 +108,7 @@ func create_player_info():
 	
 	# Instructions
 	var hint_label = Label.new()
-	hint_label.text = "🎯 Click to move | Ctrl+Click for waypoints\n⚔️ 1-7 - Actions on the bar | Space - End Turn\n👆 Attack: pick it, then click an enemy"
+	hint_label.text = "🎯 Click to move | Ctrl+Click for waypoints\n⚔️ 1-7 - Actions on the bar | Space - End Turn\n👆 Attack: pick it, then click a marked enemy"
 	hint_label.add_theme_font_size_override("font_size", 11)
 	hint_label.add_theme_color_override("font_color", Color(0.6, 0.6, 0.7))
 	player_section.add_child(hint_label)

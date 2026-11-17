@@ -6,6 +6,7 @@ var DungeonGeneratorScene = preload("res://scenes/dungeon_generator.tscn")
 var CharacterScene = preload("res://scenes/character.tscn")
 var EnemyScene = preload("res://scenes/enemy.tscn")
 const GroundItemScript = preload("res://scripts/ground_item.gd")
+const AttackPreviewScene = preload("res://scenes/ui/attack_preview.tscn")
 
 # Enemy identities assigned at spawn (loot tables exist for all four types)
 const ENEMY_TYPE_DEFS: Dictionary = {
@@ -21,6 +22,7 @@ var minimap: Minimap
 var turn_ui: TurnUI
 var initiative_tracker: InitiativeTracker
 var bottom_ui: BottomUI
+var attack_preview: Control  # the readout beside an enemy an attack is aimed at
 var grid_overlay: GridOverlay
 var save_load_menu: SaveLoadMenu  # Properly typed now
 var enemies: Array[Enemy] = []
@@ -104,6 +106,7 @@ func _ready():
 	create_turn_ui()
 	create_initiative_tracker()
 	create_bottom_ui()
+	create_attack_preview()
 	create_save_load_menu()  # Create save/load menu
 
 	# Get reference to grid overlay (it's created by dungeon_generator)
@@ -648,6 +651,16 @@ func create_bottom_ui():
 	bottom_ui = BottomUI.new()
 	canvas_layer.add_child(bottom_ui)
 	bottom_ui.setup(player, combat)
+
+func create_attack_preview():
+	"""The hit-chance readout shown beside an enemy while an attack is aimed"""
+	var canvas_layer = CanvasLayer.new()
+	canvas_layer.name = "AttackPreviewLayer"
+	add_child(canvas_layer)
+
+	attack_preview = AttackPreviewScene.instantiate()
+	canvas_layer.add_child(attack_preview)
+	attack_preview.setup(player, bottom_ui)
 
 func create_save_load_menu():
 	"""Create save/load menu"""

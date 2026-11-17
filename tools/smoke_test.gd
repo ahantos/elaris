@@ -1210,7 +1210,7 @@ func _check_actions(world):
 	player.refresh_turn_resources()
 	_press(KEY_1)
 	await _frames(2)
-	check(player.attack_mode and attack_button.button_pressed and "click an enemy" in bar._hint.text,
+	check(player.attack_mode and attack_button.button_pressed and "click a marked enemy" in bar._hint.text,
 		"key 1 starts aiming the Attack action, and the bar shows it", bar._hint.text)
 	_press(KEY_1)
 	check(not player.attack_mode, "key 1 again puts the attack away")
@@ -1433,6 +1433,14 @@ func _remove_enemy(world, enemy):
 func _close_to(value: float, expected: float) -> bool:
 	return absf(value - expected) < 0.000001
 
+func _is_beyond(rect: Rect2, target, shooter) -> bool:
+	"""True when a rectangle of the screen lies wholly on the side of the
+	target that is away from the shooter, left or right"""
+	var target_x: float = target.get_global_transform_with_canvas().origin.x
+	if shooter.get_global_transform_with_canvas().origin.x < target_x:
+		return rect.position.x > target_x
+	return rect.end.x < target_x
+
 func _check_ranged(world):
 	"""A staged fight on a strip of open floor: the default fighter (STR 14,
 	DEX 12, proficiency +2; longsword, shield, light crossbow) and a goblin
@@ -1453,6 +1461,7 @@ func _check_ranged(world):
 	var stats = player.stats
 	var bar = world.bottom_ui.action_bar
 	var attack_button = bar.get_button("attack")
+	var readout = world.attack_preview
 	var grid: Array = world.current_dungeon.dungeon_grid
 	var wall: int = world.current_dungeon.TileType.WALL
 	var piercing: int = combat_mgr.DamageType.PIERCING
@@ -1571,6 +1580,75 @@ func _check_ranged(world):
 		and "enemy adjacent" in crowded_shot.reasons and not beside_stunned.disadvantage and beside_stunned.reasons.is_empty(),
 		"a ranged attack has disadvantage while a hostile that is not incapacitated stands next to the shooter",
 		"%s / stunned: %s" % [str(crowded.reasons), str(beside_stunned.reasons)])
+
+	# --- aiming: who can be attacked is marked, and the readout says what the attack would be ---
+	player.refresh_turn_resources()  # test setup, here and below: a fresh turn's resources without waiting a round
+	_press(KEY_1)
+	player._update_aim(far.grid_position)
+	readout.refresh()
+	var aimed: Dictionary = player.get_aim_preview()
+	var lines: Array = readout.get_lines()
+	var readout_rect: Rect2 = readout._panel.get_global_rect()
+	check(player.attack_mode and player.get_aim_targets().has(far) and player.get_aim_targets().has(near),
+		"while an attack is aimed every enemy that can be attacked is marked: the one in reach and the one in range and in sight",
+		"%d marked" % player.get_aim_targets().size())
+	check(aimed.get("ok", false) and aimed.target == far and aimed.weapon_name == "Oak Light Crossbow" and aimed.damage_text == "1d8+1 piercing"
+		and aimed.hit_chance.percent == 30 and aimed.hit_chance.disadvantage and aimed.distance == 4,
+		"resting the pointer on an enemy asks the controller what attacking it would be: weapon, chance, damage, and why", str(aimed.get("reason", "")))
+	check(lines == ["Goblin", "Oak Light Crossbow", "30% to hit", "1d8+1 piercing damage", "Disadvantage: enemy adjacent"],
+		"the readout beside the enemy shows the weapon, the chance to hit, the damage and the reason for disadvantage", str(lines))
+	var screen := Rect2(Vector2.ZERO, root.get_visible_rect().size)
+	check(readout.is_showing() and screen.encloses(readout_rect) and readout_rect.end.y <= world.bottom_ui.get_global_rect().position.y,
+		"the readout is on the screen and clear of the bottom bar", str(readout_rect))
+	# The same with the edge it must keep clear of moved up to just above the enemy
+	var ledge := Control.new()
+	root.add_child(ledge)
+	ledge.position = Vector2(0, far.get_global_transform_with_canvas().origin.y - 20.0)
+	ledge.size = Vector2(screen.size.x, 400)
+	readout.setup(player, ledge)
+	var squeezed: Rect2 = readout._panel.get_global_rect()
+	var ledge_top: float = ledge.position.y
+	readout.setup(player, world.bottom_ui)
+	ledge.free()
+	check(ledge_top > squeezed.size.y + 16.0 and squeezed.end.y <= ledge_top and screen.encloses(squeezed),
+		"the readout moves up rather than cover the HUD it is told to keep clear of", "%s above %d" % [str(squeezed), ledge_top])
+	# Seen from either side, the readout is beyond the enemy: the line from the shooter stays in view
+	var beyond_first: bool = _is_beyond(readout_rect, far, player)
+	player.teleport_to_grid(here + step * 6)
+	player._update_aim(far.grid_position)
+	readout.refresh()
+	var beyond_second: bool = _is_beyond(readout._panel.get_global_rect(), far, player)
+	player.teleport_to_grid(here)
+	check(step.y == 0 and beyond_first and beyond_second,
+		"the readout sits beyond the enemy, away from the shooter, on whichever side that is", "%s, %s" % [beyond_first, beyond_second])
+	player._update_aim(near.grid_position)
+	readout.refresh()
+	check(player.get_aim_preview().get("weapon_name", "") == "Iron Longsword" and readout.get_lines().slice(0, 2) == ["Goblin", "Iron Longsword"],
+		"on an enemy in reach the readout names the melee weapon", str(readout.get_lines()))
+	await _frames(2)
+	check(attack_button.button_pressed and "click a marked enemy" in bar._hint.text and "Iron Longsword on an adjacent enemy" in bar._hint.text
+		and "Oak Light Crossbow to 16 tiles (to 64 at disadvantage)" in bar._hint.text,
+		"while aiming, the bar says how far each weapon reaches", bar._hint.text)
+
+	grid[wall_tile.y][wall_tile.x] = wall
+	player._update_aim(far.grid_position)
+	readout.refresh()
+	var blocked_lines: Array = readout.get_lines()
+	var marked_behind_wall: bool = player.get_aim_targets().has(far)
+	notes.clear()
+	player._handle_attack_click(far.grid_position)
+	check(not marked_behind_wall and blocked_lines == ["Goblin", "Cannot attack: No line of sight"],
+		"an enemy that cannot be attacked is not marked, and the readout says why", str(blocked_lines))
+	check(notes == ["No line of sight"] and player.attack_mode and not player.action_used,
+		"a click on an enemy that cannot be attacked says why and leaves the attack selected", str(notes))
+	grid[wall_tile.y][wall_tile.x] = wall_was
+	taken.clear()
+	player._handle_attack_click(far.grid_position)
+	check(taken.size() == 1 and taken[0][0] == player and taken[0][1] == "attack" and taken[0][2].target == far and taken[0][2].is_ranged
+		and player.action_used and not player.attack_mode,
+		"a click on a marked enemy sends the attack request and puts the attack away", "%d requests" % taken.size())
+	await _frames(2)
+	check(not readout.is_showing(), "the readout goes away with the aim")
 
 	# --- only a ranged weapon in hand, and the enemy adjacent ---
 	var sword: Dictionary = inv.unequip_item(stats, "main_hand")
