@@ -745,15 +745,18 @@ Agreed so far:
 - A character gains no more than one level of exhaustion per day, however many
   causes apply. Without this one bad day could give four levels. Several causes at
   once may make the saves harder.
+- A night's rest with food and drink removes one level of exhaustion in a proper
+  camp or at an inn. A rough camp removes none. The inn remains the only full
+  recovery of everything else. (He chose the camp over inn-only. If play shows
+  exhaustion never matters, inn-only is a one-line change.)
 - Nothing about resting clears wear marks; only the smith's full repair does (see
   Durability, Repair).
 
 Open:
 
-- How exhaustion is removed: a night's rest with food and drink removes one level,
-  either in any proper camp (5e's rule; put to him as the recommendation) or only
-  at an inn (how his text reads). A rough camp removes none either way.
 - Which phase the day and night clock is built in. It is not part of Phase 2.
+- What makes a camp "proper" and not rough, and exactly what each kind of rest
+  restores.
 - Travel fatigue waits for the world map (Phase 4).
 - The drinks, food and other consumables sections of his document are unread.
 
