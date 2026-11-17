@@ -818,6 +818,41 @@ Open:
 - **Grid size is 32×32**, for the placeholders and for own art. The game moves from
   16-pixel to 32-pixel tiles in Phase 1.
 
+### Own art: how it gets made
+
+Under discussion since 2026-11-17. Nothing is decided.
+
+- The view stays: a top-down map with figures drawn facing the viewer, assembled
+  from layers on one body template, so the figure shows what is worn. Motion is
+  mostly done in code (the figure hops and lunges, the weapon layer swings); drawn
+  frame-by-frame animation is kept for a few special things.
+- A first test of Claude drawing the layers directly as image files worked: a body,
+  trousers, boots, a jerkin, a helmet, a longsword and a shield lined up, came on
+  and off, and took material colours by swapping a ramp. Ákos: "i can see this
+  working", and "we'll need to find a reference for the art style". The test files
+  were temporary. Its weak points were the squat proportions, flat shading and an
+  unclear helmet, all of which a style reference would settle.
+- AI art tools, researched 2026-11-17:
+  - Google Stitch and Claude Design are interface design tools. Neither makes
+    sprites.
+  - PixelLab and Retro Diffusion make true pixel art at 32 px, follow reference
+    images, can edit inside a mask on a supplied template, can animate, and can be
+    driven from scripts (API and MCP). PixelLab is a subscription; Retro Diffusion
+    is pay as you go, a few cents an image.
+  - No tool outputs separate, aligned gear layers. They produce a dressed figure.
+    The closest route is inpainting a piece onto our own body template and
+    extracting it by difference, with hand cleanup. An open-source project that
+    does this (PixelDoll) warns that the results need review.
+  - General image models are not usable as they come at 32 px (off-grid pixels,
+    thousands of colours). Animating with a video model gives a baked figure with
+    shimmer, not layers.
+  - Where generators fit: style candidates to choose a look from, and art that
+    does not have to line up with a body (monsters, item icons, tiles, effects).
+- For a commercial release: Steam's content survey requires disclosing AI-generated
+  content that players see, and that covers art Claude draws as much as art from a
+  generator. In the US, output from prompts alone is not protected by copyright;
+  protection follows human creative choices and modification.
+
 Other mismatches between design doc and code, for when they matter: faction reputation
 scale (−100..100 in code, up to 5000 in the doc); equipment slots (13 plus rings and
 trinkets in code, 11 in the doc); the doc's world name, lore and zones 4–9 are still
