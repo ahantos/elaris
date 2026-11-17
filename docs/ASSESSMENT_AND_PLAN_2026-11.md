@@ -488,20 +488,24 @@ His requirements, which outrank any single rule below:
 
 #### Notches
 
-- Weapons, shields, body armour and helmets have notches. Nothing else wears: not
-  the neck, shoulder, back, wrist, hands, waist, legs or feet slots, nor rings and
-  trinkets. (Confirmed by him.)
+- Everything wielded or worn as armour has notches: weapons, shields, body armour,
+  helmets, and the shoulder, back, wrist, hands, waist, legs and feet slots. He
+  overruled the first sketch, which left those seven out ("absolutely disagree").
+  Accessories (neck, rings, trinkets) do not wear for now; he said he could be
+  convinced of that.
 - The count comes from the material: the durability score in his tables divided by
   about 8. Copper 2, bronze 3, steel 4, Damascus steel 5, mythril 6, adamantite 8.
 - Masterforged adds one notch. Each plus of magic adds one.
-- Each lost notch costs at once: -1 to hit for a weapon, -1 AC for body armour and
-  helmets, never below the wearer's unarmoured AC.
+- Every second lost notch costs -1: to hit for a weapon, AC for body armour and
+  helmets. The first lost notch is free, the second costs, and so on. Never below
+  the wearer's unarmoured AC. (He found -1 for every notch too harsh, for armour
+  and weapons alike. Steel chain mail goes 16, 16, 15, 15, then broken at 10.)
 - Shields and light armour keep their full bonus until the last notch goes. He
   confirmed this for light armour: leather gives only +1 AC and one notch would
   wipe it out.
-- Medium and heavy armour lose 1 AC per lost notch, and whatever bonus is left goes
-  when the last notch goes. Proposed and not yet answered: they always give at
-  least +1 until they break, because hide and a chain shirt have small bonuses.
+- Medium and heavy armour always give at least +1 until they break, because hide
+  and a chain shirt have small bonuses. Whatever bonus is left goes when the last
+  notch goes.
 - At zero notches the piece is broken: no bonus, and a weapon cannot attack. It is
   never destroyed.
 
@@ -552,6 +556,8 @@ His requirements, which outrank any single rule below:
 - More notches, as above. +2 and +3 gear wears like everything else.
 - Magic gear also has a chance to ignore a lost notch. He confirmed both together
   and wants the chance low. Starting values: +1 5%, +2 10%, +3 15% (dials).
+- The chance works against blows only. A notch lost through wear marks is never
+  resisted, so marks stay fully predictable. (Confirmed by him.)
 
 #### Debuffs
 
@@ -645,12 +651,16 @@ His requirements, which outrank any single rule below:
 
 None of these blocks the Phase 2 hooks.
 
-- What a lost notch costs armour. He doubts -1 AC per notch: "i dunno if that 1 ac
-  for each notch isn't too harsh". Put to him: -1 AC for every second lost notch,
-  with at least +1 until the piece breaks. Whether weapons (-1 to hit per notch)
-  should soften the same way is part of the same question.
-- Whether the magic resist chance also applies to a notch lost through marks.
-  Put to him: no, blows only, so marks stay fully predictable.
+- What the seven secondary armour slots give, now that they wear and 5e armour
+  class comes from body armour and shield. His pointers: "in my system they
+  interacted with weather and cold and shit, plus i guess they could interact with
+  social things too." His weather rule is three layers (base clothing; an
+  insulated layer of fur, wool or a cloak; waterproofing such as an oiled cloak or
+  waxed boots). Each kind of weather needs so many layers, and an underdressed
+  character makes Constitution saves against exposure, then exhaustion.
+- Which piece a critical hit lands on, now that more than the shield and body
+  armour can take it. The blows table above still says shield, otherwise body
+  armour.
 - Material traits: kept, or out along with the stat bonuses. He deferred it ("we
   can talk about traits later").
 - Resting rules. A separate discussion; it includes whether anything clears marks.

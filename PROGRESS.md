@@ -67,7 +67,9 @@ What has been read, as of 2026-11-17:
 | 6901–7561 | Durability rules; materials tables (metal, wood, cloth, leather, stone, gems, herbs); enchantment materials; magic and masterforged gear; weapon and armour states; arrows; trinkets | Yes, in full |
 | 7562–9185 | Legendary Items | No |
 | 9186–9348 | Finds table, Loot D100 tables | No |
-| 9349–10154 | Tea, coffee, tobacco, alcohol, sweets, drugs, diseases, weather | No |
+| 9349–9970 | Tea, coffee, tobacco, alcohol, sweets, drugs, diseases | No |
+| 9971–10030 | Weather: the layer and exposure rules, the first regional table | Yes |
+| 10031–10154 | Weather: the remaining regional tables | No |
 
 ## What exists now
 
