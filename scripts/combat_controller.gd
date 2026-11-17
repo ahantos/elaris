@@ -346,8 +346,11 @@ func _remove_at(index: int):
 #
 # request_action(combatant, action_id, params) -> {ok, action, reason, ...}
 #
-#   attack     {target: Combatant}      one melee attack with the weapon in hand
-#                                       on an adjacent hostile. Costs the action.
+#   attack     {target: Combatant}      one attack on a hostile: with the melee
+#                                       weapon in hand when it is adjacent, with
+#                                       the ranged weapon carried when it is
+#                                       further off, in range and in sight.
+#                                       Costs the action.
 #   dash       {}                       adds the combatant's speed to this turn's
 #                                       movement. Costs the action.
 #   disengage  {}                       its movement provokes no opportunity
@@ -439,6 +442,39 @@ func request_action(combatant, action_id: String, params: Dictionary = {}) -> Di
 		action_taken.emit(combatant, action_id, result)
 	return result
 
+func get_attack_targets(combatant) -> Array[Combatant]:
+	"""The living hostiles the combatant could attack from where it stands: next
+	to it, or within the range of its ranged weapon and in its line of sight.
+	About position and weapons only; whether it has the turn and the action is
+	check_action's to say."""
+	var targets: Array[Combatant] = []
+	if not _is_fit(combatant):
+		return targets
+	for hostile in combatant.get_hostiles():
+		if _check_attack_target(combatant, hostile).ok:
+			targets.append(hostile)
+	return targets
+
+func preview_attack(combatant, target) -> Dictionary:
+	"""What attacking the target would be, for showing before the player
+	commits. Changes nothing and rolls nothing.
+	Returns {ok, reason} as check_action answers the attack, and with them
+	{target, profile (the weapon that would be used, see
+	CombatManager.build_attack_profile), weapon_name, damage_text, distance,
+	hit_chance (CombatManager.get_hit_chance: chance, percent, advantage,
+	disadvantage, reasons, cover_bonus, ...)}."""
+	var preview: Dictionary = check_action(combatant, ACTION_ATTACK, {"target": target})
+	if not _is_fit(combatant) or not _is_fit(target):
+		return preview
+	var profile: Dictionary = CombatManager.get_attack_profile(combatant, target)
+	preview["target"] = target
+	preview["profile"] = profile
+	preview["weapon_name"] = str(profile.weapon_name)
+	preview["damage_text"] = CombatManager.get_damage_text(profile)
+	preview["distance"] = CombatGrid.get_distance_tiles(combatant.get_grid_position(), target.get_grid_position())
+	preview["hit_chance"] = CombatManager.get_hit_chance(combatant, target, profile)
+	return preview
+
 # --- checks ---
 
 func _approve() -> Dictionary:
@@ -468,16 +504,44 @@ func _check_attack(combatant, params: Dictionary) -> Dictionary:
 	var check: Dictionary = _check_fight_action(combatant)
 	if not check.ok:
 		return check
-	var profile: Dictionary = CombatManager.get_attack_profile(combatant)
-	if not profile.usable:
-		return _refuse(str(profile.reason))
-	if not params.has("target"):
-		return _approve() if not _hostiles_in_reach(combatant).is_empty() else _refuse("No enemy in reach")
-	var target = params["target"]
+	if params.has("target"):
+		return _check_attack_target(combatant, params["target"])
+
+	# No target named: is there anyone this combatant could attack right now?
+	if not get_attack_targets(combatant).is_empty():
+		return _approve()
+	var melee: Dictionary = CombatManager.get_melee_profile(combatant)
+	if not melee.usable:
+		return _refuse(str(melee.reason))
+	var ranged: Dictionary = CombatManager.get_ranged_profile(combatant)
+	if ranged.is_empty():
+		return _refuse("No enemy in reach")
+	if not ranged.usable:
+		return _refuse(str(ranged.reason))
+	return _refuse("No enemy in range and in sight")
+
+func _check_attack_target(combatant, target) -> Dictionary:
+	"""Can the combatant attack this target from where it stands? A hostile, and
+	either next to it (the melee weapon, or an unarmed strike) or within the
+	maximum range of the ranged weapon it carries and in its line of sight.
+	Says nothing about the turn or the action."""
 	if not _is_fit(target) or not combatant.is_hostile_to(target):
 		return _refuse("Not an enemy")
-	if CombatGrid.get_distance_tiles(combatant.get_grid_position(), target.get_grid_position()) != 1:
-		return _refuse("Out of reach - a melee attack needs an adjacent enemy")
+	var profile: Dictionary = CombatManager.get_attack_profile(combatant, target)
+	var from: Vector2i = combatant.get_grid_position()
+	var to: Vector2i = target.get_grid_position()
+	var distance: int = CombatGrid.get_distance_tiles(from, to)
+	if not profile.usable:
+		return _refuse(str(profile.reason))
+	if not profile.is_ranged:
+		if distance > CombatManager.MELEE_REACH:
+			return _refuse("Out of reach - a melee attack needs an adjacent enemy")
+		return _approve()
+	if distance > int(profile.range_max):
+		return _refuse("Out of range - %s reaches %d tiles" % [str(profile.weapon_name), int(profile.range_max)])
+	var grid: Array = _dungeon_grid()
+	if not grid.is_empty() and not CombatGrid.has_line_of_sight(from, to, grid):
+		return _refuse("No line of sight")
 	return _approve()
 
 func _check_cast(combatant, params: Dictionary) -> Dictionary:
@@ -597,15 +661,17 @@ func _check_end_turn(combatant) -> Dictionary:
 # --- applying an approved request ---
 
 func _apply_attack(combatant, params: Dictionary, result: Dictionary):
-	"""Spend the action and resolve the attack at once: the roll, the damage
-	and the number over the target's head"""
+	"""Spend the action and resolve the attack at once, with the weapon that
+	suits the target: the roll and the damage. The number over the target's
+	head follows at once for a melee attack, and when the projectile lands for
+	a ranged one."""
 	if not params.has("target"):
 		result["ok"] = false
 		result["reason"] = "No target given"
 		return
 	var target = params["target"]
 	combatant.action_used = true
-	var attack: Dictionary = CombatManager.make_attack(combatant, target)
+	var attack: Dictionary = CombatManager.make_attack(combatant, target, CombatManager.get_attack_profile(combatant, target))
 	if attack.is_empty():
 		result["ok"] = false
 		result["reason"] = "The attack could not be made"
@@ -613,6 +679,9 @@ func _apply_attack(combatant, params: Dictionary, result: Dictionary):
 	result.merge(attack)
 	result["target"] = target
 	_present_attack(combatant, target, attack)
+	# A shot reaches further than the fight was drawn: whoever is attacked is
+	# in it from then on
+	add_combatant(target)
 
 func _apply_cast(combatant, params: Dictionary, result: Dictionary):
 	"""Cast the spell through SpellManager and spend what its casting time costs"""
@@ -675,20 +744,34 @@ func _apply_use_item(combatant, params: Dictionary, result: Dictionary):
 	print("%s uses %s" % [combatant.name, item_data.item_name])
 
 func _present_attack(attacker, target, attack: Dictionary):
-	"""Show an attack that has been resolved: the lunge, and the damage or the
-	miss over the target"""
+	"""Show an attack that has been resolved. Melee: the lunge, and the damage
+	or the miss over the target. Ranged: a projectile from the attacker to the
+	target, and the damage or the miss when it lands."""
 	if world == null or not is_instance_valid(attacker) or not is_instance_valid(target):
 		return
-	attacker.animate_attack(target.global_position)
-	var popup_pos: Vector2 = target.global_position + Vector2(0, -attacker.tile_size * 0.8)
 	if attack.hit:
-		DamagePopup.spawn_damage_popup_at(world, popup_pos, attack.damage, attack.is_crit)
 		print("%s %s %s with %s for %d %s damage" % [attacker.name, "CRITS" if attack.is_crit else "hits",
 			target.name, attack.weapon_name, attack.damage, attack.damage_type])
 	else:
-		DamagePopup.spawn_miss_popup_at(world, popup_pos)
 		print("%s misses %s with %s (rolled %d vs AC %d)" % [attacker.name, target.name, attack.weapon_name,
 			attack.total, attack.target_ac])
+
+	# Where the number goes is fixed now: the target may be gone when the shot lands
+	var popup_pos: Vector2 = target.global_position + Vector2(0, -attacker.tile_size * 0.8)
+	if attack.get("is_ranged", false):
+		Projectile.launch(world, attacker.global_position, target.global_position, _show_attack_outcome.bind(popup_pos, attack))
+	else:
+		attacker.animate_attack(target.global_position)
+		_show_attack_outcome(popup_pos, attack)
+
+func _show_attack_outcome(popup_pos: Vector2, attack: Dictionary):
+	"""The floating number of a hit, or the word for a miss"""
+	if world == null or not is_instance_valid(world):
+		return
+	if attack.hit:
+		DamagePopup.spawn_damage_popup_at(world, popup_pos, attack.damage, attack.is_crit)
+	else:
+		DamagePopup.spawn_miss_popup_at(world, popup_pos)
 
 func _present_cast(cast: Dictionary):
 	"""Floating numbers for what a spell did to each of its targets"""
@@ -707,14 +790,6 @@ func _present_cast(cast: Dictionary):
 			DamagePopup.spawn_heal_popup_at(world, popup_pos, healed)
 		elif not entry.get("hit", true):
 			DamagePopup.spawn_miss_popup_at(world, popup_pos)
-
-func _hostiles_in_reach(combatant) -> Array[Combatant]:
-	"""The living hostiles next to the combatant: who a melee attack can reach"""
-	var in_reach: Array[Combatant] = []
-	for hostile in combatant.get_hostiles():
-		if CombatGrid.get_distance_tiles(combatant.get_grid_position(), hostile.get_grid_position()) == 1:
-			in_reach.append(hostile)
-	return in_reach
 
 func _spell_item_prefix(item_data: ItemData) -> String:
 	"""'scroll_' or 'wand_' for an item that casts a spell, '' for anything else"""

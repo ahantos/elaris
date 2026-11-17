@@ -8,6 +8,8 @@ extends SceneTree
 #   - the fixed defects stay fixed (gifting, crafting level, loot pickup, ...),
 #   - a scripted fight runs to its end,
 #   - attacks use the weapon in hand by 5e rules,
+#   - a ranged attack follows range, line of sight, cover and free hands, and
+#     the chance to hit that is shown is the exact one,
 #   - a turn has movement, an action, a bonus action and a reaction, and every
 #     action is a request the combat controller approves,
 #   - the combat controller alone decides whose turn it is,
@@ -172,6 +174,7 @@ func _run():
 	_check_content()
 	await _check_fight(world)
 	await _check_actions(world)
+	await _check_ranged(world)
 	_check_casters(world)  # replaces the player's stats
 	await _check_turn_authority(world)  # last in part 1: fights as the wizard _check_casters leaves behind
 
@@ -892,8 +895,21 @@ func _check_weapons(world):
 	# --- a ranged weapon in hand, then nothing in hand ---
 	inv.unequip_item(stats, "main_hand")
 	profile = combat.get_attack_profile(player)
-	check(profile.weapon == crossbow.item_data and profile.is_ranged and not profile.usable and "ranged" in profile.reason,
-		"with the main hand empty the carried ranged weapon is the weapon in hand, and it cannot attack yet", profile.reason)
+	check(profile.weapon == crossbow.item_data and profile.weapon_name == "Oak Light Crossbow" and profile.is_ranged and profile.usable
+		and profile.ability == "dex" and profile.ability_modifier == 1 and profile.attack_bonus == 3 and _damage_range(combat, profile) == [2, 9],
+		"with the main hand empty the carried ranged weapon is the weapon in hand, and it attacks with Dexterity",
+		"%s %s %+d, damage %s" % [profile.weapon_name, profile.ability, profile.attack_bonus, str(_damage_range(combat, profile))])
+	var ranges: Array = []
+	for item_id in ["shortbow", "longbow", "light_crossbow", "heavy_crossbow"]:
+		var reach: Dictionary = combat.get_weapon_range(items.get_item(item_id))
+		ranges.append("%s %d/%d" % [item_id, reach.normal, reach.max])
+	check(ranges == ["shortbow 16/64", "longbow 24/96", "light_crossbow 16/64", "heavy_crossbow 20/80"]
+		and combat.get_weapon_range(longsword.item_data) == {"normal": 0, "max": 0},
+		"ranged weapons say how far they shoot, in tiles: a normal range and a maximum", str(ranges))
+	inv.equipped_items[stats]["off_hand"] = shield
+	profile = combat.get_attack_profile(player)
+	check(not profile.usable and "both hands" in profile.reason, "a two-handed ranged weapon beside a full off hand cannot be fired, and says why", profile.reason)
+	inv.equipped_items[stats].erase("off_hand")
 	inv.unequip_item(stats, "ranged")
 	profile = combat.get_attack_profile(player)
 	check(profile.weapon == null and profile.weapon_name == "Unarmed strike" and profile.damage_type == "bludgeoning" and profile.proficient
@@ -1036,8 +1052,10 @@ func _check_actions(world):
 		"movement %d" % player.movement_left)
 	await _frames(2)
 	var attack_button = bar.get_button("attack")
-	check(not attack_button.disabled and "Iron Longsword" in attack_button.get_detail() and "1d8" in attack_button.get_detail(),
-		"the Attack button names the equipped weapon and its die", attack_button.get_detail())
+	check(not attack_button.disabled and attack_button.get_detail() == "Longsword 1d8+2\nLight Crossbow 1d8+1",
+		"the Attack button names the melee weapon and the ranged weapon, each with its die", attack_button.get_detail())
+	check(not attack_button.disabled and attack_button.get_reason() == "Oak Light Crossbow needs both hands free",
+		"the Attack button, usable on the enemy in reach, notes that the ranged weapon cannot be fired beside the shield", attack_button.get_reason())
 	check(bar._turn_label.text == "Your turn" and bar._movement_label.text == "Movement 6 / 6" and bar._action_label.text == "Action ready"
 		and bar._bonus_label.text == "Bonus action ready" and bar._action_label.visible,
 		"the HUD shows the turn-holder's movement and that its action and bonus action are unspent",
@@ -1078,19 +1096,13 @@ func _check_actions(world):
 	var friendly: Dictionary = controller.request_action(player, "attack", {"target": player})
 	check(not friendly.ok and not player.action_used, "an attack on anything but a hostile combatant is refused")
 
-	# --- a ranged weapon in hand, then nothing in hand ---
+	# --- nothing in hand (ranged weapons have their own checks, _check_ranged) ---
 	var sword: Dictionary = inv.unequip_item(stats, "main_hand")
-	_toughen(stats)
-	var ranged_check: Dictionary = controller.check_action(player, "attack")
-	var ranged_try: Dictionary = controller.request_action(player, "attack", {"target": goblin})
-	await _frames(2)
-	check(not ranged_check.ok and "ranged" in ranged_check.reason and not ranged_try.ok and not player.action_used,
-		"an attack with a ranged weapon in hand is refused: ranged attacks cannot be made yet", str(ranged_check.reason))
-	check(attack_button.disabled and attack_button.get_reason() == "Ranged attacks cannot be made yet" and "Crossbow" in attack_button.get_detail(),
-		"the action bar says that the ranged weapon in hand cannot attack yet",
-		"%s / %s" % [attack_button.get_detail(), attack_button.get_reason()])
 	var bow: Dictionary = inv.unequip_item(stats, "ranged")
 	_toughen(stats)
+	await _frames(2)
+	check(attack_button.get_detail() == "Unarmed strike\n3 bludgeoning", "with nothing in hand the Attack button offers an unarmed strike",
+		attack_button.get_detail())
 	var punch: Dictionary = {}
 	for attempt in range(40):
 		player.action_used = false
@@ -1198,7 +1210,7 @@ func _check_actions(world):
 	player.refresh_turn_resources()
 	_press(KEY_1)
 	await _frames(2)
-	check(player.attack_mode and attack_button.button_pressed and "click an adjacent enemy" in bar._hint.text,
+	check(player.attack_mode and attack_button.button_pressed and "click an enemy" in bar._hint.text,
 		"key 1 starts aiming the Attack action, and the bar shows it", bar._hint.text)
 	_press(KEY_1)
 	check(not player.attack_mode, "key 1 again puts the attack away")
@@ -1346,6 +1358,384 @@ func _check_actions(world):
 	if player.grid_position != home:
 		player.teleport_to_grid(home)
 	stats.recalculate_derived_stats()  # back to the real maximum
+	stats.current_hp = stats.max_hp
+	await _frames(2)
+
+# ---------------------------------------------------------------------------
+#  Ranged attacks: the weapon follows the target; range, sight, cover, hands
+# ---------------------------------------------------------------------------
+
+func _find_strip(world, origin: Vector2i, length: int) -> Array:
+	"""[start, step, side]: `length` free floor tiles in a straight line from
+	start, each with free floor on both sides of it, as near to origin as there
+	is such a strip. A shot along it has a clear line and no wall near enough
+	to give cover, and nobody stands next to start. start may be the player's
+	own tile. A strip that runs left or right is preferred to one that runs up
+	or down. [] when there is none."""
+	var player = world.player
+	for steps in [[Vector2i(1, 0), Vector2i(-1, 0)], [Vector2i(0, 1), Vector2i(0, -1)]]:
+		for radius in range(0, 30):
+			for dx in range(-radius, radius + 1):
+				for dy in range(-radius, radius + 1):
+					if max(abs(dx), abs(dy)) != radius:
+						continue
+					var start: Vector2i = origin + Vector2i(dx, dy)
+					var crowded := false
+					for nx in range(-1, 2):
+						for ny in range(-1, 2):
+							if world.is_tile_occupied(start + Vector2i(nx, ny), player):
+								crowded = true
+					if crowded:
+						continue
+					for step in steps:
+						var side := Vector2i(step.y, step.x)
+						var open := true
+						for i in range(length):
+							for tile in [start + step * i, start + step * i + side, start + step * i - side]:
+								if open and tile != player.grid_position and not player.is_walkable(tile):
+									open = false
+						if open:
+							return [start, step, side]
+	return []
+
+func _count_nodes(parent: Node, script: Script) -> int:
+	"""How many children of parent are instances of a script"""
+	var count := 0
+	for child in parent.get_children():
+		if is_instance_of(child, script) and not child.is_queued_for_deletion():
+			count += 1
+	return count
+
+func _attack_until_hit(controller, attacker, target, blows: Array) -> Dictionary:
+	"""Ask for the Attack action, the action handed back each time, until an
+	attack lands. For a target that only a natural 1 misses. Returns the
+	request's result with hp_lost added; {} when the request is refused or
+	nothing lands in 40 tries. blows is left holding the damage events of the
+	attack that landed."""
+	for attempt in range(40):
+		attacker.action_used = false
+		blows.clear()
+		var hp_before: int = target.stats.current_hp
+		var attack: Dictionary = controller.request_action(attacker, "attack", {"target": target})
+		if not attack.ok:
+			return {}
+		if attack.hit:
+			attack["hp_lost"] = hp_before - target.stats.current_hp
+			return attack
+	return {}
+
+func _remove_enemy(world, enemy):
+	"""Take a staged enemy out of the world without a death: no XP, no loot"""
+	world.combat.remove_combatant(enemy)
+	world.enemies.erase(enemy)
+	enemy.queue_free()
+
+func _close_to(value: float, expected: float) -> bool:
+	return absf(value - expected) < 0.000001
+
+func _check_ranged(world):
+	"""A staged fight on a strip of open floor: the default fighter (STR 14,
+	DEX 12, proficiency +2; longsword, shield, light crossbow) and a goblin
+	that stands still a few tiles away. Checks that the weapon follows the
+	target; what range, line of sight, cover, a hostile next to the shooter and
+	full hands do to a shot; that the chance shown before the shot is the exact
+	one; what aiming shows; and that an enemy shoots through the same request."""
+	var combat_mgr = _mgr("CombatManager")
+	var effects = _mgr("StatusEffectManager")
+	var inv = _mgr("InventoryManager")
+	var items = _mgr("ItemDatabase")
+	var bus = _mgr("EventBus")
+	var projectile_script = load("res://scripts/projectile.gd")
+	var popup_script = load("res://scripts/damage_popup.gd")
+	var item_script = load("res://data/items/item_data.gd")
+	var controller = world.combat
+	var player = world.player
+	var stats = player.stats
+	var bar = world.bottom_ui.action_bar
+	var attack_button = bar.get_button("attack")
+	var grid: Array = world.current_dungeon.dungeon_grid
+	var wall: int = world.current_dungeon.TileType.WALL
+	var piercing: int = combat_mgr.DamageType.PIERCING
+	var home: Vector2i = player.grid_position
+	var crossbow: Dictionary = inv.get_equipped_item(stats, "ranged")
+	var shield: Dictionary = inv.get_equipped_item(stats, "off_hand")
+
+	var strip: Array = _find_strip(world, home, 8)
+	var set_up: bool = not strip.is_empty() and not world.in_combat and not crossbow.is_empty() and not shield.is_empty() \
+		and stats.class_id == "fighter" and stats.get_str_modifier() == 2 and stats.get_dex_modifier() == 1 and stats.proficiency_bonus == 2
+	check(set_up, "test setup: a strip of open floor, and the fighter with its longsword, shield and crossbow")
+	if not set_up:
+		return
+	var here: Vector2i = strip[0]
+	var step: Vector2i = strip[1]
+	var side: Vector2i = strip[2]
+	if here != home:
+		player.teleport_to_grid(here)
+	_toughen(stats)
+	# Where a check puts a wall, in the rules' grid only, between the shooter and
+	# the target four tiles off; it is floor again when the check is done
+	var wall_tile: Vector2i = here + step * 2
+	var wall_was: int = grid[wall_tile.y][wall_tile.x]
+
+	var taken: Array = []  # [combatant, action id, result] for every approved request
+	var on_action = func(combatant, action_id, result): taken.append([combatant, action_id, result])
+	controller.action_taken.connect(on_action)
+	var blows: Array = []  # [attacker, target, amount, damage type]
+	var on_damage = func(attacker, target, amount, _is_crit, damage_type): blows.append([attacker, target, amount, damage_type])
+	bus.damage_dealt.connect(on_damage)
+	var notes: Array = []
+	var on_note = func(message, _type): notes.append(message)
+	bus.ui_notification.connect(on_note)
+
+	# The target: four tiles off, in plain sight, and it stays where it is put
+	var far = world._spawn_enemy("goblin", 1, 500, here + step * 4)
+	far.stats.movement_speed = 0
+	far.stats.armor_class = 13
+	Engine.time_scale = 4.0
+	var started: bool = await _until(func(): return world.in_combat, 3.0)
+	for other in controller.get_order():
+		if other != player and other != far:
+			controller.remove_combatant(other)
+	var my_turn: bool = started and await _until(func(): return controller.is_turn_of(player) or not world.in_combat)
+	check(started and my_turn and controller.is_turn_of(player) and controller.get_order().size() == 2,
+		"test setup: the staged fight started, the player against a goblin four tiles away, and the player's turn came",
+		"%d in the order" % controller.get_order().size())
+	if not controller.is_turn_of(player):
+		Engine.time_scale = 1.0
+		return
+
+	# --- hands: a two-handed ranged weapon and a shield ---
+	var blocked_check: Dictionary = controller.check_action(player, "attack")
+	var blocked_shot: Dictionary = controller.request_action(player, "attack", {"target": far})
+	await _frames(2)
+	check(not blocked_check.ok and "both hands" in blocked_check.reason and not blocked_shot.ok and blocked_shot.reason == blocked_check.reason
+		and not player.action_used and far.stats.current_hp == 500,
+		"a two-handed ranged weapon cannot be fired while a shield is in the off hand", str(blocked_shot.get("reason", "")))
+	check(attack_button.disabled and attack_button.get_reason() == "Oak Light Crossbow needs both hands free"
+		and attack_button.get_detail() == "Longsword 1d8+2\nLight Crossbow 1d8+1",
+		"with no enemy in reach the Attack button is disabled and says why the ranged weapon cannot be fired",
+		"%s / %s" % [attack_button.get_detail(), attack_button.get_reason()])
+
+	# --- the off hand empty: the weapon follows the target ---
+	inv.unequip_item(stats, "off_hand")
+	_toughen(stats)
+	var profile: Dictionary = combat_mgr.get_attack_profile(player, far)
+	check(profile.weapon == crossbow.item_data and profile.is_ranged and profile.usable and profile.ability == "dex" and profile.ability_modifier == 1
+		and profile.proficient and profile.attack_bonus == 3 and profile.damage_dice == "1d8" and profile.damage_type == "piercing"
+		and profile.range_normal == 16 and profile.range_max == 64 and _damage_range(combat_mgr, profile) == [2, 9],
+		"for a target beyond reach the attack is made with the ranged weapon: Dexterity for the roll and the damage, its die, its damage type",
+		"%s %s %+d %s %s" % [profile.weapon_name, profile.ability, profile.attack_bonus, profile.damage_dice, profile.damage_type])
+	check(controller.check_action(player, "attack").ok and controller.get_attack_targets(player).has(far),
+		"with the off hand empty the enemy in range and in sight can be attacked")
+
+	far.stats.armor_class = -100
+	var popups_before: int = _count_nodes(world, popup_script)
+	var shot: Dictionary = _attack_until_hit(controller, player, far, blows)
+	var in_flight: int = _count_nodes(world, projectile_script)
+	var popups_in_flight: int = _count_nodes(world, popup_script)
+	check(not shot.is_empty() and shot.weapon_name == "Oak Light Crossbow" and shot.is_ranged and shot.damage_dice == "1d8"
+		and shot.damage_type == "piercing" and shot.attack_bonus == 3 and shot.distance == 4 and not shot.disadvantage
+		and shot.damage >= (3 if shot.is_crit else 2) and shot.damage <= (17 if shot.is_crit else 9) and shot.hp_lost == shot.damage
+		and blows.size() == 1 and blows[0][0] == player and blows[0][1] == far and blows[0][2] == shot.damage and blows[0][3] == piercing,
+		"the Attack action on a distant enemy shoots the ranged weapon, a plain roll at normal range, and its damage is piercing",
+		str(shot.get("damage", "no hit")))
+	var landed: bool = await _until(func(): return _count_nodes(world, projectile_script) == 0, 3.0)
+	check(in_flight >= 1 and popups_in_flight == popups_before and landed and _count_nodes(world, popup_script) > popups_before,
+		"a ranged attack sends a projectile to the target, and the number appears when it lands",
+		"%d in flight, popups %d -> %d -> %d" % [in_flight, popups_before, popups_in_flight, _count_nodes(world, popup_script)])
+	var hp_after_shot: int = far.stats.current_hp
+	var again: Dictionary = controller.request_action(player, "attack", {"target": far})
+	check(player.action_used and not again.ok and again.reason == "Action spent" and far.stats.current_hp == hp_after_shot,
+		"a second shot in the same turn is refused: the action is spent", str(again))
+
+	# --- an enemy in reach as well: the melee weapon for it, and trouble for the shot ---
+	var near = world._spawn_enemy("goblin", 1, 500, here + side)
+	near.stats.movement_speed = 0
+	near.stats.armor_class = -100
+	var swing: Dictionary = _attack_until_hit(controller, player, near, blows)
+	check(not swing.is_empty() and swing.weapon_name == "Iron Longsword" and not swing.is_ranged and swing.damage_type == "slashing"
+		and swing.attack_bonus == 4 and swing.distance == 1 and _count_nodes(world, projectile_script) == 0,
+		"an attack on an adjacent enemy is still made with the main-hand weapon when a ranged weapon is carried too",
+		str(swing.get("weapon_name", "refused")))
+	check(controller.get_order().has(near) and controller.is_turn_of(player),
+		"a hostile that is attacked from outside the fight joins it, without taking the turn", "%d in the order" % controller.get_order().size())
+
+	far.stats.armor_class = 13
+	var crowded: Dictionary = combat_mgr.get_hit_chance(player, far)
+	player.action_used = false
+	var crowded_shot: Dictionary = controller.request_action(player, "attack", {"target": far})
+	effects.apply_effect(near, "stunned", 5)
+	var beside_stunned: Dictionary = combat_mgr.get_hit_chance(player, far)
+	effects.clear_effects(near)
+	check(crowded.disadvantage and ", ".join(crowded.reasons) == "enemy adjacent" and crowded_shot.ok and crowded_shot.disadvantage
+		and "enemy adjacent" in crowded_shot.reasons and not beside_stunned.disadvantage and beside_stunned.reasons.is_empty(),
+		"a ranged attack has disadvantage while a hostile that is not incapacitated stands next to the shooter",
+		"%s / stunned: %s" % [str(crowded.reasons), str(beside_stunned.reasons)])
+
+	# --- only a ranged weapon in hand, and the enemy adjacent ---
+	var sword: Dictionary = inv.unequip_item(stats, "main_hand")
+	_toughen(stats)
+	var point_blank: Dictionary = _attack_until_hit(controller, player, near, blows)
+	check(not point_blank.is_empty() and point_blank.weapon_name == "Oak Light Crossbow" and point_blank.is_ranged and point_blank.distance == 1
+		and point_blank.disadvantage and "enemy adjacent" in point_blank.reasons,
+		"with only a ranged weapon in hand an adjacent enemy is shot, at disadvantage", str(point_blank.get("weapon_name", "refused")))
+	inv.equip_item(shield, stats, "off_hand")
+	_toughen(stats)
+	var fist: Dictionary = _attack_until_hit(controller, player, near, blows)
+	check(not fist.is_empty() and fist.weapon_name == "Unarmed strike" and not fist.is_ranged and fist.damage == 3,
+		"with only a ranged weapon that cannot be fired, an adjacent enemy gets an unarmed strike", str(fist.get("weapon_name", "refused")))
+	inv.unequip_item(stats, "off_hand")
+	inv.equip_item(sword, stats, "main_hand")
+	_toughen(stats)
+	_remove_enemy(world, near)
+
+	# --- range: plain up to normal, disadvantage up to the maximum, then not at all ---
+	# A bow of the test's own with a short reach: 2 tiles normal, 5 at most
+	var short_bow = item_script.new()
+	short_bow.item_id = "smoke_shortbow"
+	short_bow.item_name = "Test Bow"
+	short_bow.item_type = item_script.ItemType.WEAPON
+	short_bow.is_weapon = true
+	short_bow.is_ranged = true
+	short_bow.is_two_handed = true
+	short_bow.weapon_type = "shortbow"
+	short_bow.weapon_category = "simple"
+	short_bow.damage_dice = "1d6"
+	short_bow.damage_type = "piercing"
+	short_bow.range_normal = 2
+	short_bow.range_max = 5
+	short_bow.equip_slot = "ranged"
+	var test_bow: Dictionary = {"item_data": short_bow}
+	inv.add_item(test_bow)
+	inv.equip_item(test_bow, stats, "ranged")
+	_toughen(stats)
+	var bands: Array = []
+	for tiles in [2, 3, 5, 6]:
+		far.teleport_to_grid(here + step * tiles)
+		var chance: Dictionary = combat_mgr.get_hit_chance(player, far)
+		var hp_before: int = far.stats.current_hp
+		player.action_used = false
+		var try_shot: Dictionary = controller.request_action(player, "attack", {"target": far})
+		if try_shot.ok:
+			bands.append("%d: %s (%s)" % [tiles, "disadvantage" if try_shot.disadvantage else "plain", ", ".join(chance.reasons)])
+		else:
+			bands.append("%d: %s, action %s, %d damage" % [tiles, try_shot.reason, "spent" if player.action_used else "kept",
+				hp_before - far.stats.current_hp])
+	check(bands == ["2: plain ()", "3: disadvantage (long range)", "5: disadvantage (long range)",
+		"6: Out of range - Test Bow reaches 5 tiles, action kept, 0 damage"],
+		"a shot is plain up to the weapon's normal range, at disadvantage up to its maximum, and refused beyond it", str(bands))
+
+	# --- line of sight ---
+	far.teleport_to_grid(here + step * 4)
+	grid[wall_tile.y][wall_tile.x] = wall
+	player.action_used = false
+	var hp_before_wall: int = far.stats.current_hp
+	var walled: Dictionary = controller.request_action(player, "attack", {"target": far})
+	var seen_through_wall: bool = controller.get_attack_targets(player).has(far)
+	grid[wall_tile.y][wall_tile.x] = wall_was
+	check(not walled.ok and walled.reason == "No line of sight" and not player.action_used and far.stats.current_hp == hp_before_wall
+		and not seen_through_wall and controller.check_action(player, "attack", {"target": far}).ok,
+		"a wall between the shooter and the target blocks the shot: the attack is refused", str(walled.get("reason", "")))
+
+	# --- the chance to hit, before anything is rolled ---
+	# The crossbow again: +3 to hit against armour class 13 needs a 10 on the die
+	inv.equip_item(crossbow, stats, "ranged")
+	inv.remove_item(test_bow.instance_id)
+	_toughen(stats)
+	var cover_tile: Vector2i = far.grid_position + side
+	var cover_was: int = grid[cover_tile.y][cover_tile.x]
+	seed(20261117)
+	var next_roll: int = randi()
+	seed(20261117)
+	var plain: Dictionary = combat_mgr.get_hit_chance(player, far)
+	effects.apply_effect(far, "stunned", 5)
+	var with_advantage: Dictionary = combat_mgr.get_hit_chance(player, far)
+	effects.apply_effect(player, "poisoned", 5)
+	var with_both: Dictionary = combat_mgr.get_hit_chance(player, far)
+	effects.clear_effects(far)
+	var with_disadvantage: Dictionary = combat_mgr.get_hit_chance(player, far)
+	effects.clear_effects(player)
+	grid[cover_tile.y][cover_tile.x] = wall
+	var behind_cover: Dictionary = combat_mgr.get_hit_chance(player, far)
+	var previewed: Dictionary = controller.preview_attack(player, far)
+	controller.get_attack_targets(player)
+	far.stats.armor_class = 100
+	var hopeless: Dictionary = combat_mgr.get_hit_chance(player, far)
+	far.stats.armor_class = -100
+	var certain: Dictionary = combat_mgr.get_hit_chance(player, far)
+	var rolled_nothing: bool = randi() == next_roll
+	far.stats.armor_class = 13
+
+	check(_close_to(plain.chance, 0.55) and plain.percent == 55 and plain.needed == 10 and plain.attack_bonus == 3 and plain.target_ac == 13
+		and not plain.advantage and not plain.disadvantage and plain.reasons.is_empty() and plain.cover_bonus == 0,
+		"the chance to hit of a plain attack is exact: 11 faces of 20", "%f, needs %d" % [plain.chance, plain.needed])
+	check(_close_to(with_advantage.chance, 0.7975) and with_advantage.percent == 80 and with_advantage.advantage and not with_advantage.disadvantage
+		and ", ".join(with_advantage.reasons) == "target stunned",
+		"with advantage the chance is that of the better of two dice, and the reason is given",
+		"%f %s" % [with_advantage.chance, str(with_advantage.reasons)])
+	check(_close_to(with_disadvantage.chance, 0.3025) and with_disadvantage.percent == 30 and with_disadvantage.disadvantage
+		and not with_disadvantage.advantage and ", ".join(with_disadvantage.reasons) == "poisoned",
+		"with disadvantage the chance is that of the worse of two dice, and the reason is given",
+		"%f %s" % [with_disadvantage.chance, str(with_disadvantage.reasons)])
+	check(_close_to(with_both.chance, 0.55) and with_both.advantage and with_both.disadvantage,
+		"advantage and disadvantage together are a plain roll", "%f" % with_both.chance)
+	check(_close_to(behind_cover.chance, 0.45) and behind_cover.cover_bonus == 2 and behind_cover.target_ac == 15 and behind_cover.needed == 12
+		and ", ".join(behind_cover.reasons) == "half cover" and previewed.ok and previewed.hit_chance.percent == 45,
+		"cover lowers the chance by its bonus to the target's armour class, and is named", "%f %s" % [behind_cover.chance, str(behind_cover.reasons)])
+	check(_close_to(hopeless.chance, 0.05) and _close_to(certain.chance, 0.95),
+		"a natural 20 always hits and a natural 1 always misses: the chance never leaves 5% to 95%", "%f, %f" % [hopeless.chance, certain.chance])
+	check(rolled_nothing, "working out the chance to hit rolls no dice")
+
+	# --- cover, in the roll itself ---
+	player.action_used = false
+	var covered_shot: Dictionary = controller.request_action(player, "attack", {"target": far})
+	grid[cover_tile.y][cover_tile.x] = cover_was
+	player.action_used = false
+	var open_shot: Dictionary = controller.request_action(player, "attack", {"target": far})
+	check(covered_shot.ok and covered_shot.cover_bonus == 2 and covered_shot.target_ac == 15 and "half cover" in covered_shot.reasons
+		and open_shot.ok and open_shot.cover_bonus == 0 and open_shot.target_ac == 13,
+		"cover raises the target's armour class for a ranged attack", "AC %s behind cover, %s in the open"
+		% [str(covered_shot.get("target_ac", "?")), str(open_shot.get("target_ac", "?"))])
+
+	# --- an enemy with a ranged weapon shoots through the same request ---
+	far.ranged_weapon = items.get_item("shortbow")
+	stats.armor_class = -100
+	taken.clear()
+	controller.request_action(player, "end_turn")
+	var their_turn: bool = controller.is_turn_of(far)
+	var hp_off_turn: int = far.stats.current_hp
+	player.action_used = false  # a gate on the action alone would let the shot through
+	var off_turn: Dictionary = controller.request_action(player, "attack", {"target": far})
+	check(their_turn and not off_turn.ok and off_turn.reason == "Not your turn" and not player.action_used and far.stats.current_hp == hp_off_turn,
+		"a shot is refused when it is not the shooter's turn", str(off_turn))
+	var arrow: Dictionary = _attack_until_hit(controller, far, player, blows)
+	var arrows_in_flight: int = _count_nodes(world, projectile_script)
+	check(not arrow.is_empty() and arrow.weapon_name == "Oak Shortbow" and arrow.is_ranged and arrow.damage_dice == "1d6"
+		and arrow.damage_type == "piercing" and arrow.distance == 4 and arrow.hp_lost == arrow.damage and arrows_in_flight >= 1
+		and blows.size() == 1 and blows[0][0] == far and blows[0][1] == player and blows[0][3] == piercing
+		and taken.any(func(entry): return entry[0] == far and entry[1] == "attack" and entry[2].is_ranged),
+		"an enemy given a ranged weapon shoots through the same request", str(arrow.get("weapon_name", "refused")))
+	far.ranged_weapon = null
+	await _until(func(): return controller.is_turn_of(player) or not world.in_combat)
+
+	# --- the fight ends; the starting kit goes back on ---
+	combat_mgr.apply_damage(far, 9999, combat_mgr.DamageType.PHYSICAL, player, false)
+	await _until(func(): return not world.in_combat, 5.0)
+	Engine.time_scale = 1.0
+	inv.equip_item(shield, stats, "off_hand")
+	check(not world.in_combat and inv.get_equipped_item(stats, "main_hand") == sword and inv.get_equipped_item(stats, "off_hand") == shield
+		and inv.get_equipped_item(stats, "ranged") == crossbow and grid[wall_tile.y][wall_tile.x] == wall_was
+		and grid[cover_tile.y][cover_tile.x] == cover_was,
+		"test teardown: the staged fight is over, the starting kit is back in place and the floor is floor again")
+
+	controller.action_taken.disconnect(on_action)
+	bus.damage_dealt.disconnect(on_damage)
+	bus.ui_notification.disconnect(on_note)
+	for node in world.ground_items_node.get_children():
+		node.queue_free()
+	if player.grid_position != home:
+		player.teleport_to_grid(home)
+	stats.recalculate_derived_stats()  # back to the real maximum and armour class
 	stats.current_hp = stats.max_hp
 	await _frames(2)
 

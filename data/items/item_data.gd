@@ -67,8 +67,8 @@ enum ItemType {
 @export var versatile_dice: String = ""  # Damage dice in both hands, for a weapon with the "versatile" property ("1d10")
 @export var is_two_handed: bool = false
 @export var is_ranged: bool = false
-@export var range_normal: int = 0
-@export var range_max: int = 0
+@export var range_normal: int = 0  # Tiles (5 ft each) a ranged weapon shoots without disadvantage
+@export var range_max: int = 0  # Tiles it shoots at all; beyond range_normal at disadvantage
 
 # Armor properties
 @export var is_armor: bool = false

@@ -6,7 +6,8 @@
 # are spent.
 # Display and input only. Each button asks the CombatController whether its
 # action is available and shows the answer; a press goes to the combatant,
-# which asks the controller for the action.
+# which asks the controller for the action. What the weapons are and how far
+# they reach is CombatManager's to say.
 extends Control
 
 const TITLES: Dictionary = {
@@ -20,7 +21,7 @@ const TITLES: Dictionary = {
 }
 
 const HINTS: Dictionary = {
-	CombatController.ACTION_ATTACK: "One melee attack with the weapon in hand. Pick it, then click an adjacent enemy. Takes your action.",
+	CombatController.ACTION_ATTACK: "One attack with the weapon that suits the target: the melee weapon in hand on an adjacent enemy, the ranged weapon you carry on one further away. Pick it, then click the enemy. Takes your action.",
 	CombatController.ACTION_CAST: "Open the spellbook and ready a spell, then click its target. Takes the action or bonus action the spell says.",
 	CombatController.ACTION_USE_ITEM: "Open the pack and right-click a potion, scroll or wand. Takes your action in a fight.",
 	CombatController.ACTION_DASH: "Move your speed again this turn. Takes your action.",
@@ -78,7 +79,7 @@ func refresh():
 	for i in range(CombatController.ACTION_BAR.size()):
 		var action_id: String = CombatController.ACTION_BAR[i]
 		_buttons[action_id].show_action(str(i + 1), TITLES[action_id], _detail_for(action_id), _reason_for(action_id),
-			action_id == CombatController.ACTION_ATTACK and combatant.is_aiming_attack(), HINTS[action_id])
+			action_id == CombatController.ACTION_ATTACK and combatant.is_aiming_attack(), HINTS[action_id], _note_for(action_id))
 	_hint.text = _hint_text()
 
 func _on_action_pressed(action_id: String):
@@ -135,8 +136,7 @@ func _show_resource(label: Label, title: String, spent: bool):
 func _detail_for(action_id: String) -> String:
 	match action_id:
 		CombatController.ACTION_ATTACK:
-			var profile: Dictionary = CombatManager.get_attack_profile(combatant)
-			return "%s\n%s" % [profile.weapon_name, _damage_text(profile)]
+			return _attack_detail()
 		CombatController.ACTION_CAST:
 			var pending: String = SpellManager.get_pending_cast(combatant)
 			if pending != "":
@@ -154,29 +154,36 @@ func _detail_for(action_id: String) -> String:
 			return "Space"
 	return ""
 
-func _damage_text(profile: Dictionary) -> String:
-	"""'1d8+2 slashing' for a weapon, '3 bludgeoning' for an unarmed strike"""
-	var modifier: int = int(profile.ability_modifier)
-	var amount: String = str(profile.damage_dice)
-	if amount == "":
-		amount = str(max(1, int(profile.flat_damage) + modifier))
-	elif modifier > 0:
-		amount += "+%d" % modifier
-	elif modifier < 0:
-		amount += str(modifier)
-	return "%s %s" % [amount, str(profile.damage_type)]
+func _attack_detail() -> String:
+	"""What Attack is made with. One weapon: its name, then its damage. A melee
+	weapon and a ranged one: a line each, the melee one first, as
+	'Longsword 1d8+2'."""
+	var melee: Dictionary = CombatManager.get_melee_profile(combatant)
+	var ranged: Dictionary = CombatManager.get_ranged_profile(combatant)
+	if ranged.is_empty() or melee.weapon == null:
+		var profile: Dictionary = CombatManager.get_attack_profile(combatant)
+		return "%s\n%s" % [profile.weapon_name, CombatManager.get_damage_text(profile)]
+	return "%s\n%s" % [_weapon_line(melee), _weapon_line(ranged)]
+
+func _weapon_line(profile: Dictionary) -> String:
+	"""'Light Crossbow 1d8+1': the kind of weapon and its damage, short enough
+	for one line of a button"""
+	var weapon: ItemData = profile.weapon
+	var kind: String = weapon.weapon_type.capitalize() if weapon.weapon_type != "" else str(profile.weapon_name)
+	return "%s %s" % [kind, CombatManager.get_damage_text(profile).get_slice(" ", 0)]
 
 func _reason_for(action_id: String) -> String:
 	"""Why the action cannot be taken right now, or "" when it can"""
-	if action_id == CombatController.ACTION_ATTACK:
-		# What is wrong with the weapon is said whether or not it is our turn
-		var profile: Dictionary = CombatManager.get_attack_profile(combatant)
-		if profile.is_ranged:
-			return "Ranged attacks cannot be made yet"
-		if not profile.usable:
-			return "Needs both hands free"
 	var check: Dictionary = controller.check_action(combatant, action_id)
 	return "" if check.ok else str(check.reason)
+
+func _note_for(action_id: String) -> String:
+	"""Something to know about an action that can be taken: for Attack, a
+	ranged weapon that cannot be fired as things stand"""
+	if action_id != CombatController.ACTION_ATTACK:
+		return ""
+	var ranged: Dictionary = CombatManager.get_ranged_profile(combatant)
+	return str(ranged.reason) if not ranged.is_empty() and not ranged.usable else ""
 
 func _hint_text() -> String:
 	"""What the next click will do, while an attack or a spell is being aimed"""
@@ -184,5 +191,5 @@ func _hint_text() -> String:
 	if pending != "":
 		return "%s readied: click its target. Esc cancels." % str(SpellDatabase.get_spell(pending).get("display_name", pending))
 	if combatant.is_aiming_attack():
-		return "Attack: click an adjacent enemy. Esc cancels."
+		return "Attack: click an enemy. Esc cancels."
 	return ""
