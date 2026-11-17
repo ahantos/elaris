@@ -4,6 +4,36 @@ All notable changes and session notes documented here.
 
 ---
 
+## [Session - November 17, 2026] - Phase 2, step 3: Ranged Attacks and Targeting
+
+### Added
+- Attack shoots the ranged weapon a character carries at an enemy beyond reach,
+  with Dexterity for the roll and the damage. An adjacent enemy still gets the
+  main-hand weapon. Enemies and companions can shoot through the same request; none
+  is given a ranged weapon yet.
+- Range, line of sight and cover: a plain attack up to normal range, disadvantage
+  beyond it, refused beyond the maximum or with no line of sight. Cover raises the
+  target's armour class. Shooting with an enemy adjacent is at disadvantage.
+- While an attack is aimed, every attackable enemy is marked, a line runs to the
+  hovered one, and a readout shows the weapon, the chance to hit, the damage and the
+  reasons for any advantage or disadvantage, or why the target cannot be attacked.
+  The chance comes from `CombatManager.get_hit_chance`, which rolls nothing.
+- A ranged attack shows an arrow in flight.
+
+### Changed
+- The Attack button lists both weapons when a character carries a melee and a
+  ranged one.
+- A bow or crossbow cannot be fired with a shield in the off hand; the button says
+  why.
+- A click on an enemy that cannot be attacked gives the reason and keeps Attack
+  selected.
+- A hostile attacked from outside the fight joins it.
+
+### Checks
+- 326 smoke checks, up from 283, and 31 screenshots.
+
+---
+
 ## [Session - November 17, 2026] - Phase 2, step 2: Turn Resources and the Action Bar
 
 ### Added
