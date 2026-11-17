@@ -514,9 +514,24 @@ should matter what it is made of.
 - Materials are his lists. The count rises heavily from today's 20.
 - The twelve named damage states and their separate repair methods get simplified.
   How far is open.
-- Open: what makes gear lose durability, including his combat-length rule.
-- Open: ageing. He sees the appeal of weapons being retired but expects players to
-  find it frustrating.
+- Notch counts agreed: his durability score divided by about 8 (copper 2, bronze 3,
+  steel 4, Damascus steel 5, mythril 6, adamantite 8). Masterforged and each plus
+  of magic add one.
+- Wear events he accepts as fair: a crit against you takes a notch from the shield,
+  otherwise the armour (two from a two-handed or bludgeoning weapon); a natural 1
+  takes one from your weapon; your crit takes one from the enemy's shield or
+  armour; sunder, acid and rust take notches directly; long fights wear gear (the
+  proposal was a d6 roll per piece per round from round 4).
+- His reservation: a short fight with no crit and no natural 1 costs nothing, which
+  he finds a bit unrealistic. A small fixed loss per fight is to be worked out.
+- Repair cost: repairing a piece with more notches should cost more, but he expects
+  a system like this to "eat all the gold all the time". A better material must
+  give an advantage, and whether being more durable is advantage enough is open.
+- Ageing, if it exists: his idea is a counter separate from the durability notches
+  that rises the more a piece is repaired, with the maximum notches falling over
+  time until a full repair is no longer possible. A full reforge would clear it,
+  but the piece becomes a new item. He sees the appeal of weapons being retired
+  and expects players to find it frustrating; not decided.
 - Resting rules are needed, as a separate discussion.
 
 #### Provisional sketch (to be replaced by the homebrew system)
