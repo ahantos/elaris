@@ -467,7 +467,7 @@ Made by Ákos on 2026-11-16.
 | 5 | Level range | 1–5 for now, with expansion planned (below). Nothing may hard-code 5 |
 | 6 | Art | Own art eventually, drawn at 32×32. Until then the Dungeon Crawl Stone Soup CC0 tiles as placeholders, wired so own art drops in by replacing files (below) |
 | 7 | Names and lore | Deferred. The code's names stay until decided: Brackenford / Dawnwatch / Mournstead and Merchants' Guild / Order of the Dawn / Gravewardens. The design doc says Ironhold / Silverwood / Blackstone Keep and Royal Guard / Thieves Guild / Order of Light, and refers to a campaign setting that is not written down in the repo |
-| 8 | Multiplayer | Shelved for now. Every system assumes one local player |
+| 8 | Multiplayer | Co-op is wanted. Ákos, 2026-11-17: "multiplayer does come in here. i want coop", reversing the decision of the day before to shelve it. It grew out of his doubt that one player wants to control four characters: in co-op each player runs one party member. Not designed. Open: online or same screen, how many players, and when it is built. Every system today assumes one local player; new code must not deepen that assumption |
 
 ### Durability
 

@@ -107,8 +107,9 @@ homebrew system and is in section 8 of the plan: notches per material, wear mark
 the length of fights, hardness, debuffs and buffs, repair by kit or smith, ageing.
 The numbers are dials for the Phase 2 simulator. Two rules of his to keep: a state
 never touches wear marks, and durability adds no chore beyond repair. Levels 1-5 first. Art is
-32x32, own art later, DCSS CC0 tiles as placeholders. Multiplayer is shelved. Names
-and lore are deferred. Details in section 8 of the plan.
+32x32, own art later, DCSS CC0 tiles as placeholders. Co-op multiplayer is wanted
+(decided 2026-11-17, not designed yet): new code must not deepen the assumption of
+one local player. Names and lore are deferred. Details in section 8 of the plan.
 
 ## Working agreement
 - A branch per phase, committed as the work proceeds (agreed 2026-11-16), with
