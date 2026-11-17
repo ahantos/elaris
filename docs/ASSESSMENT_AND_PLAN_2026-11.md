@@ -878,12 +878,16 @@ Under discussion since 2026-11-17. Nothing is decided.
   reference alone, in six rounds of render, look and fix, is the first figure Ákos
   responded to strongly: "oh my god that looks amazing" and "i actually love the
   art style of the barbarian". It is saved as `art_work/barbarian/a1.px.js`, with
-  its review sheet beside it. It is the favourite so far, not a decision: "i
-  still wanna look at the other things, including the blocky version". What
+  its review sheet beside it. He then compared it with a chunkier, flatter
+  barbarian drawn reference-first (`art_work/barbarian/a2.px.js`) and chose:
+  "chunkier one is worse". So this rendered style is the game's style. What
   defines its look: a wide range from dark to light, hard shadows under overhangs, each material
   told apart by its contrast, six tones per material (contour, deep shadow,
   shadow, base, light, highlight), one shared blue-purple near-black, and light
   from above and slightly in front.
+- The first item picture in that style is a longsword, 32 by 96
+  (`art_work/items/longsword.px.js`). Ákos: "the sword is amazing", "it's stocky",
+  "this is a very solid base". A slimmer blade is being drawn.
 - What produced it, as opposed to the plain figures before: the theory applied
   deliberately; several rounds of looking at the rendered result on a review sheet
   (four sizes on two floor colours, a greyscale copy, a silhouette, a mirror, and
