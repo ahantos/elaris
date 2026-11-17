@@ -14,10 +14,11 @@ called `CURRENT_WORK.md` until Phase 1. The plan it tracks is in section 7 of
 | 1. Game shell and state | Done. Committed on `phase-1-game-shell`, which builds on Phase 0. Ákos has played it a little; no complaints given yet |
 | 2. Combat core | In progress on `phase-2-combat-core`. Go given 2026-11-17. Steps below |
 
-- Phases 0 and 1 were pushed to origin on 2026-11-17. Nothing is merged into
-  `main`; `main` is still the June commit. The durability design commits on
-  `phase-1-game-shell` after that push, and all of `phase-2-combat-core`, are
-  local only.
+- Everything through step 5 of Phase 2 is on origin: `phase-0-truthful-baseline`,
+  `phase-1-game-shell` and `phase-2-combat-core`, last pushed late on 2026-11-17
+  when Ákos said to. That was a go for that push, not a standing one. Nothing is
+  merged into `main`; `main` is still the June commit. The branch a step is being
+  built on stays local until the step is merged.
 - `tools\run_checks.bat` passes at the step 5 merge on `phase-2-combat-core`: 506
   smoke checks, no engine errors, 38 screenshots.
 - Standing agreement since 2026-11-16: commit as work proceeds, on the phase branch.
