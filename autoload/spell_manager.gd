@@ -91,6 +91,18 @@ func knows_spell(stats, spell_id: String) -> bool:
 	return spell_id in known_spells[stats]
 
 
+func is_caster(stats) -> bool:
+	"""True when the character has a spell to cast: it knows one already, or its
+	class is a spellcasting one and will be handed its list when first asked.
+	Unlike get_known_spells this grants nothing, so the HUD can ask every frame."""
+	if stats == null or not stats is CharacterStats:
+		return false
+	if known_spells.has(stats) and not (known_spells[stats] as Array).is_empty():
+		return true
+	var class_data = _get_class_data(stats.class_id)
+	return class_data != null and class_data.is_spellcaster
+
+
 func get_known_spells(stats) -> Array:
 	"""All spell_ids the character knows. Casters with NO spells yet are lazily
 	granted their class spell list first (grant_class_spells)."""

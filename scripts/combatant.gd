@@ -1,9 +1,11 @@
 # combatant.gd
 # The body every creature in a fight shares: the player, party companions and
 # enemies. It holds what the three have in common - a tile on the grid, stats, a
-# team, hit points, the damage flash, the HP bar, walkability and pathfinding.
+# team, the resources of a turn (movement, action, bonus action, reaction), hit
+# points, the damage flash, the HP bar, walkability and pathfinding.
 # What a combatant does with its turn stays in the subclass: input and path
 # preview in GridCharacter, enemy AI in Enemy, following and ally AI in Companion.
+# Whatever it decides, it asks the CombatController for it (request_action).
 extends CharacterBody2D
 class_name Combatant
 
@@ -21,6 +23,21 @@ var stats: CharacterStats
 var grid_position: Vector2i = Vector2i(0, 0)
 var target_position: Vector2 = Vector2.ZERO
 var is_moving: bool = false
+
+# The resources of a turn (5e). The CombatController hands them out when the
+# combatant's turn starts and spends them as it approves requests.
+# Movement is in tiles: what is left this turn, and what the turn was given in
+# all (speed, plus a Dash).
+var movement_left: int = 0
+var movement_granted: int = 0
+var action_used: bool = false
+var bonus_action_used: bool = false
+# One reaction a round; it comes back at the start of the combatant's own turn
+var reaction_used: bool = false
+# Disengage: for the rest of the turn its movement provokes no opportunity attack
+var disengaged: bool = false
+# Dodge: lasts until the start of its next turn (ask is_dodging())
+var dodging: bool = false
 
 # Death guard (prevents double death handling)
 var is_dying: bool = false
@@ -42,6 +59,7 @@ func _ready():
 
 	# CombatManager applies damage straight to stats; this keeps the visuals in step
 	EventBus.damage_dealt.connect(_on_damage_dealt_event)
+	EventBus.status_effect_applied.connect(_on_status_effect_applied_event)
 
 # ============================================================================
 # TEAM AND TURN
@@ -68,10 +86,12 @@ func take_turn():
 
 func on_combat_started():
 	"""The CombatController calls this on everyone who joins a fight"""
+	reset_turn_resources()
 	queue_redraw()
 
 func on_combat_ended():
 	"""The CombatController calls this on everyone who took part, when the fight ends"""
+	reset_turn_resources()
 	queue_redraw()
 
 func in_combat() -> bool:
@@ -87,6 +107,31 @@ func can_act() -> bool:
 	var combat = _get_combat()
 	return combat == null or not combat.active or combat.is_turn_of(self)
 
+func request_action(action_id: String, params: Dictionary = {}) -> Dictionary:
+	"""Ask the turn authority to let this combatant do something: attack, move,
+	dash, cast, end its turn (CombatController.request_action has the list).
+	Returns the authority's answer, {ok, reason, ...}. Input and AI both act
+	through this and never change the game themselves."""
+	var combat = _get_combat()
+	if combat == null:
+		return {"ok": false, "action": action_id, "reason": "There is no turn authority"}
+	return combat.request_action(self, action_id, params)
+
+func choose_action(_action_id: String):
+	"""An order from the action bar or its number key. Only a combatant that
+	takes input acts on it (GridCharacter)."""
+	pass
+
+func is_aiming_attack() -> bool:
+	"""True while the player is picking a target for this combatant's attack"""
+	return false
+
+func get_display_name() -> String:
+	"""What to call this combatant on screen"""
+	if stats != null and stats.character_name != "":
+		return stats.character_name
+	return str(name)
+
 func _get_combat():
 	"""The world's CombatController, or null when there is none"""
 	var world = _get_world()
@@ -97,6 +142,96 @@ func _get_world():
 	if not is_instance_valid(world_node):
 		world_node = get_tree().root.get_node_or_null("World")
 	return world_node
+
+# ============================================================================
+# TURN RESOURCES
+# ============================================================================
+
+func get_turn_speed() -> int:
+	"""Tiles this combatant may move in a turn as things stand: its speed
+	(encumbrance included) changed by status effects, never below zero"""
+	if stats == null:
+		return 0
+	return max(0, stats.get_modified_movement_speed() + StatusEffectManager.get_speed_modifier_tiles(self))
+
+func is_taking_turns() -> bool:
+	"""True while this combatant's movement is counted out turn by turn: in a
+	fight (and, for the player, in the turn mode outside one)"""
+	return in_combat()
+
+func refresh_turn_resources():
+	"""The start of this combatant's turn: a turn's worth of movement, the
+	action, the bonus action and the reaction are all there again, and a Dodge
+	taken last turn is over."""
+	action_used = false
+	bonus_action_used = false
+	reaction_used = false
+	disengaged = false
+	dodging = false
+	movement_granted = get_turn_speed()
+	movement_left = movement_granted
+
+func expire_turn_resources():
+	"""The end of this combatant's turn: movement it did not use is gone and a
+	Disengage is over. The reaction and a Dodge last until its next turn."""
+	movement_left = 0
+	disengaged = false
+
+func reset_turn_resources():
+	"""A fight starting or ending: nothing spent, and no movement until a turn
+	hands some out"""
+	action_used = false
+	bonus_action_used = false
+	reaction_used = false
+	disengaged = false
+	dodging = false
+	movement_left = 0
+	movement_granted = 0
+
+func add_movement(tiles: int):
+	"""More movement this turn (a Dash)"""
+	movement_left += tiles
+	movement_granted += tiles
+
+func spend_movement(tiles: int = 1):
+	"""Movement used up by walking"""
+	movement_left = max(0, movement_left - tiles)
+
+func is_dodging() -> bool:
+	"""True while a Dodge protects this combatant: attack rolls against it have
+	disadvantage and it makes Dexterity saves with advantage"""
+	return dodging
+
+func _on_status_effect_applied_event(target, _effect_id: String, _duration: int):
+	"""Becoming incapacitated ends a Dodge"""
+	if target == self and dodging and StatusEffectManager.is_incapacitated(self):
+		dodging = false
+
+# ============================================================================
+# WEAPON IN HAND
+# ============================================================================
+
+func get_wielded_weapon() -> ItemData:
+	"""The weapon this combatant attacks with: what is in its main hand; with
+	that hand empty, the ranged weapon it carries; with neither, null, which
+	is an unarmed strike."""
+	if stats == null:
+		return null
+	for slot in ["main_hand", "ranged"]:
+		var item_data = InventoryManager.get_equipped_item(stats, slot).get("item_data")
+		if item_data is ItemData and item_data.is_weapon:
+			return item_data
+	return null
+
+func is_off_hand_free() -> bool:
+	"""True when nothing is held in the off hand, so a versatile weapon can be
+	swung with both"""
+	return stats == null or InventoryManager.get_equipped_item(stats, "off_hand").is_empty()
+
+func get_flank_partners() -> Array:
+	"""Tiles of the allies that can give this combatant's attacks flanking
+	advantage"""
+	return get_ally_positions()
 
 # ============================================================================
 # OTHER COMBATANTS
@@ -127,9 +262,10 @@ func get_ally_positions() -> Array:
 
 func _check_opportunity_attacks(from_tile: Vector2i, to_tile: Vector2i):
 	"""Stepping out of a hostile's melee reach (adjacent to from_tile but not to
-	to_tile) provokes its opportunity attack. CombatManager self-gates the
-	reaction (once per round, status effects, exact adjacency) - just call it."""
-	if not in_combat():
+	to_tile) provokes its opportunity attack, unless this combatant has
+	disengaged. CombatManager self-gates the reaction (one a round, status
+	effects, exact adjacency) - just call it."""
+	if not in_combat() or disengaged:
 		return
 	for hostile in get_hostiles():
 		var hostile_pos = hostile.get_grid_position()
@@ -166,6 +302,25 @@ func spawn_at(spawn_pos: Vector2i):
 	grid_position = spawn_pos
 	position = grid_to_world(grid_position)
 	target_position = position
+
+func teleport_to_grid(grid_pos: Vector2i) -> bool:
+	"""Stand on another tile at once (a spell). Refused when the tile is not free."""
+	if not is_walkable(grid_pos):
+		return false
+	is_moving = false
+	spawn_at(grid_pos)
+	return true
+
+func follow_path(_tiles: Array):
+	"""Start walking a path the CombatController has approved: tiles from the
+	one the combatant stands on to where it is going. The subclass's own
+	movement code does the walking; each tile it reaches while taking turns
+	costs one tile of movement (spend_movement)."""
+	pass
+
+func on_tile_entered():
+	"""Called when the combatant arrives on a tile by other means than walking"""
+	pass
 
 func is_walkable(grid_pos: Vector2i) -> bool:
 	"""A floor or door tile inside the dungeon that no other combatant stands on"""

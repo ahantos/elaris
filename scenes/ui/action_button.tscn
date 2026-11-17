@@ -1,0 +1,68 @@
+[gd_scene load_steps=2 format=3]
+
+[ext_resource type="Script" path="res://ui/action_button.gd" id="1_script"]
+
+[node name="ActionButton" type="Button"]
+custom_minimum_size = Vector2(156, 112)
+focus_mode = 0
+toggle_mode = true
+script = ExtResource("1_script")
+
+[node name="Margin" type="MarginContainer" parent="."]
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+mouse_filter = 2
+theme_override_constants/margin_left = 8
+theme_override_constants/margin_top = 5
+theme_override_constants/margin_right = 8
+theme_override_constants/margin_bottom = 5
+
+[node name="Column" type="VBoxContainer" parent="Margin"]
+layout_mode = 2
+mouse_filter = 2
+theme_override_constants/separation = 0
+
+[node name="Header" type="HBoxContainer" parent="Margin/Column"]
+layout_mode = 2
+mouse_filter = 2
+theme_override_constants/separation = 7
+
+[node name="Key" type="Label" parent="Margin/Column/Header"]
+unique_name_in_owner = true
+layout_mode = 2
+theme_override_colors/font_color = Color(0.85, 0.75, 0.4, 1)
+theme_override_font_sizes/font_size = 17
+text = "1"
+
+[node name="Title" type="Label" parent="Margin/Column/Header"]
+unique_name_in_owner = true
+layout_mode = 2
+size_flags_horizontal = 3
+theme_override_font_sizes/font_size = 17
+text = "Action"
+clip_text = true
+
+[node name="Detail" type="Label" parent="Margin/Column"]
+unique_name_in_owner = true
+custom_minimum_size = Vector2(0, 38)
+layout_mode = 2
+theme_override_colors/font_color = Color(0.68, 0.7, 0.78, 1)
+theme_override_font_sizes/font_size = 13
+text = "detail"
+clip_text = true
+
+[node name="Reason" type="Label" parent="Margin/Column"]
+unique_name_in_owner = true
+custom_minimum_size = Vector2(0, 34)
+layout_mode = 2
+size_flags_vertical = 3
+theme_override_colors/font_color = Color(0.95, 0.62, 0.3, 1)
+theme_override_font_sizes/font_size = 12
+text = "reason"
+vertical_alignment = 2
+autowrap_mode = 3
+max_lines_visible = 2

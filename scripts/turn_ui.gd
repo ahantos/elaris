@@ -96,7 +96,7 @@ func update_text():
 		add_theme_color_override("font_color", Color(0.5, 0.8, 1.0))  # Blue
 	else:
 		# Player turn
-		var moves = player.get_moves_remaining()
+		var moves = player.movement_left
 		var turn = player.get_turn_number()
 
 		if moves <= 0:

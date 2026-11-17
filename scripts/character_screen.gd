@@ -734,9 +734,10 @@ func _on_inventory_slot_gui_input(event: InputEvent, index: int):
 				_use_inventory_item(index)
 
 func _use_inventory_item(index: int):
-	"""Right-click use: consumables via ItemDatabase, scrolls/wands via
-	SpellManager. Offensive scrolls/wands need an aimed combat target and are
-	refused here with a notification (no charge/scroll is consumed)."""
+	"""Right-click use of a potion, scroll or wand. The character whose sheet
+	this is asks the CombatController, which decides whether the item can be
+	used now (in a fight that takes the character's turn and its action) and
+	applies it. A refusal is shown with its reason and uses nothing up."""
 	if index >= InventoryManager.items.size():
 		return
 	var item = InventoryManager.items[index]
@@ -744,49 +745,26 @@ func _use_inventory_item(index: int):
 	if item_data == null:
 		return
 
-	var user = GameManager.player
-	if user == null or not is_instance_valid(user):
+	var user = _find_combatant(current_character)
+	if user == null:
 		return
 
-	# Scrolls and wands cast their embedded spell. This check comes BEFORE the
-	# consumable branch: scrolls are flagged consumable too, and use_consumable
-	# has no "cast_spell" case, so it used to delete the scroll without casting.
-	var item_id := str(item_data.item_id)
-	if item_id.begins_with("scroll_") or item_id.begins_with("wand_"):
-		var prefix := "scroll_" if item_id.begins_with("scroll_") else "wand_"
-		var spell: Dictionary = SpellDatabase.get_spell(item_id.substr(prefix.length()))
-		if spell.is_empty():
-			EventBus.ui_notification.emit("Nothing happens...", "warning")
-			return
+	var result: Dictionary = user.request_action(CombatController.ACTION_USE_ITEM, {"item": item})
+	if result.get("ok", false):
+		print("CharacterScreen: used ", item_data.item_name)
+		refresh_all()
+	elif str(result.get("reason", "")) != "":
+		EventBus.ui_notification.emit(str(result.get("reason", "")), "warning")
 
-		# Damage/point spells need an aimed target - can't be fired from this screen
-		# (passing a null target would resolve the spell on the caster)
-		var target_type := str(spell.get("target_type", "enemy"))
-		if target_type in ["enemy", "point"]:
-			EventBus.ui_notification.emit("That must be aimed at a target - use it in combat.", "warning")
-			return
-
-		var result: Dictionary
-		if prefix == "scroll_":
-			result = SpellManager.use_scroll(item, user, null)
-		else:
-			result = SpellManager.use_wand(item, user, null)
-
-		if result.get("ok", false):
-			print("CharacterScreen: used ", item_data.item_name)
-			refresh_all()
-		elif str(result.get("reason", "")) != "":
-			EventBus.ui_notification.emit(str(result.get("reason", "")), "warning")
-		return
-
-	# Consumables (potions, food, antidotes, elixirs)
-	if item_data.is_consumable:
-		if ItemDatabase.use_consumable(item, user):
-			print("CharacterScreen: used ", item_data.item_name)
-			refresh_all()
-		return
-
-	print("CharacterScreen: ", item_data.item_name, " has no use action")
+func _find_combatant(character: CharacterStats) -> Combatant:
+	"""The combatant in the world these stats belong to, or null"""
+	var world = GameManager.world
+	if character == null or world == null or not is_instance_valid(world):
+		return null
+	for combatant in world.get_combatants():
+		if combatant.stats == character:
+			return combatant
+	return null
 
 func _end_drag_at_mouse():
 	"""Route the drop to whichever slot is under the mouse cursor"""

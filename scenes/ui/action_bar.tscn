@@ -1,0 +1,110 @@
+[gd_scene load_steps=4 format=3]
+
+[ext_resource type="Script" path="res://ui/action_bar.gd" id="1_script"]
+[ext_resource type="Theme" path="res://ui/theme/elaris_theme.tres" id="2_theme"]
+[ext_resource type="PackedScene" path="res://scenes/ui/action_button.tscn" id="3_button"]
+
+[node name="ActionBar" type="Control"]
+layout_mode = 3
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+mouse_filter = 2
+theme = ExtResource("2_theme")
+script = ExtResource("1_script")
+
+[node name="Column" type="VBoxContainer" parent="."]
+layout_mode = 1
+anchors_preset = 5
+anchor_left = 0.5
+anchor_right = 0.5
+offset_left = -574.0
+offset_top = 24.0
+offset_right = 574.0
+offset_bottom = 210.0
+grow_horizontal = 2
+mouse_filter = 2
+theme_override_constants/separation = 8
+
+[node name="Strip" type="HBoxContainer" parent="Column"]
+unique_name_in_owner = true
+layout_mode = 2
+mouse_filter = 2
+theme_override_constants/separation = 30
+alignment = 1
+
+[node name="TurnLabel" type="Label" parent="Column/Strip"]
+unique_name_in_owner = true
+layout_mode = 2
+theme_override_colors/font_color = Color(0.85, 0.75, 0.4, 1)
+theme_override_font_sizes/font_size = 17
+text = "Your turn"
+
+[node name="MovementLabel" type="Label" parent="Column/Strip"]
+unique_name_in_owner = true
+layout_mode = 2
+theme_override_font_sizes/font_size = 17
+text = "Movement 6 / 6"
+
+[node name="ActionLabel" type="Label" parent="Column/Strip"]
+unique_name_in_owner = true
+layout_mode = 2
+theme_override_font_sizes/font_size = 17
+text = "Action ready"
+
+[node name="BonusLabel" type="Label" parent="Column/Strip"]
+unique_name_in_owner = true
+layout_mode = 2
+theme_override_font_sizes/font_size = 17
+text = "Bonus action ready"
+
+[node name="ReactionLabel" type="Label" parent="Column/Strip"]
+unique_name_in_owner = true
+layout_mode = 2
+theme_override_font_sizes/font_size = 17
+text = "Reaction ready"
+
+[node name="StateLabel" type="Label" parent="Column/Strip"]
+unique_name_in_owner = true
+layout_mode = 2
+theme_override_colors/font_color = Color(0.55, 0.8, 1, 1)
+theme_override_font_sizes/font_size = 17
+text = "Dodging"
+
+[node name="Buttons" type="HBoxContainer" parent="Column"]
+unique_name_in_owner = true
+layout_mode = 2
+mouse_filter = 2
+theme_override_constants/separation = 8
+alignment = 1
+
+[node name="Attack" parent="Column/Buttons" instance=ExtResource("3_button")]
+layout_mode = 2
+
+[node name="Cast" parent="Column/Buttons" instance=ExtResource("3_button")]
+layout_mode = 2
+
+[node name="UseItem" parent="Column/Buttons" instance=ExtResource("3_button")]
+layout_mode = 2
+
+[node name="Dash" parent="Column/Buttons" instance=ExtResource("3_button")]
+layout_mode = 2
+
+[node name="Disengage" parent="Column/Buttons" instance=ExtResource("3_button")]
+layout_mode = 2
+
+[node name="Dodge" parent="Column/Buttons" instance=ExtResource("3_button")]
+layout_mode = 2
+
+[node name="EndTurn" parent="Column/Buttons" instance=ExtResource("3_button")]
+layout_mode = 2
+
+[node name="Hint" type="Label" parent="Column"]
+unique_name_in_owner = true
+layout_mode = 2
+theme_override_colors/font_color = Color(1, 0.9, 0.3, 1)
+theme_override_font_sizes/font_size = 15
+text = "hint"
+horizontal_alignment = 1

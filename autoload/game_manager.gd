@@ -38,7 +38,7 @@ const SCENE_WORLD: String = "res://scenes/world.tscn"
 # UIManager goes first: closing an open dialogue panel ends the conversation,
 # which may advance a quest - that has to happen before the quest state is wiped.
 const STATEFUL_MANAGERS: Array = [
-	"UIManager", "DialogueManager", "CombatManager", "StatusEffectManager",
+	"UIManager", "DialogueManager", "StatusEffectManager",
 	"SpellManager", "InventoryManager", "CraftingManager", "QuestManager",
 	"FactionManager", "WorldEventManager", "ZoneManager", "CompanionManager",
 ]

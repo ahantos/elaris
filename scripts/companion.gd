@@ -1,8 +1,9 @@
 # companion.gd
 # A recruited companion in the dungeon: a party Combatant that follows the player
-# while exploring and fights by a simple AI. CompanionManager.create_companion_node()
-# builds the node in code; the World scene parents it and sets dungeon_generator
-# and player.
+# while exploring and fights by a simple AI. What the AI decides - a move, an
+# attack - it asks of the CombatController, like every other combatant.
+# CompanionManager.create_companion_node() builds the node in code; the World
+# scene parents it and sets dungeon_generator and player.
 extends Combatant
 class_name Companion
 
@@ -96,13 +97,19 @@ func _follow_player():
 	if CombatGrid.get_distance_tiles(grid_position, player_pos) <= 2:
 		return  # Close enough — stay put
 
-	var path = find_path(grid_position, _adjacent_tile_toward(player_pos))
-	if path.size() < 2:
+	var route = find_path(grid_position, _adjacent_tile_toward(player_pos))
+	if route.size() < 2:
 		return
+	request_action(CombatController.ACTION_MOVE, {"path": route})
 
-	_path = path
+
+func follow_path(tiles: Array):
+	"""Start walking an approved path (see Combatant.follow_path). A companion's
+	move provokes no opportunity attacks yet: nothing may hurt one until
+	companions have death rules."""
+	_path.assign(tiles)
 	_path_index = 1
-	target_position = grid_to_world(path[1])
+	target_position = grid_to_world(_path[1])
 	is_moving = true
 
 
@@ -111,7 +118,7 @@ func _follow_player():
 func take_turn():
 	"""
 	Companion turn: if adjacent to a living enemy → attack;
-	else move toward the nearest enemy.
+	else move toward the nearest enemy, as far as this turn's movement reaches.
 	"""
 	if is_moving or not is_alive():
 		return
@@ -122,41 +129,19 @@ func take_turn():
 
 	for enemy in enemies:
 		if CombatGrid.get_distance_tiles(grid_position, enemy.grid_position) <= 1:
-			_attack_enemy(enemy)
+			request_action(CombatController.ACTION_ATTACK, {"target": enemy})
 			return
 
 	# No adjacent enemy — head for the nearest
 	var nearest = _find_nearest(enemies)
-	if nearest == null:
+	if nearest == null or movement_left <= 0:
 		return
 
-	# A companion's move provokes no opportunity attacks yet: nothing may hurt
-	# one until companions have death rules
-	var path = find_path(grid_position, _adjacent_tile_toward(nearest.grid_position))
-	if path.size() >= 2:
-		grid_position = path[1]
-		target_position = grid_to_world(path[1])
-		_path = path
-		_path_index = 1
-		is_moving = true
-
-
-func _attack_enemy(enemy):
-	"""Roll and apply one attack against an enemy via CombatManager."""
-	if not is_instance_valid(enemy) or not enemy.stats or not stats:
-		return
-
-	var weapon = null  # Companions use unarmed / class default for now
-
-	var result = CombatManager.roll_attack(stats, enemy.stats, weapon)
-	if result.is_empty():
-		return
-	if result.get("hit", false):
-		var dmg: int = result.get("damage", 1)
-		CombatManager.apply_damage(enemy, dmg, CombatManager.DamageType.PHYSICAL, self, result.get("is_crit", false))
-		print("Companions: %s hits %s for %d damage" % [companion_id, enemy.name, dmg])
-	else:
-		print("Companions: %s missed %s" % [companion_id, enemy.name])
+	var route = find_path(grid_position, _adjacent_tile_toward(nearest.grid_position))
+	if route.size() > movement_left + 1:
+		route = route.slice(0, movement_left + 1)
+	if route.size() >= 2:
+		request_action(CombatController.ACTION_MOVE, {"path": route})
 
 
 func _find_nearest(others: Array):
@@ -210,7 +195,13 @@ func _physics_process(delta):
 		grid_position = _path[_path_index] if _path_index < _path.size() else grid_position
 		_path_index += 1
 
-		if _path_index < _path.size():
+		# In a fight each tile costs movement, and the walk stops when the
+		# movement or the turn runs out (a fight can start mid-stride)
+		var counted: bool = is_taking_turns()
+		if counted:
+			spend_movement()
+
+		if _path_index < _path.size() and (not counted or (movement_left > 0 and can_act())):
 			target_position = grid_to_world(_path[_path_index])
 		else:
 			is_moving = false

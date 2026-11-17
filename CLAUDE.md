@@ -51,17 +51,27 @@ a system as working because its manager runs; check that a player can reach it.
   is read-only and comes from the controller.
 - `scripts/combatant.gd` - `Combatant`, the base of every creature that fights: tile
   and grid conversion, stats, team, `is_hostile_to()`, `is_alive()`, `can_act()`,
-  walkability, the one A* pathfinder (`find_path`), HP bar and damage flash.
+  the resources of a turn (movement, action, bonus action, reaction), the weapon in
+  hand, walkability, the one A* pathfinder (`find_path`), HP bar and damage flash.
   `scripts/grid_character.gd` (player: input, path preview), `scripts/enemy.gd` (enemy
   AI) and `scripts/companion.gd` (follow, ally AI) extend it. Hostility is by team,
   never by "is it in `world.enemies`".
 - `scripts/combat_controller.gd` - `CombatController`, a Node under World and the one
-  authority for whose turn it is: starts a fight when a hostile is near the player,
-  rolls initiative for every combatant in it (companions included), hands out turns,
-  counts rounds, ends the fight when one side is left. Anything that acts in combat
-  asks it first (`is_turn_of`, or `Combatant.can_act()`). See contracts section 4.
+  authority for whose turn it is and what is done with it: starts a fight when a
+  hostile is near the player, rolls initiative for every combatant in it (companions
+  included), hands out turns and their resources, counts rounds, ends the fight when
+  one side is left. Attack, Cast, Use Item, Dash, Disengage, Dodge, a move and End
+  Turn are all `request_action(combatant, action_id, params)`: it checks the turn
+  and the cost, applies the action and returns the result. Player input, enemy AI
+  and companion AI all act through it. See contracts section 4.
+- `autoload/combat_manager.gd` - every die: `get_attack_profile()` (the weapon in
+  hand by 5e rules: ability, proficiency, versatile, unarmed), `make_attack()` (the
+  one weapon attack, for everyone), saving throws, opportunity attacks.
 - `scripts/initiativetracker.gd`, `scripts/turn_ui.gd` - display only; they show what
   the controller says and keep no turn state of their own.
+- `scripts/bottomui.gd` holds the bottom bar; the action bar in its middle is a scene
+  (`scenes/ui/action_bar.tscn`, `ui/action_bar.gd`, `ui/action_button.gd`). It shows
+  what `check_action()` answers and sends presses to `combatant.choose_action()`.
 - `ui/*.gd` - panels built in code and registered with `UIManager`, which owns
   exclusivity and pausing. `ui/notification_toasts.gd` draws `EventBus.ui_notification`.
 - `scripts/character_screen.gd`, `scripts/save_load_menu.gd` - older screens with their
@@ -86,6 +96,11 @@ a system as working because its manager runs; check that a player can reach it.
 - Save payloads are primitives only; items rebuild from ids.
 - Combat timers are pause-bound: `create_timer(t, false)`. Check `is_instance_valid`
   after every await.
+- Nothing is done with a turn except through `CombatController.request_action()`.
+  Input, UI and AI code ask; they do not roll dice (CombatManager does), spend an
+  action or move a combatant themselves. A button asks `check_action()` whether it is
+  available. Ask who controls a combatant (`is_player_controlled()`), never whether
+  it is "the player".
 - The node name "World" is load-bearing (cached lookups).
 - New content ids are checked by `tools/content_validator.gd`. A dangling reference
   fails the smoke test unless it is listed, with a reason, in `KNOWN_GAPS`.
@@ -100,8 +115,11 @@ a system as working because its manager runs; check that a player can reach it.
 | Key | Action |
 |---|---|
 | WASD / click | Move. Ctrl+click adds waypoints, right-click cancels |
-| 1 / 2 / 3 | Light / medium / heavy attack, then click an adjacent enemy |
-| Space | End turn |
+| 1 | Attack with the weapon in hand, then click an adjacent enemy (1 again puts it away) |
+| 2 | Cast: opens the spellbook; ready a spell, then click its target |
+| 3 | Use Item: opens the character sheet; right-click a potion, scroll or wand |
+| 4 / 5 / 6 | Dash / Disengage / Dodge |
+| 7 or Space | End turn |
 | T | Toggle turn mode outside combat |
 | I | Character sheet (drag to equip, right-click to use) |
 | B / C / J / O / P | Spellbook / crafting / quest log / world map / companions |
