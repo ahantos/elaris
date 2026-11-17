@@ -732,14 +732,15 @@ Agreed so far:
   setting, with their effects, would lose their place. To keep the bookkeeping
   small, a rest takes one of each automatically, and the player may pick a
   particular food or drink for its effect.
+- The game gets a real day and night clock ("we will definitely need a real day and
+  night clock"). His rules run on hours and days, so rests can use them as written,
+  and weather and travel will run on the same clock later.
 
 Open:
 
 - What causes exhaustion. His rules stack several causes (no food, no water, bad
   sleep, weather); the concern is a spiral. He wants to talk it through.
-- Time. His rules run on hours and days and the game has no clock. Either rests are
-  limited by supplies and safety, or the game gets a day and night clock, which
-  would also serve weather and travel. Asked, not answered.
+- Which phase the day and night clock is built in. It is not part of Phase 2.
 - Whether anything clears wear marks. Nothing does today.
 - Travel fatigue waits for the world map (Phase 4).
 - The drinks, food and other consumables sections of his document are unread.
