@@ -918,9 +918,11 @@ Under discussion since 2026-11-17. Nothing is decided.
     the swing as an Aseprite file. It does not change the quality of the drawing,
     only the workflow. It is the better container for hand fixes, layer switching,
     palette swaps and animation timing; `pxl` is better for placing and checking
-    pixels, because it has a lint and a text source that can be compared. So:
-    draw in `pxl`, export to Aseprite files for Ákos to edit by hand. Hand edits
-    made in Aseprite do not flow back into the text source.
+    pixels, because it has a lint and a text source that can be compared. Hand
+    edits made in Aseprite do not flow back into the text source. Ákos's verdict:
+    "aseprite didnt add shit from where i'm standing". So Aseprite is not part of
+    the pipeline. Art is drawn, checked and exported with `pxl` alone; an Aseprite
+    file is made only if he asks for one to edit by hand.
   - Generators and reference-first drawing gave a bolder pose but a plainer
     finish; monsters and effects were not tested.
   - Every exported image and animation is read back and compared with its source,
