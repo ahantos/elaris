@@ -840,6 +840,15 @@ Under discussion since 2026-11-17. Nothing is decided.
   mood and for big, detailed item pictures in inventory slots of different sizes.
   He finds Stoneshard's heads too big, so the figure is taller with a smaller head.
   Three test figures were drawn that day; no item pictures yet.
+- Facing, decided by Ákos on 2026-11-17: figures face left or right, never the
+  camera, as in Stoneshard ("the main problem is that stoneshard's stuff always
+  looks to one side, and we should do that too"). One drawing faces right and is
+  mirrored for left. His rule for which way: attacking something in front of you,
+  or directly above or below you, keeps your facing; attacking something behind
+  you turns you round. Facing while moving has not been discussed. A fourth test
+  figure was drawn this way, with the far arm behind the torso and the near arm in
+  front of it. This replaces the first line of this section's "figures drawn
+  facing the viewer".
 - Animation principle he proposed, and the one to use: the body is a few sections
   (head, torso, each arm, legs), each piece of gear belongs to one section, and
   animation moves the sections so the gear rides along. His other project
