@@ -88,7 +88,26 @@ var equipment_con_bonus: int = 0
 var equipment_int_bonus: int = 0
 var equipment_wis_bonus: int = 0
 var equipment_cha_bonus: int = 0
-var equipment_ac_bonus: int = 0
+var equipment_ac_bonus: int = 0  # magic that adds to armour class, from any slot (a ring of protection)
+
+# Armour class by 5e rules: the body armour sets a base and lets some of the
+# Dexterity modifier through; a shield and bonuses add to it. Nothing else worn
+# counts. apply_equipment_bonuses() fills these from what is worn and held.
+const UNARMORED_AC: int = 10
+# A wearer below the Strength requirement of its body armour loses this much speed
+const ARMOR_STRENGTH_SPEED_PENALTY: int = 10  # feet
+
+var armor_name: String = ""  # the body armour worn; "" when unarmoured
+var armor_base: int = UNARMORED_AC
+var armor_dex_limit: int = -1  # -1 all of the Dexterity modifier, 2 at most +2, 0 none
+var armor_item_bonus: int = 0  # the craftsmanship or magic bonus of the body armour itself
+var armor_strength_requirement: int = 0
+var armor_stealth_disadvantage: bool = false
+var shield_name: String = ""  # the shield held; "" for none
+var shield_bonus: int = 0  # what the shield adds
+var shield_item_bonus: int = 0  # the craftsmanship or magic bonus of the shield itself
+# Body armour and shield worn without the proficiency for them, by name
+var untrained_armor: Array[String] = []
 
 # Temporary modifiers (buffs/debuffs)
 var temp_modifiers: Dictionary = {}  # {"bless": 1d4, "haste": +2_ac, etc}
@@ -151,12 +170,15 @@ func get_modifier_for_stat(stat: String) -> int:
 const FEET_PER_TILE: int = 5
 
 func get_modified_speed_feet() -> int:
-	"""Speed in FEET with the encumbrance penalty applied. movement_speed is always
-	stored in feet (30 = 6 tiles); the penalty is in feet too (-10 / -20) and only
-	applies to characters who carry the party inventory."""
+	"""Speed in FEET with the penalties applied. movement_speed is always stored
+	in feet (30 = 6 tiles). Encumbrance takes 10 or 20 feet from characters who
+	carry the party inventory; body armour takes 10 from a wearer below its
+	Strength requirement."""
 	var feet = movement_speed
 	if InventoryManager.is_party_member(self):
 		feet += InventoryManager.get_encumbrance_speed_penalty()
+	if is_slowed_by_armor():
+		feet -= ARMOR_STRENGTH_SPEED_PENALTY
 	return max(0, feet)
 
 func get_modified_movement_speed() -> int:
@@ -184,8 +206,10 @@ func recalculate_derived_stats():
 	max_hp = max(1, hit_die_sides + get_con_modifier() + (level - 1) * (hp_per_level + get_con_modifier()))
 	current_hp = mini(current_hp, max_hp)  # Don't exceed max
 
-	# AC (10 + DEX modifier + equipment)
-	armor_class = 10 + get_dex_modifier() + equipment_ac_bonus
+	# Armour class: body armour, Dexterity as the armour allows, shield, bonuses
+	armor_class = 0
+	for part in get_armor_class_breakdown():
+		armor_class += int(part.value)
 
 	# Initiative
 	initiative_bonus = get_dex_modifier()
@@ -210,8 +234,66 @@ func get_spellcasting_ability() -> String:
 			return class_data.spellcasting_ability
 	return "int"
 
+func get_armor_class_breakdown() -> Array:
+	"""How the armour class is made up, in the order it is added: [{label,
+	value}]. The base the body armour sets (10 unarmoured), the Dexterity
+	modifier as far as the armour lets it through (no entry under heavy armour),
+	the craftsmanship or magic bonus of the armour, the shield and its bonus,
+	and magic worn elsewhere. Status effects and cover are added at the moment
+	of an attack, not here."""
+	var parts: Array = [{"label": armor_name if armor_name != "" else "Unarmoured", "value": armor_base}]
+	if armor_dex_limit != 0:
+		var dexterity: int = get_dex_modifier()
+		var label: String = "Dexterity"
+		if armor_dex_limit > 0:
+			label = "Dexterity (at most +%d)" % armor_dex_limit
+			dexterity = mini(dexterity, armor_dex_limit)
+		parts.append({"label": label, "value": dexterity})
+	if armor_item_bonus > 0:
+		parts.append({"label": "Armour bonus", "value": armor_item_bonus})
+	if shield_name != "":
+		parts.append({"label": shield_name, "value": shield_bonus})
+		if shield_item_bonus > 0:
+			parts.append({"label": "Shield bonus", "value": shield_item_bonus})
+	if equipment_ac_bonus != 0:
+		parts.append({"label": "Magic", "value": equipment_ac_bonus})
+	return parts
+
+func is_slowed_by_armor() -> bool:
+	"""True when the body armour worn asks for more Strength than the wearer has"""
+	return armor_strength_requirement > strength + equipment_str_bonus
+
+func wears_untrained_armor() -> bool:
+	"""True when the character wears body armour or holds a shield its class is
+	not proficient with: disadvantage on attack rolls, and no spellcasting"""
+	return not untrained_armor.is_empty()
+
+func is_proficient_with_armor(item: ItemData) -> bool:
+	"""Does this character know how to wear the piece? Body armour asks for the
+	proficiency of its category ("light", "medium", "heavy") and a shield for
+	"shields"; nothing else worn asks for any. Proficiency comes from the class
+	data and from what the character has picked up besides. A creature with no
+	class wears what its stat block gives it."""
+	if item == null or class_id == "":
+		return true
+	var needed: String = ""
+	if item.is_body_armor():
+		needed = item.armor_type
+	elif item.is_shield():
+		needed = "shields"
+	else:
+		return true
+	if armor_proficiencies.has(needed):
+		return true
+	var class_data = ClassDatabase.get_class_data(class_id)
+	return class_data != null and class_data.is_proficient_with_armor(needed)
+
 func apply_equipment_bonuses(equipped_items: Array):
-	"""Apply stat bonuses from all equipped items"""
+	"""Work out what the equipment in use gives: ability bonuses, and the parts
+	of the armour class. equipped_items is everything worn and the weapon set in
+	hand (InventoryManager.recalculate_character_stats). Only the body armour and
+	the shield give armour class, besides magic that says so in its stat_bonuses;
+	each of the two adds the higher of its craftsmanship and its magic bonus."""
 	# Reset equipment bonuses
 	equipment_str_bonus = 0
 	equipment_dex_bonus = 0
@@ -220,6 +302,16 @@ func apply_equipment_bonuses(equipped_items: Array):
 	equipment_wis_bonus = 0
 	equipment_cha_bonus = 0
 	equipment_ac_bonus = 0
+	armor_name = ""
+	armor_base = UNARMORED_AC
+	armor_dex_limit = -1
+	armor_item_bonus = 0
+	armor_strength_requirement = 0
+	armor_stealth_disadvantage = false
+	shield_name = ""
+	shield_bonus = 0
+	shield_item_bonus = 0
+	untrained_armor.clear()
 
 	# Sum up bonuses from all equipped items
 	for item_instance in equipped_items:
@@ -238,14 +330,33 @@ func apply_equipment_bonuses(equipped_items: Array):
 		if item_data == null:
 			continue
 
-		# Armor AC bonus (ItemData always declares armor_class_bonus; default 0)
-		if "armor_class_bonus" in item_data and item_data.armor_class_bonus > 0:
-			equipment_ac_bonus += item_data.armor_class_bonus
+		# The bonus this one piece carries: the higher of craftsmanship and magic
+		var item_bonus: int = 0
+		if item_instance is Dictionary:
+			item_bonus = maxi(0, maxi(int(item_instance.get("quality_modifier", 0)), int(item_instance.get("magic_modifier", 0))))
+
+		if item_data is ItemData and item_data.is_body_armor():
+			# One body armour is worn; should two ever be passed, the better counts
+			if armor_name == "" or item_data.armor_base + item_bonus > armor_base + armor_item_bonus:
+				armor_name = item_data.item_name
+				armor_base = item_data.armor_base
+				armor_dex_limit = item_data.dex_bonus_limit
+				armor_item_bonus = item_bonus
+				armor_strength_requirement = item_data.strength_requirement
+				armor_stealth_disadvantage = item_data.stealth_disadvantage
+		elif item_data is ItemData and item_data.is_shield():
+			if shield_name == "" or item_data.armor_class_bonus + item_bonus > shield_bonus + shield_item_bonus:
+				shield_name = item_data.item_name
+				shield_bonus = item_data.armor_class_bonus
+				shield_item_bonus = item_bonus
+		if item_data is ItemData and not is_proficient_with_armor(item_data):
+			untrained_armor.append(item_data.item_name)
 
 		# Stat bonuses from magic items (ItemData always declares stat_bonuses; default {})
 		if "stat_bonuses" in item_data:
 			for stat in item_data.stat_bonuses:
 				match stat:
+					"ac": equipment_ac_bonus += item_data.stat_bonuses[stat]
 					"str": equipment_str_bonus += item_data.stat_bonuses[stat]
 					"dex": equipment_dex_bonus += item_data.stat_bonuses[stat]
 					"con": equipment_con_bonus += item_data.stat_bonuses[stat]
@@ -476,6 +587,9 @@ func make_skill_check_detailed(skill: String, dc: int, advantage: bool = false, 
 
 	# Encumbrance gives disadvantage on physical (STR/DEX/CON) checks, matching saves/attacks
 	if stat in ["str", "dex", "con"] and InventoryManager.has_disadvantage_on_physical_rolls():
+		disadvantage = true
+	# Noisy body armour (scale mail, chain mail, plate)
+	if skill_id == "stealth" and armor_stealth_disadvantage:
 		disadvantage = true
 
 	var modifier = get_modifier_for_stat(stat)

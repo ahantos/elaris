@@ -8,6 +8,8 @@ extends Node
 #   entries: Array of:
 #     { "item_id": String OR "category": String("weapon"/"armor"/"material"/"consumable"),
 #       "weight": float, "count_min": int, "count_max": int }
+#     A category entry rolls one item of that category in a material that can be
+#     obtained (ItemDatabase.get_random_item_by_type); a dearer material is rarer.
 #   gold_min: int
 #   gold_max: int
 #   gold_level_scale: float  (extra gold per enemy level)
@@ -31,7 +33,7 @@ func _build_tables():
 		"entries": [
 			{"item_id": "dagger",               "weight": 20, "count_min": 1, "count_max": 1},
 			{"item_id": "shortbow",             "weight": 10, "count_min": 1, "count_max": 1},
-			{"item_id": "material_hide",        "weight": 25, "count_min": 1, "count_max": 3},
+			{"item_id": "material_pigskin",     "weight": 25, "count_min": 1, "count_max": 3},
 			{"item_id": "material_oak",         "weight": 15, "count_min": 1, "count_max": 2},
 			{"item_id": "potion_healing_minor", "weight": 10, "count_min": 1, "count_max": 1},
 			{"category": "material",            "weight": 20, "count_min": 1, "count_max": 1},
@@ -47,7 +49,7 @@ func _build_tables():
 			{"item_id": "longsword",            "weight": 15, "count_min": 1, "count_max": 1},
 			{"item_id": "shortbow",             "weight": 10, "count_min": 1, "count_max": 1},
 			{"item_id": "chain_mail",           "weight": 10, "count_min": 1, "count_max": 1},
-			{"item_id": "material_iron",        "weight": 20, "count_min": 1, "count_max": 2},
+			{"item_id": "material_wrought_iron","weight": 20, "count_min": 1, "count_max": 2},
 			{"item_id": "material_bronze",      "weight": 15, "count_min": 1, "count_max": 3},
 			{"item_id": "antidote",             "weight": 5,  "count_min": 1, "count_max": 1},
 			{"category": "weapon",              "weight": 25, "count_min": 1, "count_max": 1},
@@ -65,8 +67,8 @@ func _build_tables():
 			{"item_id": "potion_healing_minor", "weight": 20, "count_min": 1, "count_max": 2},
 			{"item_id": "potion_healing",       "weight": 10, "count_min": 1, "count_max": 1},
 			{"item_id": "thieves_tools",        "weight": 8,  "count_min": 1, "count_max": 1},
-			{"item_id": "material_leather",     "weight": 15, "count_min": 1, "count_max": 2},
-			{"item_id": "material_iron",        "weight": 7,  "count_min": 1, "count_max": 2},
+			{"item_id": "material_cowhide",     "weight": 15, "count_min": 1, "count_max": 2},
+			{"item_id": "material_wrought_iron","weight": 7,  "count_min": 1, "count_max": 2},
 		],
 		"gold_min": 5, "gold_max": 20,
 		"gold_level_scale": 1.5
@@ -76,10 +78,10 @@ func _build_tables():
 	loot_tables["wolf"] = {
 		"drop_chance": 0.55,
 		"entries": [
-			{"item_id": "material_hide",        "weight": 40, "count_min": 1, "count_max": 3},
-			{"item_id": "material_leather",     "weight": 20, "count_min": 1, "count_max": 2},
+			{"item_id": "material_pigskin",     "weight": 40, "count_min": 1, "count_max": 3},
+			{"item_id": "material_cowhide",     "weight": 20, "count_min": 1, "count_max": 2},
 			{"item_id": "cooked_meat",          "weight": 25, "count_min": 1, "count_max": 2},
-			{"item_id": "material_scaled_leather","weight": 15,"count_min": 1, "count_max": 1},
+			{"item_id": "material_wolfhide",    "weight": 15, "count_min": 1, "count_max": 1},
 		],
 		"gold_min": 0, "gold_max": 2,
 		"gold_level_scale": 0.2
@@ -123,28 +125,6 @@ func _get_table(enemy_type: String) -> Dictionary:
 	return loot_tables.get(enemy_type, loot_tables.get("default", {}))
 
 
-func _tier_for_level(enemy_level: int) -> MaterialData.Tier:
-	"""Map enemy level to likely material tier (higher level → higher tier chance)."""
-	# Roll a random value influenced by level
-	var tier_roll := randf()
-	# Scale thresholds based on level
-	var legendary_thresh := clampf((enemy_level - 12) * 0.05, 0.0, 0.10)
-	var epic_thresh      := clampf((enemy_level - 8)  * 0.05, 0.0, 0.20)
-	var rare_thresh      := clampf((enemy_level - 4)  * 0.08, 0.0, 0.35)
-	var uncommon_thresh  := clampf(enemy_level         * 0.08, 0.0, 0.50)
-
-	if tier_roll < legendary_thresh:
-		return MaterialData.Tier.LEGENDARY
-	elif tier_roll < legendary_thresh + epic_thresh:
-		return MaterialData.Tier.EPIC
-	elif tier_roll < legendary_thresh + epic_thresh + rare_thresh:
-		return MaterialData.Tier.RARE
-	elif tier_roll < legendary_thresh + epic_thresh + rare_thresh + uncommon_thresh:
-		return MaterialData.Tier.UNCOMMON
-	else:
-		return MaterialData.Tier.COMMON
-
-
 func _roll_entry(entry: Dictionary, enemy_level: int) -> Array:
 	"""Resolve one loot entry into item instances."""
 	var results: Array = []
@@ -165,8 +145,7 @@ func _roll_entry(entry: Dictionary, enemy_level: int) -> Array:
 			results.append(inst)
 
 	elif entry.has("category"):
-		var tier := _tier_for_level(enemy_level)
-		var item_data := ItemDatabase.get_random_item_by_type(entry["category"], tier)
+		var item_data := ItemDatabase.get_random_item_by_type(entry["category"])
 		if item_data:
 			var inst := ItemDatabase.create_item_instance(item_data.item_id, quality, magic)
 			if not inst.is_empty():

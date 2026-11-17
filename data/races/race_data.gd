@@ -55,7 +55,9 @@ enum Size {
 # Special abilities
 @export_group("Special Abilities")
 @export var special_abilities: Array[String] = []  # Descriptions of special abilities
-@export var resistance_types: Array[String] = []  # ["poison"] for Dwarves, ["charm", "sleep"] for Elves
+@export var resistance_types: Array[String] = []  # ["poison"] for Dwarves, ["charm", "sleep"] for Elves. Those that are damage types halve that damage (Combatant.get_resistances)
+@export var vulnerability_types: Array[String] = []  # damage types the race takes double damage from
+@export var immunity_types: Array[String] = []  # damage types the race takes no damage from
 @export var advantage_types: Array[String] = []  # ["poison_saves"] for Dwarves
 
 # Subraces (for future expansion)

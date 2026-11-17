@@ -142,11 +142,12 @@ func _add_art_sheet(world, art, manifest) -> Node2D:
 
 func _aim_ranged_shot(world, target):
 	"""The player's first turn of the fight: a few tiles from the enemy and in
-	its sight, the shield off so that the ranged weapon can be fired, Attack
-	picked, the pointer resting on the enemy; then one shot, for the arrow on
-	its way. The enemy is made to survive the shot, the action is handed back
-	and the shield goes back on: the rest of the tour is the fight it was."""
-	var inventory = root.get_node("InventoryManager")
+	its sight, with the melee set in hand - a shot of the bar offering the swap.
+	Then the swap to the set with the ranged weapon, as the request a player
+	makes, Attack picked and the pointer resting on the enemy; then one shot,
+	for the arrow on its way. The enemy is made to survive the shot, the action
+	is handed back each time and the first set goes back in hand: the rest of
+	the tour is the fight it was."""
 	var grid_script = load("res://scripts/combat_grid.gd")
 	var player = world.player
 	if not is_instance_valid(target) or not target.is_alive():
@@ -160,13 +161,13 @@ func _aim_ranged_shot(world, target):
 				moved = true
 		if moved:
 			break
-	if player.get_ranged_weapon() == null:
-		var bow: Dictionary = root.get_node("ItemDatabase").create_item_instance("shortbow")
-		inventory.add_item(bow)
-		inventory.equip_item(bow, player.stats, "ranged")
-	var shield: Dictionary = inventory.get_equipped_item(player.stats, "off_hand")
-	if not shield.is_empty():
-		inventory.unequip_item(player.stats, "off_hand")
+	await _wait(0.3)
+	await _shot("combat_out_of_reach")
+
+	var swapped: bool = world.combat.request_action(player, "swap_weapons").ok
+	await _wait(0.3)
+	await _shot("combat_swapped")
+	player.action_used = false
 	player.choose_action("attack")
 	# The tour's window has a real mouse somewhere: hold the pointer on the
 	# enemy for the picture instead
@@ -189,8 +190,9 @@ func _aim_ranged_shot(world, target):
 	target.queue_redraw()
 	player.action_used = false
 
-	if not shield.is_empty():
-		inventory.equip_item(shield, player.stats, "off_hand")
+	if swapped:
+		world.combat.request_action(player, "swap_weapons")
+		player.action_used = false
 	await _wait(0.2)
 
 func _remove_tour_saves():
@@ -348,7 +350,7 @@ func _run():
 
 	# Death
 	if is_instance_valid(player):
-		root.get_node("CombatManager").apply_damage(player, 9999)
+		root.get_node("CombatManager").deal_damage(null, player, 9999)
 		await _wait(0.6)
 		await _shot("game_over")
 

@@ -11,17 +11,20 @@ var elapsed: float = 0.0
 var is_critical: bool = false
 var is_heal: bool = false
 var is_miss: bool = false
+# What the target's nature did to the damage: "", "resisted", "vulnerable" or "immune"
+var response: String = ""
 var scale_factor: float = 1.0
 
 func _ready():
 	z_index = 1000  # Always on top
 
-func setup(p_damage: int, p_is_critical: bool = false, p_is_heal: bool = false, p_is_miss: bool = false):
+func setup(p_damage: int, p_is_critical: bool = false, p_is_heal: bool = false, p_is_miss: bool = false, p_response: String = ""):
 	"""Initialize the damage popup"""
 	damage = p_damage
 	is_critical = p_is_critical
 	is_heal = p_is_heal
 	is_miss = p_is_miss
+	response = p_response
 	
 	# Randomize horizontal drift slightly
 	velocity.x = randf_range(-30, 30)
@@ -85,7 +88,20 @@ func _draw():
 	else:
 		color = Color(1.0, 1.0, 1.0, alpha)  # White for normal damage
 		text = str(damage)
-	
+
+	# Damage the target's nature changed says so, in a colour of its own
+	if not is_miss and not is_heal and response != "":
+		match response:
+			"immune":
+				color = Color(0.7, 0.7, 0.75, alpha)
+				text = "IMMUNE"
+			"resisted":
+				color = Color(0.6, 0.75, 1.0, alpha)
+				text += " resisted"
+			"vulnerable":
+				color = Color(1.0, 0.85, 0.2, alpha)
+				text += " vulnerable"
+
 	# Font settings
 	var font = ThemeDB.fallback_font
 	var base_font_size = 20
@@ -127,12 +143,14 @@ func _draw():
 
 # Add these functions to both GridCharacter and Enemy classes:
 
-static func spawn_damage_popup_at(world: Node2D, world_pos: Vector2, damage: int, is_critical: bool = false):
-	"""Static helper to spawn a damage popup at a world position"""
+static func spawn_damage_popup_at(world: Node2D, world_pos: Vector2, damage: int, is_critical: bool = false, p_response: String = ""):
+	"""Static helper to spawn a damage popup at a world position. p_response is
+	what the target's nature did to the damage ("resisted", "vulnerable",
+	"immune"); the number says so."""
 	var popup = DamagePopup.new()
 	world.add_child(popup)
 	popup.global_position = world_pos
-	popup.setup(damage, is_critical, false, false)
+	popup.setup(damage, is_critical, false, false, p_response)
 
 static func spawn_heal_popup_at(world: Node2D, world_pos: Vector2, amount: int):
 	"""Static helper to spawn a healing popup at a world position"""

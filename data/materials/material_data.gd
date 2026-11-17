@@ -1,24 +1,25 @@
 # material_data.gd
-# Resource defining a crafting material (bronze, steel, leather, etc.)
+# What a weapon or a piece of armour is made of (bronze, steel, oak, cowhide).
+# A material sets how the item wears (durability score, notches, hardness), what
+# it costs (price multiplier) and one trait. It never changes damage, armour
+# class or any other number of the item: two longswords of different metals
+# hit alike.
+# The values are Ákos's material tables (plan, section 8, "Materials"); the
+# registry is ItemDatabase.load_materials().
 extends Resource
 class_name MaterialData
 
+# What the durability score is divided by to give the notch count, and the
+# fewest notches any material has
+const NOTCH_DIVISOR: float = 8.0
+const MIN_NOTCHES: int = 2
+
 # Material identity
-@export var material_id: String = ""  # Unique ID: "bronze", "steel", "mithril"
-@export var material_name: String = ""  # Display name: "Bronze", "Steel"
+@export var material_id: String = ""  # "bronze", "steel", "cowhide"
+@export var material_name: String = ""  # "Bronze", "Steel", "Cowhide"
 @export var description: String = ""
 
-# Material tier (affects rarity and base stats)
-enum Tier {
-	COMMON = 0,      # Bronze, Oak, Linen, Hide
-	UNCOMMON = 1,    # Iron, Ash, Cotton, Leather
-	RARE = 2,        # Steel, Yew, Silk, Scaled
-	EPIC = 3,        # Mithril, Ebony, Spidersilk, Wyvern
-	LEGENDARY = 4    # Adamantine, Starwood, Celestial, Dragon
-}
-@export var tier: Tier = Tier.COMMON
-
-# Material category
+# The kind of material. Repair scrap must be of the same kind as the piece.
 enum Category {
 	METAL,
 	WOOD,
@@ -29,38 +30,39 @@ enum Category {
 }
 @export var category: Category = Category.METAL
 
-# Durability properties
-@export var base_durability: int = 20  # Base durability for items made from this material
-@export var durability_multiplier: float = 1.0  # Multiplier for quality bonuses
+# Durability data (read by the durability rules; nothing wears yet)
+@export var durability_score: int = 16  # the score in the material tables
+@export var hardness: int = 1  # one scale for metal, wood, leather and cloth
+@export var notches: int = 2  # durability_score / 8, rounded half up, at least 2
+
+# What an item of this material costs, as a multiple of its base type's price
+@export var price_multiplier: float = 1.0
+
+# The material's trait ("rusts_easily", "silvered", "warm"), or "" for a plain
+# material. Data only: no trait has an effect yet.
+@export var trait_id: String = ""
+
+# Which stage of the game the material belongs to. Stage 1 can drop, be bought
+# and be crafted at levels 1 to 5. Stage 0 is defined - an item made of it loads
+# and works - but nothing hands it out.
+@export var stage: int = 0
 
 # Visual properties
-@export var color: Color = Color.WHITE  # Primary color for this material
-@export var color_secondary: Color = Color.GRAY  # Secondary/accent color
-@export var metallic: bool = false  # Is this a shiny metal?
-@export var texture_pattern: String = ""  # Reference to texture pattern (optional)
+@export var color: Color = Color.WHITE
+@export var metallic: bool = false
 
-# Economic properties
-@export var base_value_multiplier: float = 1.0  # Multiplier for item value
-@export var rarity_weight: float = 1.0  # Weight in loot tables (lower = rarer)
+static func notches_for(score: int) -> int:
+	"""The notch count a durability score gives: the score divided by 8, rounded
+	half up, never fewer than 2"""
+	return maxi(MIN_NOTCHES, int(floor(score / NOTCH_DIVISOR + 0.5)))
 
-# Crafting properties
-@export var weight_per_unit: float = 1.0  # Weight in pounds per material unit
-@export var units_per_item: int = 3  # How many units needed to craft typical item
+func is_obtainable() -> bool:
+	"""True for a material that loot, shops and recipes may hand out"""
+	return stage == 1
 
-# Special properties (optional)
-@export var damage_bonus: int = 0  # Extra damage for weapons
-@export var armor_bonus: int = 0  # Extra AC for armor
-@export var special_properties: Array[String] = []  # e.g., ["fire_resist", "lightweight"]
-
-func get_tier_name() -> String:
-	"""Get human-readable tier name"""
-	match tier:
-		Tier.COMMON: return "Common"
-		Tier.UNCOMMON: return "Uncommon"
-		Tier.RARE: return "Rare"
-		Tier.EPIC: return "Epic"
-		Tier.LEGENDARY: return "Legendary"
-	return "Unknown"
+func get_kind() -> String:
+	"""The material's kind in lower case: metal, wood, leather or cloth"""
+	return get_category_name().to_lower()
 
 func get_category_name() -> String:
 	"""Get human-readable category name"""
@@ -73,22 +75,6 @@ func get_category_name() -> String:
 		Category.EXOTIC: return "Exotic"
 	return "Unknown"
 
-func calculate_item_durability(base_item_durability: int, quality_modifier: int) -> int:
-	"""Calculate final durability for an item made from this material"""
-	var material_durability = base_durability
-	var quality_bonus = 1.0 + (quality_modifier * 0.15)  # +15% per quality level
-	return int(material_durability * quality_bonus * durability_multiplier)
-
-func calculate_item_value(base_item_value: int, quality_modifier: int, magic_modifier: int) -> int:
-	"""Calculate final value for an item made from this material"""
-	var value = float(base_item_value) * base_value_multiplier
-	
-	# Quality increases value
-	if quality_modifier > 0:
-		value *= (1.0 + quality_modifier * 0.5)  # +50% per quality level
-	
-	# Magic increases value exponentially
-	if magic_modifier > 0:
-		value *= pow(10, magic_modifier)  # ×10 per magic level
-	
-	return int(value)
+func get_trait_name() -> String:
+	"""The trait as the player reads it ("Resists corrosion"), or "" for none"""
+	return trait_id.capitalize() if trait_id != "" else ""

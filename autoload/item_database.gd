@@ -1,10 +1,41 @@
 # item_database.gd
-# AutoLoad singleton - manages all item and material definitions
+# AutoLoad singleton - every material and item definition.
+# A weapon or armour item is one base type (longsword, chain mail) made of one
+# material (steel, cowhide): the base sets what the item does, the material how
+# it wears and what it costs. Ids are "{material_id}_{base_id}".
 extends Node
 
 # Databases
 var materials: Dictionary = {}  # material_id -> MaterialData
 var items: Dictionary = {}  # item_id -> ItemData
+# Ids that are a copy of another item under a second id: alias id -> source id
+var alias_ids: Dictionary = {}
+
+# Material ids that were renamed when the material list was replaced. A save or
+# a piece of content that still uses the old id gets the new material, and so
+# the new item: get_material("iron") is wrought iron and get_item("iron_longsword")
+# is the wrought iron longsword.
+const MATERIAL_ALIASES: Dictionary = {
+	"iron": "wrought_iron",
+	"mithril": "mythril",
+	"adamantine": "adamantite",
+	"hide": "pigskin",
+	"leather": "cowhide",
+	"linen": "fine_linen",
+}
+
+# What a plain base id ("longsword", "jerkin") is made of, by the kind of
+# material the base takes. Class starting kits use plain ids.
+const DEFAULT_MATERIALS: Dictionary = {
+	"metal": "wrought_iron",
+	"wood": "oak",
+	"leather": "cowhide",
+	"cloth": "fine_linen",
+}
+
+const MATERIAL_ITEM_PREFIX: String = "material_"
+# Price of one unit of a crafting material at price multiplier 1
+const MATERIAL_ITEM_VALUE: float = 5.0
 
 func _ready():
 	print("ItemDatabase initializing...")
@@ -18,91 +49,78 @@ func _ready():
 # =====================================================================
 
 func load_materials():
-	"""Load all material definitions"""
+	"""Register every material. The stage-one rows are Ákos's tables (plan,
+	section 8): durability score, hardness, price multiplier and trait. The
+	notch count follows from the durability score (MaterialData.notches_for)."""
+	var metal := MaterialData.Category.METAL
+	var wood := MaterialData.Category.WOOD
+	var leather := MaterialData.Category.LEATHER
+	var cloth := MaterialData.Category.CLOTH
 
-	# ── METALS (5 tiers) ──────────────────────────────────────────────
-	_reg_mat("bronze",    "Bronze",    MaterialData.Category.METAL, MaterialData.Tier.COMMON,
-		20, Color(0.80, 0.50, 0.20), 1.0,    0, 0, true)
-	_reg_mat("iron",      "Iron",      MaterialData.Category.METAL, MaterialData.Tier.UNCOMMON,
-		40, Color(0.50, 0.50, 0.50), 2.0,    0, 0, true)
-	_reg_mat("steel",     "Steel",     MaterialData.Category.METAL, MaterialData.Tier.RARE,
-		70, Color(0.70, 0.70, 0.80), 5.0,    1, 1, true)
-	_reg_mat("mithril",   "Mithril",   MaterialData.Category.METAL, MaterialData.Tier.EPIC,
-		100, Color(0.80, 0.90, 1.00), 20.0,  2, 2, true)
-	_reg_mat("adamantine","Adamantine",MaterialData.Category.METAL, MaterialData.Tier.LEGENDARY,
-		150, Color(0.30, 0.10, 0.40), 100.0, 3, 3, true)
+	# ── STAGE ONE: drops, shops and recipes of levels 1 to 5 ──────────
+	#        id                name               kind     score hard price  trait                stage colour
+	_reg_mat("copper",         "Copper",          metal,   13, 3, 0.5,   "",                  1, Color(0.80, 0.45, 0.25))
+	_reg_mat("wrought_iron",   "Wrought Iron",    metal,   18, 3, 0.7,   "rusts_easily",      1, Color(0.42, 0.42, 0.45))
+	_reg_mat("bronze",         "Bronze",          metal,   22, 4, 0.8,   "resists_corrosion", 1, Color(0.80, 0.50, 0.20))
+	_reg_mat("steel",          "Steel",           metal,   30, 5, 1.0,   "",                  1, Color(0.70, 0.70, 0.80))
+	_reg_mat("silver",         "Silver",          metal,   22, 4, 2.0,   "silvered",          1, Color(0.85, 0.87, 0.90))
+	_reg_mat("damascus_steel", "Damascus Steel",  metal,   38, 6, 3.0,   "counts_as_magical", 1, Color(0.45, 0.50, 0.60))
 
-	# ── WOOD (5 tiers) ───────────────────────────────────────────────
-	_reg_mat("oak",      "Oak",      MaterialData.Category.WOOD, MaterialData.Tier.COMMON,
-		15, Color(0.55, 0.35, 0.15), 0.8,   0, 0, false)
-	_reg_mat("ash",      "Ash",      MaterialData.Category.WOOD, MaterialData.Tier.UNCOMMON,
-		28, Color(0.60, 0.45, 0.30), 1.5,   0, 0, false)
-	_reg_mat("yew",      "Yew",      MaterialData.Category.WOOD, MaterialData.Tier.RARE,
-		45, Color(0.40, 0.25, 0.10), 4.0,   1, 0, false)
-	_reg_mat("ebony",    "Ebony",    MaterialData.Category.WOOD, MaterialData.Tier.EPIC,
-		65, Color(0.10, 0.08, 0.08), 15.0,  2, 0, false)
-	_reg_mat("starwood", "Starwood", MaterialData.Category.WOOD, MaterialData.Tier.LEGENDARY,
-		90, Color(0.60, 0.60, 1.00), 80.0,  3, 1, false)
+	_reg_mat("pine",           "Pine",            wood,    15, 2, 0.4,   "",                  1, Color(0.80, 0.68, 0.45))
+	_reg_mat("oak",            "Oak",             wood,    19, 3, 0.7,   "",                  1, Color(0.55, 0.35, 0.15))
+	_reg_mat("ash",            "Ash",             wood,    19, 3, 0.7,   "resists_cracking",  1, Color(0.60, 0.45, 0.30))
+	_reg_mat("maple",          "Maple",           wood,    18, 2, 0.6,   "",                  1, Color(0.75, 0.55, 0.35))
+	_reg_mat("hickory",        "Hickory",         wood,    20, 4, 0.8,   "resists_cracking",  1, Color(0.50, 0.38, 0.25))
+	_reg_mat("ironwood",       "Ironwood",        wood,    30, 5, 5.0,   "",                  1, Color(0.30, 0.24, 0.20))
 
-	# ── LEATHER (5 tiers) ────────────────────────────────────────────
-	_reg_mat("hide",          "Hide",          MaterialData.Category.LEATHER, MaterialData.Tier.COMMON,
-		15, Color(0.60, 0.40, 0.20), 0.8,  0, 0, false)
-	_reg_mat("leather",       "Leather",       MaterialData.Category.LEATHER, MaterialData.Tier.UNCOMMON,
-		30, Color(0.50, 0.30, 0.20), 1.5,  0, 1, false)
-	_reg_mat("scaled_leather","Scaled Leather",MaterialData.Category.LEATHER, MaterialData.Tier.RARE,
-		50, Color(0.30, 0.50, 0.30), 4.0,  0, 1, false)
-	_reg_mat("wyvern_leather","Wyvern Leather",MaterialData.Category.LEATHER, MaterialData.Tier.EPIC,
-		75, Color(0.20, 0.45, 0.20), 18.0, 1, 2, false)
-	_reg_mat("dragon_leather","Dragon Leather",MaterialData.Category.LEATHER, MaterialData.Tier.LEGENDARY,
-		110, Color(0.60, 0.15, 0.10), 90.0,2, 3, false)
+	_reg_mat("pigskin",        "Pigskin",         leather, 10, 2, 0.3,   "",                  1, Color(0.80, 0.62, 0.50))
+	_reg_mat("deerskin",       "Deerskin",        leather, 14, 2, 0.5,   "quiet",             1, Color(0.70, 0.55, 0.38))
+	_reg_mat("cowhide",        "Cowhide",         leather, 15, 3, 1.0,   "",                  1, Color(0.50, 0.30, 0.20))
+	_reg_mat("boiled_leather", "Boiled Leather",  leather, 16, 3, 0.7,   "",                  1, Color(0.35, 0.22, 0.15))
+	_reg_mat("wolfhide",       "Wolfhide",        leather, 15, 3, 0.8,   "warm",              1, Color(0.55, 0.55, 0.60))
+	_reg_mat("bearhide",       "Bearhide",        leather, 18, 3, 0.9,   "warm",              1, Color(0.40, 0.28, 0.18))
 
-	# ── CLOTH (5 tiers) ──────────────────────────────────────────────
-	_reg_mat("linen",          "Linen",          MaterialData.Category.CLOTH, MaterialData.Tier.COMMON,
-		10, Color(0.90, 0.90, 0.80), 0.5,  0, 0, false)
-	_reg_mat("cotton",         "Cotton",         MaterialData.Category.CLOTH, MaterialData.Tier.UNCOMMON,
-		18, Color(0.95, 0.92, 0.85), 1.0,  0, 0, false)
-	_reg_mat("silk",           "Silk",           MaterialData.Category.CLOTH, MaterialData.Tier.RARE,
-		40, Color(1.00, 0.90, 0.90), 3.0,  0, 0, false)
-	_reg_mat("spidersilk",     "Spidersilk",     MaterialData.Category.CLOTH, MaterialData.Tier.EPIC,
-		60, Color(0.70, 0.70, 0.90), 14.0, 1, 1, false)
-	_reg_mat("celestial_cloth","Celestial Cloth",MaterialData.Category.CLOTH, MaterialData.Tier.LEGENDARY,
-		80, Color(0.90, 0.80, 1.00), 75.0, 2, 2, false)
+	_reg_mat("burlap",         "Burlap",          cloth,   6,  1, 0.16,  "noisy",             1, Color(0.70, 0.62, 0.45))
+	_reg_mat("roughspun_wool", "Roughspun Wool",  cloth,   8,  1, 0.48,  "warm",              1, Color(0.65, 0.60, 0.55))
+	_reg_mat("cotton",         "Cotton",          cloth,   9,  1, 0.6,   "soaks_water",       1, Color(0.95, 0.92, 0.85))
+	_reg_mat("wool",           "Wool",            cloth,   11, 2, 0.95,  "warm",              1, Color(0.88, 0.86, 0.80))
+	_reg_mat("fine_linen",     "Fine Linen",      cloth,   12, 2, 1.0,   "",                  1, Color(0.90, 0.90, 0.80))
+	_reg_mat("silk",           "Silk",            cloth,   15, 2, 12.74, "",                  1, Color(1.00, 0.90, 0.90))
+
+	# ── DEFINED, NOT HANDED OUT: nothing drops, sells or crafts these yet ─
+	_reg_mat("mythril",        "Mythril",         metal,   50, 6, 10.0,  "rustproof",         0, Color(0.80, 0.90, 1.00))
+	_reg_mat("adamantite",     "Adamantite",      metal,   60, 10, 10.0, "ignores_resistance", 0, Color(0.30, 0.10, 0.40))
+	# Materials of the old list with no equivalent in the new one. Items made of
+	# them still load; their numbers are placeholders until their stage comes.
+	_reg_mat("yew",            "Yew",             wood,    20, 3, 1.5,   "",                  0, Color(0.40, 0.25, 0.10))
+	_reg_mat("ebony",          "Ebony",           wood,    26, 4, 4.0,   "",                  0, Color(0.10, 0.08, 0.08))
+	_reg_mat("starwood",       "Starwood",        wood,    34, 5, 8.0,   "",                  0, Color(0.60, 0.60, 1.00))
+	_reg_mat("scaled_leather", "Scaled Leather",  leather, 20, 3, 2.0,   "",                  0, Color(0.30, 0.50, 0.30))
+	_reg_mat("wyvern_leather", "Wyvern Leather",  leather, 26, 4, 6.0,   "",                  0, Color(0.20, 0.45, 0.20))
+	_reg_mat("dragon_leather", "Dragon Leather",  leather, 34, 5, 10.0,  "",                  0, Color(0.60, 0.15, 0.10))
+	_reg_mat("spidersilk",     "Spidersilk",      cloth,   18, 2, 8.0,   "",                  0, Color(0.70, 0.70, 0.90))
+	_reg_mat("celestial_cloth","Celestial Cloth", cloth,   24, 3, 15.0,  "",                  0, Color(0.90, 0.80, 1.00))
 
 	print("ItemDatabase: Loaded ", materials.size(), " materials")
 
 
-func _reg_mat(id: String, name: String, category: MaterialData.Category,
-		tier: MaterialData.Tier, durability: int, color: Color,
-		value_mult: float, dmg_bonus: int, arm_bonus: int, metallic: bool):
-	"""Internal helper: create and register a material"""
+func _reg_mat(id: String, material_name: String, category: MaterialData.Category,
+		durability_score: int, hardness: int, price_multiplier: float,
+		trait_id: String, stage: int, color: Color):
+	"""Create and register one material"""
 	var mat := MaterialData.new()
 	mat.material_id = id
-	mat.material_name = name
+	mat.material_name = material_name
 	mat.category = category
-	mat.tier = tier
-	mat.base_durability = durability
+	mat.durability_score = durability_score
+	mat.hardness = hardness
+	mat.notches = MaterialData.notches_for(durability_score)
+	mat.price_multiplier = price_multiplier
+	mat.trait_id = trait_id
+	mat.stage = stage
 	mat.color = color
-	mat.base_value_multiplier = value_mult
-	mat.damage_bonus = dmg_bonus
-	mat.armor_bonus = arm_bonus
-	mat.metallic = metallic
+	mat.metallic = category == MaterialData.Category.METAL
 	materials[id] = mat
-
-
-func create_material(id: String, name: String, category: MaterialData.Category,
-		tier: MaterialData.Tier, durability: int, color: Color,
-		value_mult: float) -> MaterialData:
-	"""Public helper kept for backward compatibility"""
-	var mat := MaterialData.new()
-	mat.material_id = id
-	mat.material_name = name
-	mat.category = category
-	mat.tier = tier
-	mat.base_durability = durability
-	mat.color = color
-	mat.base_value_multiplier = value_mult
-	mat.metallic = (category == MaterialData.Category.METAL)
-	return mat
 
 
 func register_material(material: MaterialData):
@@ -111,24 +129,25 @@ func register_material(material: MaterialData):
 
 
 func get_material(material_id: String) -> MaterialData:
-	"""Get material by ID"""
-	return materials.get(material_id, null)
+	"""A material by id. A renamed id (MATERIAL_ALIASES) gives the material it
+	became."""
+	return materials.get(MATERIAL_ALIASES.get(material_id, material_id), null)
 
 
-func get_materials_by_tier(tier: MaterialData.Tier) -> Array:
-	"""Get all materials of a specific tier"""
+func get_materials_by_category(category: MaterialData.Category) -> Array:
+	"""Every material of one kind, in the order they were registered"""
 	var result = []
 	for mat in materials.values():
-		if mat.tier == tier:
+		if mat.category == category:
 			result.append(mat)
 	return result
 
 
-func get_materials_by_category(category: MaterialData.Category) -> Array:
-	"""Get all materials of a specific category"""
+func get_obtainable_materials() -> Array:
+	"""The materials loot, shops and recipes may hand out: stage one"""
 	var result = []
 	for mat in materials.values():
-		if mat.category == category:
+		if mat.is_obtainable():
 			result.append(mat)
 	return result
 
@@ -139,310 +158,252 @@ func get_materials_by_category(category: MaterialData.Category) -> Array:
 
 # Weapon base definitions, following the 5e SRD weapon table:
 # { id, name, cat ("simple" | "martial"), dice, dtype, 2h, ranged, rn, rm,
-#   weight, value, props, mats }
+#   weight, value, props, kind }
 # A weapon with the "versatile" property also gives "vdice": its damage dice
 # when it is held in both hands. "rn" and "rm" are a ranged weapon's normal and
 # maximum range in tiles of 5 feet (a shortbow's 80 and 320 feet are 16 and 64).
+# "kind" is the kind of material the weapon is made of; "value" is its price in
+# a material of price multiplier 1.
 const WEAPON_BASES := [
 	# ── MELEE ────────────────────────────────────────────────────────
 	{
 		"id": "dagger",        "name": "Dagger",        "cat": "simple",  "dice": "1d4",  "dtype": "piercing",
 		"2h": false, "ranged": false, "rn": 0, "rm": 0,
 		"weight": 1.0, "value": 20,
-		"props": ["finesse", "thrown"], "mats": ["bronze","iron","steel","mithril","adamantine"]
+		"props": ["finesse", "thrown"], "kind": "metal"
 	},
 	{
 		"id": "shortsword",    "name": "Shortsword",    "cat": "martial", "dice": "1d6",  "dtype": "piercing",
 		"2h": false, "ranged": false, "rn": 0, "rm": 0,
 		"weight": 2.0, "value": 40,
-		"props": ["finesse"], "mats": ["bronze","iron","steel","mithril","adamantine"]
+		"props": ["finesse"], "kind": "metal"
 	},
 	{
 		"id": "longsword",     "name": "Longsword",     "cat": "martial", "dice": "1d8",  "dtype": "slashing",
 		"2h": false, "ranged": false, "rn": 0, "rm": 0,
 		"weight": 3.0, "value": 60,
-		"props": ["versatile"], "vdice": "1d10", "mats": ["bronze","iron","steel","mithril","adamantine"]
+		"props": ["versatile"], "vdice": "1d10", "kind": "metal"
 	},
 	{
 		"id": "greatsword",    "name": "Greatsword",    "cat": "martial", "dice": "2d6",  "dtype": "slashing",
 		"2h": true,  "ranged": false, "rn": 0, "rm": 0,
 		"weight": 6.0, "value": 80,
-		"props": [], "mats": ["bronze","iron","steel","mithril","adamantine"]
+		"props": [], "kind": "metal"
 	},
 	{
 		"id": "handaxe",       "name": "Handaxe",       "cat": "simple",  "dice": "1d6",  "dtype": "slashing",
 		"2h": false, "ranged": false, "rn": 0, "rm": 0,
 		"weight": 2.0, "value": 30,
-		"props": ["thrown"], "mats": ["bronze","iron","steel","mithril","adamantine"]
+		"props": ["thrown"], "kind": "metal"
 	},
 	{
 		"id": "battleaxe",     "name": "Battleaxe",     "cat": "martial", "dice": "1d8",  "dtype": "slashing",
 		"2h": false, "ranged": false, "rn": 0, "rm": 0,
 		"weight": 4.0, "value": 60,
-		"props": ["versatile"], "vdice": "1d10", "mats": ["bronze","iron","steel","mithril","adamantine"]
+		"props": ["versatile"], "vdice": "1d10", "kind": "metal"
 	},
 	{
 		"id": "greataxe",      "name": "Greataxe",      "cat": "martial", "dice": "1d12", "dtype": "slashing",
 		"2h": true,  "ranged": false, "rn": 0, "rm": 0,
 		"weight": 7.0, "value": 90,
-		"props": [], "mats": ["bronze","iron","steel","mithril","adamantine"]
+		"props": [], "kind": "metal"
 	},
 	{
 		"id": "mace",          "name": "Mace",          "cat": "simple",  "dice": "1d6",  "dtype": "bludgeoning",
 		"2h": false, "ranged": false, "rn": 0, "rm": 0,
 		"weight": 4.0, "value": 50,
-		"props": [], "mats": ["bronze","iron","steel","mithril","adamantine"]
+		"props": [], "kind": "metal"
 	},
 	{
 		"id": "warhammer",     "name": "Warhammer",     "cat": "martial", "dice": "1d8",  "dtype": "bludgeoning",
 		"2h": false, "ranged": false, "rn": 0, "rm": 0,
 		"weight": 5.0, "value": 70,
-		"props": ["versatile"], "vdice": "1d10", "mats": ["bronze","iron","steel","mithril","adamantine"]
+		"props": ["versatile"], "vdice": "1d10", "kind": "metal"
 	},
 	{
 		"id": "spear",         "name": "Spear",         "cat": "simple",  "dice": "1d6",  "dtype": "piercing",
 		"2h": false, "ranged": false, "rn": 0, "rm": 0,
 		"weight": 3.0, "value": 30,
-		"props": ["thrown", "versatile"], "vdice": "1d8", "mats": ["bronze","iron","steel","mithril","adamantine"]
+		"props": ["thrown", "versatile"], "vdice": "1d8", "kind": "metal"
 	},
 	{
 		"id": "rapier",        "name": "Rapier",        "cat": "martial", "dice": "1d8",  "dtype": "piercing",
 		"2h": false, "ranged": false, "rn": 0, "rm": 0,
 		"weight": 2.0, "value": 55,
-		"props": ["finesse"], "mats": ["bronze","iron","steel","mithril","adamantine"]
+		"props": ["finesse"], "kind": "metal"
 	},
 	# ── WOOD MELEE ───────────────────────────────────────────────────
 	{
 		"id": "quarterstaff",  "name": "Quarterstaff",  "cat": "simple",  "dice": "1d6",  "dtype": "bludgeoning",
 		"2h": false, "ranged": false, "rn": 0, "rm": 0,
 		"weight": 4.0, "value": 20,
-		"props": ["versatile"], "vdice": "1d8", "mats": ["oak","ash","yew","ebony","starwood"]
+		"props": ["versatile"], "vdice": "1d8", "kind": "wood"
 	},
 	{
 		"id": "club",          "name": "Club",          "cat": "simple",  "dice": "1d4",  "dtype": "bludgeoning",
 		"2h": false, "ranged": false, "rn": 0, "rm": 0,
 		"weight": 2.0, "value": 10,
-		"props": [], "mats": ["oak","ash","yew","ebony","starwood"]
+		"props": [], "kind": "wood"
 	},
 	# ── RANGED ───────────────────────────────────────────────────────
 	{
 		"id": "shortbow",      "name": "Shortbow",      "cat": "simple",  "dice": "1d6",  "dtype": "piercing",
 		"2h": true,  "ranged": true,  "rn": 16, "rm": 64,
 		"weight": 2.0, "value": 40,
-		"props": [], "mats": ["oak","ash","yew","ebony","starwood"]
+		"props": [], "kind": "wood"
 	},
 	{
 		"id": "longbow",       "name": "Longbow",       "cat": "martial", "dice": "1d8",  "dtype": "piercing",
-		"2h": true,  "ranged": true,  "rn": 24, "rm": 96,
+		"2h": true,  "ranged": true,  "rn": 30, "rm": 120,
 		"weight": 2.0, "value": 70,
-		"props": [], "mats": ["oak","ash","yew","ebony","starwood"]
+		"props": [], "kind": "wood"
 	},
 	{
 		"id": "light_crossbow","name": "Light Crossbow","cat": "simple",  "dice": "1d8",  "dtype": "piercing",
 		"2h": true,  "ranged": true,  "rn": 16, "rm": 64,
 		"weight": 5.0, "value": 60,
-		"props": [], "mats": ["oak","ash","yew","ebony","starwood"]
+		"props": [], "kind": "wood"
 	},
 	{
 		"id": "heavy_crossbow","name": "Heavy Crossbow","cat": "martial", "dice": "1d10", "dtype": "piercing",
 		"2h": true,  "ranged": true,  "rn": 20, "rm": 80,
 		"weight": 8.0, "value": 100,
-		"props": [], "mats": ["oak","ash","yew","ebony","starwood"]
+		"props": [], "kind": "wood"
 	},
 ]
 
-# Armor base definitions:
-# { base_id, display_name, slot, ac, armor_type, dex_limit, str_req, stealth_dis,
-#   weight_base, value_base, valid_materials }
+# Armour base definitions:
+# { id, name, slot, armor, base, bonus, dex, str, stealth, weight, value, kind }
+# Armour class comes from the body armour (the chest slot) and the shield alone,
+# as in 5e:
+#   "armor"  the category a class is proficient with: "light", "medium" or
+#            "heavy" for body armour, "shield" for a shield, "" for a piece that
+#            is not armour in the rules' sense (clothes, and every other slot)
+#   "base"   the armour class a body armour sets (leather 11, plate 18); 0 for
+#            everything else. A robe is clothing: its wearer is unarmoured.
+#   "bonus"  what a shield adds
+#   "dex"    how much of the Dexterity modifier the body armour lets through:
+#            -1 all of it (light), 2 (medium), 0 none (heavy)
+#   "str"    the Strength a heavy armour needs; below it the wearer is slower
+# Helmets, gauntlets, greaves, boots and the cloth and leather pieces for the
+# same slots give no armour class. They wear like everything else, and their
+# own job comes in a later phase.
 const ARMOR_BASES := [
 	# ── METAL ARMOR ──────────────────────────────────────────────────
 	{
 		"id": "helmet",       "name": "Helmet",      "slot": "head",
-		"ac": 1, "type": "heavy", "dex": 0,  "str": 0,  "stealth": true,
-		"weight": 3.0, "value": 50,
-		"mats": ["bronze","iron","steel","mithril","adamantine"]
+		"armor": "", "base": 0, "bonus": 0, "dex": -1, "str": 0,  "stealth": false,
+		"weight": 3.0, "value": 50, "kind": "metal"
 	},
 	{
 		"id": "chestplate",   "name": "Chestplate",  "slot": "chest",
-		"ac": 6, "type": "heavy", "dex": 0,  "str": 15, "stealth": true,
-		"weight": 15.0, "value": 200,
-		"mats": ["bronze","iron","steel","mithril","adamantine"]
+		"armor": "heavy", "base": 18, "bonus": 0, "dex": 0,  "str": 15, "stealth": true,
+		"weight": 15.0, "value": 200, "kind": "metal"
 	},
 	{
 		"id": "chain_mail",   "name": "Chain Mail",  "slot": "chest",
-		"ac": 4, "type": "medium","dex": 2,  "str": 13, "stealth": true,
-		"weight": 12.0, "value": 120,
-		"mats": ["bronze","iron","steel","mithril","adamantine"]
+		"armor": "heavy", "base": 16, "bonus": 0, "dex": 0,  "str": 13, "stealth": true,
+		"weight": 12.0, "value": 120, "kind": "metal"
 	},
 	{
 		"id": "scale_mail",   "name": "Scale Mail",  "slot": "chest",
-		"ac": 4, "type": "medium","dex": 2,  "str": 0,  "stealth": true,
-		"weight": 11.0, "value": 110,
-		"mats": ["bronze","iron","steel","mithril","adamantine"]
+		"armor": "medium", "base": 14, "bonus": 0, "dex": 2,  "str": 0,  "stealth": true,
+		"weight": 11.0, "value": 110, "kind": "metal"
 	},
 	{
 		"id": "gauntlets",    "name": "Gauntlets",   "slot": "hands",
-		"ac": 1, "type": "heavy", "dex": 0,  "str": 0,  "stealth": false,
-		"weight": 3.0, "value": 40,
-		"mats": ["bronze","iron","steel","mithril","adamantine"]
+		"armor": "", "base": 0, "bonus": 0, "dex": -1, "str": 0,  "stealth": false,
+		"weight": 3.0, "value": 40, "kind": "metal"
 	},
 	{
 		"id": "greaves",      "name": "Greaves",     "slot": "legs",
-		"ac": 2, "type": "heavy", "dex": 0,  "str": 0,  "stealth": true,
-		"weight": 5.0, "value": 70,
-		"mats": ["bronze","iron","steel","mithril","adamantine"]
+		"armor": "", "base": 0, "bonus": 0, "dex": -1, "str": 0,  "stealth": false,
+		"weight": 5.0, "value": 70, "kind": "metal"
 	},
 	{
 		"id": "plate_boots",  "name": "Plate Boots", "slot": "feet",
-		"ac": 1, "type": "heavy", "dex": 0,  "str": 0,  "stealth": true,
-		"weight": 3.0, "value": 50,
-		"mats": ["bronze","iron","steel","mithril","adamantine"]
+		"armor": "", "base": 0, "bonus": 0, "dex": -1, "str": 0,  "stealth": false,
+		"weight": 3.0, "value": 50, "kind": "metal"
 	},
 	{
 		"id": "shield",       "name": "Shield",      "slot": "off_hand",
-		"ac": 2, "type": "heavy", "dex": -1, "str": 0,  "stealth": false,
-		"weight": 6.0, "value": 40,
-		"mats": ["bronze","iron","steel","mithril","adamantine"]
+		"armor": "shield", "base": 0, "bonus": 2, "dex": -1, "str": 0,  "stealth": false,
+		"weight": 6.0, "value": 40, "kind": "metal"
 	},
 	# ── LEATHER ARMOR ────────────────────────────────────────────────
 	{
 		"id": "leather_cap",  "name": "Leather Cap", "slot": "head",
-		"ac": 1, "type": "light",  "dex": -1, "str": 0,  "stealth": false,
-		"weight": 1.0, "value": 20,
-		"mats": ["hide","leather","scaled_leather","wyvern_leather","dragon_leather"]
+		"armor": "", "base": 0, "bonus": 0, "dex": -1, "str": 0,  "stealth": false,
+		"weight": 1.0, "value": 20, "kind": "leather"
 	},
 	{
 		"id": "jerkin",       "name": "Jerkin",      "slot": "chest",
-		"ac": 3, "type": "light",  "dex": -1, "str": 0,  "stealth": false,
-		"weight": 8.0, "value": 80,
-		"mats": ["hide","leather","scaled_leather","wyvern_leather","dragon_leather"]
+		"armor": "light", "base": 11, "bonus": 0, "dex": -1, "str": 0,  "stealth": false,
+		"weight": 8.0, "value": 80, "kind": "leather"
 	},
 	{
 		"id": "gloves",       "name": "Gloves",      "slot": "hands",
-		"ac": 1, "type": "light",  "dex": -1, "str": 0,  "stealth": false,
-		"weight": 0.5, "value": 15,
-		"mats": ["hide","leather","scaled_leather","wyvern_leather","dragon_leather"]
+		"armor": "", "base": 0, "bonus": 0, "dex": -1, "str": 0,  "stealth": false,
+		"weight": 0.5, "value": 15, "kind": "leather"
 	},
 	{
 		"id": "leggings",     "name": "Leggings",    "slot": "legs",
-		"ac": 1, "type": "light",  "dex": -1, "str": 0,  "stealth": false,
-		"weight": 3.0, "value": 40,
-		"mats": ["hide","leather","scaled_leather","wyvern_leather","dragon_leather"]
+		"armor": "", "base": 0, "bonus": 0, "dex": -1, "str": 0,  "stealth": false,
+		"weight": 3.0, "value": 40, "kind": "leather"
 	},
 	{
 		"id": "boots",        "name": "Boots",       "slot": "feet",
-		"ac": 1, "type": "light",  "dex": -1, "str": 0,  "stealth": false,
-		"weight": 1.0, "value": 20,
-		"mats": ["hide","leather","scaled_leather","wyvern_leather","dragon_leather"]
+		"armor": "", "base": 0, "bonus": 0, "dex": -1, "str": 0,  "stealth": false,
+		"weight": 1.0, "value": 20, "kind": "leather"
 	},
 	# ── CLOTH ARMOR ──────────────────────────────────────────────────
 	{
 		"id": "hood",         "name": "Hood",        "slot": "head",
-		"ac": 0, "type": "light",  "dex": -1, "str": 0,  "stealth": false,
-		"weight": 0.5, "value": 10,
-		"mats": ["linen","cotton","silk","spidersilk","celestial_cloth"]
+		"armor": "", "base": 0, "bonus": 0, "dex": -1, "str": 0,  "stealth": false,
+		"weight": 0.5, "value": 10, "kind": "cloth"
 	},
 	{
 		"id": "robe",         "name": "Robe",        "slot": "chest",
-		"ac": 1, "type": "light",  "dex": -1, "str": 0,  "stealth": false,
-		"weight": 4.0, "value": 30,
-		"mats": ["linen","cotton","silk","spidersilk","celestial_cloth"]
+		"armor": "", "base": 0, "bonus": 0, "dex": -1, "str": 0,  "stealth": false,
+		"weight": 4.0, "value": 30, "kind": "cloth"
 	},
 	{
 		"id": "wraps",        "name": "Wraps",       "slot": "hands",
-		"ac": 0, "type": "light",  "dex": -1, "str": 0,  "stealth": false,
-		"weight": 0.5, "value": 8,
-		"mats": ["linen","cotton","silk","spidersilk","celestial_cloth"]
+		"armor": "", "base": 0, "bonus": 0, "dex": -1, "str": 0,  "stealth": false,
+		"weight": 0.5, "value": 8, "kind": "cloth"
 	},
 	{
 		"id": "pants",        "name": "Pants",       "slot": "legs",
-		"ac": 0, "type": "light",  "dex": -1, "str": 0,  "stealth": false,
-		"weight": 1.5, "value": 12,
-		"mats": ["linen","cotton","silk","spidersilk","celestial_cloth"]
+		"armor": "", "base": 0, "bonus": 0, "dex": -1, "str": 0,  "stealth": false,
+		"weight": 1.5, "value": 12, "kind": "cloth"
 	},
 	{
 		"id": "slippers",     "name": "Slippers",    "slot": "feet",
-		"ac": 0, "type": "light",  "dex": -1, "str": 0,  "stealth": false,
-		"weight": 0.5, "value": 8,
-		"mats": ["linen","cotton","silk","spidersilk","celestial_cloth"]
+		"armor": "", "base": 0, "bonus": 0, "dex": -1, "str": 0,  "stealth": false,
+		"weight": 0.5, "value": 8, "kind": "cloth"
 	},
 ]
-
-# Value-scale per tier index (COMMON=0 … LEGENDARY=4)
-const TIER_VALUE_MULT := [1.0, 2.0, 5.0, 20.0, 100.0]
-# Weight-scale per tier (heavy materials cost more; slight tweak per tier)
-const TIER_WEIGHT_MULT := [1.0, 1.1, 1.2, 0.9, 0.8]  # mithril/adamantine lighter
 
 
 func load_items():
 	"""Generate the full item catalog programmatically"""
 
-	# ── 1. WEAPONS ───────────────────────────────────────────────────
+	# ── 1. WEAPONS and 2. ARMOR: every base in every material of its kind ──
 	for wb in WEAPON_BASES:
-		for mat_id in wb["mats"]:
-			var mat: MaterialData = get_material(str(mat_id))
-			if not mat:
-				continue
+		for mat in _materials_of_kind(str(wb["kind"])):
 			register_item(_build_weapon_item(wb, mat))
-
-	# ── 2. ARMOR ─────────────────────────────────────────────────────
 	for ab in ARMOR_BASES:
-		for mat_id in ab["mats"]:
-			var mat: MaterialData = get_material(str(mat_id))
-			if not mat:
-				continue
-			var tier_idx: int = int(mat.tier)
-			var item_id: String = str(mat_id) + "_" + str(ab["id"])
-			var item: ItemData = _build_armor_item(item_id,
-				mat.material_name + " " + str(ab["name"]),
-				mat, str(ab["slot"]), int(ab["ac"]) + mat.armor_bonus,
-				str(ab["type"]), int(ab["dex"]), int(ab["str"]), bool(ab["stealth"]))
-			item.weight = float(ab["weight"]) * TIER_WEIGHT_MULT[tier_idx]
-			item.base_value = int(float(ab["value"]) * TIER_VALUE_MULT[tier_idx])
-			item.description = mat.material_name + " " + str(ab["name"]) + " (" + mat.get_tier_name() + ")"
-			register_item(item)
+		for mat in _materials_of_kind(str(ab["kind"])):
+			register_item(_build_armor_item(ab, mat))
 
 	# ── 3. PLAIN-BASE ALIASES (default-material versions) ────────────
-	_register_alias_weapon("dagger",        "iron")
-	_register_alias_weapon("shortsword",    "iron")
-	_register_alias_weapon("longsword",     "iron")
-	_register_alias_weapon("greatsword",    "iron")
-	_register_alias_weapon("handaxe",       "iron")
-	_register_alias_weapon("battleaxe",     "iron")
-	_register_alias_weapon("greataxe",      "iron")
-	_register_alias_weapon("mace",          "iron")
-	_register_alias_weapon("warhammer",     "iron")
-	_register_alias_weapon("spear",         "iron")
-	_register_alias_weapon("rapier",        "iron")
-	_register_alias_weapon("quarterstaff",  "oak")
-	_register_alias_weapon("club",          "oak")
-	_register_alias_weapon("shortbow",      "oak")
-	_register_alias_weapon("longbow",       "oak")
-	_register_alias_weapon("light_crossbow","oak")
-	_register_alias_weapon("heavy_crossbow","oak")
+	for wb in WEAPON_BASES:
+		_register_alias(str(wb["id"]), DEFAULT_MATERIALS[str(wb["kind"])] + "_" + str(wb["id"]))
+	for ab in ARMOR_BASES:
+		_register_alias(str(ab["id"]), DEFAULT_MATERIALS[str(ab["kind"])] + "_" + str(ab["id"]))
 
-	_register_alias_armor("helmet",      "iron")
-	_register_alias_armor("chestplate",  "iron")
-	_register_alias_armor("chain_mail",  "iron")
-	_register_alias_armor("scale_mail",  "iron")
-	_register_alias_armor("gauntlets",   "iron")
-	_register_alias_armor("greaves",     "iron")
-	_register_alias_armor("plate_boots", "iron")
-	_register_alias_armor("shield",      "iron")
-	_register_alias_armor("leather_cap", "leather")
-	_register_alias_armor("jerkin",      "leather")
-	_register_alias_armor("gloves",      "leather")
-	_register_alias_armor("leggings",    "leather")
-	_register_alias_armor("boots",       "leather")
-	_register_alias_armor("hood",        "linen")
-	_register_alias_armor("robe",        "linen")
-	_register_alias_armor("wraps",       "linen")
-	_register_alias_armor("pants",       "linen")
-	_register_alias_armor("slippers",    "linen")
-
-	# Extra aliases needed by .tres starting equipment lists
-	# rogue: leather_armor → alias for leather jerkin
-	_register_alias_armor_custom("leather_armor", "Leather Armor", "leather", "chest", 3, "light", -1, 0, false, 8.0, 80)
+	# The rogue's starting kit calls its jerkin by the 5e name
+	_register_alias("leather_armor", DEFAULT_MATERIALS["leather"] + "_jerkin", "Leather Armor")
 
 	# ── 4. ACCESSORIES ───────────────────────────────────────────────
 	_reg_accessory("ring_protection",   "Ring of Protection",   "rings",    ItemData.ItemType.ACCESSORY_RING,    {"ac": 1},        1, 15,  "A simple ring that wards off harm.")
@@ -485,29 +446,32 @@ func load_items():
 	_reg_misc("burglar_pack",    "Burglar's Pack",    2.0, 10, "A light pack suited for stealthy work.")
 
 	# ── 7. CRAFTING MATERIAL ITEMS (material_<mat_id>) ───────────────
-	for mat_id in materials:
-		var mat: MaterialData = materials[mat_id]
-		var item_id: String = "material_" + str(mat_id)
-		var item := ItemData.new()
-		item.item_id = item_id
-		item.item_name = mat.material_name
-		item.item_type = ItemData.ItemType.MATERIAL
-		item.material = mat
-		item.stackable = true
-		item.max_stack_size = 20
-		item.weight = 0.5
-		item.base_value = int(5.0 * TIER_VALUE_MULT[int(mat.tier)])
-		item.description = mat.get_tier_name() + " " + mat.get_category_name() + " material."
-		register_item(item)
+	for mat in materials.values():
+		register_item(_build_material_item(mat))
 
 	print("ItemDatabase: Loaded ", items.size(), " items")
 
 
 # ── Build helpers ─────────────────────────────────────────────────────
 
+func _materials_of_kind(kind: String) -> Array:
+	"""Every material of a kind ("metal", "wood", "leather", "cloth")"""
+	var result: Array = []
+	for mat in materials.values():
+		if mat.get_kind() == kind:
+			result.append(mat)
+	return result
+
+
+func _price(base_value: float, mat: MaterialData) -> int:
+	"""What an item costs in a material: the base type's price times the
+	material's price multiplier, never less than one coin"""
+	return maxi(1, int(round(base_value * mat.price_multiplier)))
+
+
 func _build_weapon_item(wb: Dictionary, mat: MaterialData) -> ItemData:
-	"""One weapon of the catalogue: a row of WEAPON_BASES made from a material"""
-	var tier_idx: int = int(mat.tier)
+	"""One weapon of the catalogue: a row of WEAPON_BASES made from a material.
+	The material sets the price and the durability data, nothing else."""
 	var item := ItemData.new()
 	item.item_id = mat.material_id + "_" + str(wb["id"])
 	item.item_name = mat.material_name + " " + str(wb["name"])
@@ -523,33 +487,38 @@ func _build_weapon_item(wb: Dictionary, mat: MaterialData) -> ItemData:
 	item.is_ranged = bool(wb["ranged"])
 	item.range_normal = int(wb["rn"])
 	item.range_max = int(wb["rm"])
-	item.equip_slot = "ranged" if bool(wb["ranged"]) else "main_hand"
+	item.equip_slot = "main_hand"
 	item.has_durability = true
-	item.max_durability = mat.base_durability
+	item.max_durability = mat.durability_score
 	for prop in (wb["props"] as Array):
 		item.special_properties.append(str(prop))
-	item.weight = float(wb["weight"]) * TIER_WEIGHT_MULT[tier_idx]
-	item.base_value = int(float(wb["value"]) * TIER_VALUE_MULT[tier_idx])
-	item.description = mat.material_name + " " + str(wb["name"]) + " (" + mat.get_tier_name() + ")"
+	item.weight = float(wb["weight"])
+	item.base_value = _price(float(wb["value"]), mat)
+	item.description = "%s of %s." % [str(wb["name"]), mat.material_name.to_lower()]
 	return item
 
 
-func _build_armor_item(item_id: String, item_name: String, mat: MaterialData,
-		slot: String, ac: int, armor_type: String, dex_limit: int,
-		str_req: int, stealth_dis: bool) -> ItemData:
+func _build_armor_item(ab: Dictionary, mat: MaterialData) -> ItemData:
+	"""One armour piece of the catalogue: a row of ARMOR_BASES made from a
+	material. The material sets the price and the durability data, nothing else."""
+	var slot: String = str(ab["slot"])
 	var item := ItemData.new()
-	item.item_id = item_id
-	item.item_name = item_name
+	item.item_id = mat.material_id + "_" + str(ab["id"])
+	item.item_name = mat.material_name + " " + str(ab["name"])
 	item.material = mat
-	item.armor_class_bonus = ac
 	item.is_armor = true
-	item.has_durability = true
-	item.max_durability = mat.base_durability
 	item.equip_slot = slot
-	item.armor_type = armor_type
-	item.dex_bonus_limit = dex_limit
-	item.strength_requirement = str_req
-	item.stealth_disadvantage = stealth_dis
+	item.armor_type = str(ab["armor"])
+	item.armor_base = int(ab["base"])
+	item.armor_class_bonus = int(ab["bonus"])
+	item.dex_bonus_limit = int(ab["dex"])
+	item.strength_requirement = int(ab["str"])
+	item.stealth_disadvantage = bool(ab["stealth"])
+	item.has_durability = true
+	item.max_durability = mat.durability_score
+	item.weight = float(ab["weight"])
+	item.base_value = _price(float(ab["value"]), mat)
+	item.description = "%s of %s." % [str(ab["name"]), mat.material_name.to_lower()]
 
 	match slot:
 		"head":     item.item_type = ItemData.ItemType.ARMOR_HEAD
@@ -562,77 +531,34 @@ func _build_armor_item(item_id: String, item_name: String, mat: MaterialData,
 	return item
 
 
-func _register_alias_weapon(base_id: String, default_mat: String):
-	"""Register a plain-id alias pointing to the default-material weapon."""
-	var full_id := default_mat + "_" + base_id
-	var src: ItemData = items.get(full_id, null)
-	if not src:
-		push_error("ItemDatabase: alias source not found: " + full_id)
+func _build_material_item(mat: MaterialData) -> ItemData:
+	"""A unit of a crafting material as an item: material_<material id>"""
+	var item := ItemData.new()
+	item.item_id = MATERIAL_ITEM_PREFIX + mat.material_id
+	item.item_name = mat.material_name
+	item.item_type = ItemData.ItemType.MATERIAL
+	item.material = mat
+	item.stackable = true
+	item.max_stack_size = 20
+	item.weight = 0.5
+	item.base_value = _price(MATERIAL_ITEM_VALUE, mat)
+	item.description = mat.get_category_name() + " for crafting and repairs."
+	return item
+
+
+func _register_alias(alias_id: String, source_id: String, alias_name: String = ""):
+	"""Register a copy of an item under another id: a plain base id for the
+	default-material version ("longsword"), or a second name for one item."""
+	var source: ItemData = items.get(source_id, null)
+	if source == null:
+		push_error("ItemDatabase: alias source not found: " + source_id)
 		return
-	var alias := ItemData.new()
-	alias.item_id = base_id
-	alias.item_name = src.item_name
-	alias.description = src.description
-	alias.item_type = src.item_type
-	alias.material = src.material
-	alias.damage_dice = src.damage_dice
-	alias.versatile_dice = src.versatile_dice
-	alias.damage_type = src.damage_type
-	alias.is_weapon = src.is_weapon
-	alias.weapon_type = src.weapon_type
-	alias.weapon_category = src.weapon_category
-	alias.is_two_handed = src.is_two_handed
-	alias.is_ranged = src.is_ranged
-	alias.range_normal = src.range_normal
-	alias.range_max = src.range_max
-	alias.equip_slot = src.equip_slot
-	alias.has_durability = src.has_durability
-	alias.max_durability = src.max_durability
-	alias.special_properties = src.special_properties.duplicate()
-	alias.weight = src.weight
-	alias.base_value = src.base_value
+	var alias: ItemData = source.duplicate()
+	alias.item_id = alias_id
+	if alias_name != "":
+		alias.item_name = alias_name
+	alias_ids[alias_id] = source_id
 	register_item(alias)
-
-
-func _register_alias_armor(base_id: String, default_mat: String):
-	"""Register a plain-id alias for the default-material armor."""
-	var full_id := default_mat + "_" + base_id
-	var src: ItemData = items.get(full_id, null)
-	if not src:
-		push_error("ItemDatabase: alias source not found: " + full_id)
-		return
-	var alias := ItemData.new()
-	alias.item_id = base_id
-	alias.item_name = src.item_name
-	alias.description = src.description
-	alias.item_type = src.item_type
-	alias.material = src.material
-	alias.armor_class_bonus = src.armor_class_bonus
-	alias.is_armor = src.is_armor
-	alias.has_durability = src.has_durability
-	alias.max_durability = src.max_durability
-	alias.equip_slot = src.equip_slot
-	alias.armor_type = src.armor_type
-	alias.dex_bonus_limit = src.dex_bonus_limit
-	alias.strength_requirement = src.strength_requirement
-	alias.stealth_disadvantage = src.stealth_disadvantage
-	alias.weight = src.weight
-	alias.base_value = src.base_value
-	register_item(alias)
-
-
-func _register_alias_armor_custom(item_id: String, item_name: String, mat_id: String,
-		slot: String, ac: int, armor_type: String, dex_limit: int,
-		str_req: int, stealth_dis: bool, weight_val: float, value_val: int):
-	var mat := get_material(mat_id)
-	if not mat:
-		push_error("ItemDatabase: material not found for alias: " + mat_id)
-		return
-	var item := _build_armor_item(item_id, item_name, mat, slot, ac, armor_type,
-		dex_limit, str_req, stealth_dis)
-	item.weight = weight_val
-	item.base_value = value_val
-	register_item(item)
 
 
 func _reg_accessory(item_id: String, item_name: String, equip_slot: String,
@@ -692,62 +618,68 @@ func register_item(item: ItemData):
 
 
 func get_item(item_id: String) -> ItemData:
-	"""
-	Get item by ID. If not in the database but the id matches a generatable
-	pattern, rebuilds it deterministically before returning.
-	"""
+	"""An item by id, or null. An id that is not registered is rebuilt when it
+	follows a generated pattern, and an id written with a renamed material
+	("iron_longsword") gives the item it became - so saves and content written
+	before the material list changed still resolve."""
 	if items.has(item_id):
 		return items[item_id]
-	return _try_regenerate(item_id)
+	var rebuilt: ItemData = _try_regenerate(item_id)
+	if rebuilt != null:
+		return rebuilt
+	var renamed: String = _renamed_item_id(item_id)
+	if renamed != item_id:
+		return get_item(renamed)
+	return null
+
+
+func canonical_item_id(item_id: String) -> String:
+	"""The id the database knows an item by: the id itself, or, for an id
+	written with a renamed material, the id of the item it became. "" for an
+	id that names nothing."""
+	var item: ItemData = get_item(item_id)
+	return item.item_id if item != null else ""
+
+
+func _renamed_item_id(item_id: String) -> String:
+	"""An item id with a renamed material in it, rewritten with the new
+	material: "iron_longsword" -> "wrought_iron_longsword", "material_hide" ->
+	"material_pigskin". The id itself when no renamed material is in it."""
+	if item_id.begins_with(MATERIAL_ITEM_PREFIX):
+		var mat_id: String = item_id.substr(MATERIAL_ITEM_PREFIX.length())
+		if MATERIAL_ALIASES.has(mat_id):
+			return MATERIAL_ITEM_PREFIX + str(MATERIAL_ALIASES[mat_id])
+		return item_id
+	for old_id in MATERIAL_ALIASES:
+		if item_id.begins_with(str(old_id) + "_"):
+			return str(MATERIAL_ALIASES[old_id]) + item_id.substr(str(old_id).length())
+	return item_id
 
 
 func _try_regenerate(item_id: String) -> ItemData:
-	"""Attempt to rebuild a generatable item id on demand."""
-	# material_<mat_id>
-	if item_id.begins_with("material_"):
-		var mat_id := item_id.substr(9)
-		var mat := get_material(mat_id)
-		if mat:
-			var item := ItemData.new()
-			item.item_id = item_id
-			item.item_name = mat.material_name
-			item.item_type = ItemData.ItemType.MATERIAL
-			item.material = mat
-			item.stackable = true
-			item.max_stack_size = 20
-			item.weight = 0.5
-			item.base_value = int(5.0 * TIER_VALUE_MULT[int(mat.tier)])
-			item.description = mat.get_tier_name() + " " + mat.get_category_name() + " material."
+	"""Rebuild a generated item id on demand: material_<material id>, or
+	<material id>_<base id> for a weapon or armour base in a material of its
+	kind. null when the id follows neither pattern."""
+	if item_id.begins_with(MATERIAL_ITEM_PREFIX):
+		var mat: MaterialData = materials.get(item_id.substr(MATERIAL_ITEM_PREFIX.length()), null)
+		if mat != null:
+			var item := _build_material_item(mat)
 			register_item(item)
 			return item
+		return null
 
-	# <mat_id>_<base_id>  (weapon or armor)
 	for wb in WEAPON_BASES:
-		for mat_id in wb["mats"]:
-			if str(mat_id) + "_" + str(wb["id"]) != item_id:
-				continue
-			var mat: MaterialData = get_material(str(mat_id))
-			if mat:
+		for mat in _materials_of_kind(str(wb["kind"])):
+			if mat.material_id + "_" + str(wb["id"]) == item_id:
 				var item := _build_weapon_item(wb, mat)
 				register_item(item)
 				return item
-
 	for ab in ARMOR_BASES:
-		for mat_id in ab["mats"]:
-			var try_id: String = str(mat_id) + "_" + str(ab["id"])
-			if try_id == item_id:
-				var mat: MaterialData = get_material(str(mat_id))
-				if mat:
-					var tier_idx: int = int(mat.tier)
-					var item := _build_armor_item(item_id,
-						mat.material_name + " " + str(ab["name"]),
-						mat, str(ab["slot"]), int(ab["ac"]) + mat.armor_bonus,
-						str(ab["type"]), int(ab["dex"]), int(ab["str"]), bool(ab["stealth"]))
-					item.weight = float(ab["weight"]) * TIER_WEIGHT_MULT[tier_idx]
-					item.base_value = int(float(ab["value"]) * TIER_VALUE_MULT[tier_idx])
-					register_item(item)
-					return item
-
+		for mat in _materials_of_kind(str(ab["kind"])):
+			if mat.material_id + "_" + str(ab["id"]) == item_id:
+				var item := _build_armor_item(ab, mat)
+				register_item(item)
+				return item
 	return null
 
 
@@ -756,16 +688,15 @@ func _try_regenerate(item_id: String) -> ItemData:
 # =====================================================================
 
 func create_item_instance(item_id: String, quality: int = 0, magic: int = 0) -> Dictionary:
-	"""Create an item instance with current durability"""
+	"""An item instance: the item's data with what belongs to this one piece -
+	its craftsmanship (quality_modifier) and magic (magic_modifier) bonuses, its
+	charges or condition, its stack count and an id of its own."""
 	var item_data := get_item(item_id)
 	if not item_data:
 		push_error("ItemDatabase: Item not found: " + item_id)
 		return {}
 
-	var max_dur: int = item_data.get_calculated_durability()
-	if item_data.has_durability and item_data.material:
-		max_dur = item_data.material.calculate_item_durability(item_data.max_durability, quality)
-
+	var max_dur: int = item_data.max_durability if item_data.has_durability else 0
 	return {
 		"item_data": item_data,
 		"quality_modifier": quality,
@@ -780,6 +711,29 @@ func create_item_instance(item_id: String, quality: int = 0, magic: int = 0) -> 
 func generate_instance_id() -> String:
 	"""Generate unique instance ID"""
 	return str(Time.get_unix_time_from_system()) + "_" + str(randi())
+
+
+func get_instance_bonus(item_instance: Dictionary) -> int:
+	"""The bonus one piece carries from how it was made or enchanted: the higher
+	of its craftsmanship (quality_modifier) and its magic (magic_modifier). A
+	weapon adds it to its attack rolls; body armour and a shield add it to
+	armour class. The two do not stack."""
+	return maxi(0, maxi(int(item_instance.get("quality_modifier", 0)), int(item_instance.get("magic_modifier", 0))))
+
+
+func get_instance_magic_bonus(item_instance: Dictionary) -> int:
+	"""The magic bonus of one piece: what a weapon adds to its damage"""
+	return maxi(0, int(item_instance.get("magic_modifier", 0)))
+
+
+func get_instance_name(item_instance: Dictionary) -> String:
+	"""What to call one piece: its item's name, with its bonus when it has one
+	("Steel Longsword +1")"""
+	var item_data = item_instance.get("item_data")
+	if not (item_data is ItemData):
+		return ""
+	var bonus: int = get_instance_bonus(item_instance)
+	return item_data.item_name if bonus <= 0 else "%s +%d" % [item_data.item_name, bonus]
 
 
 # =====================================================================
@@ -837,7 +791,7 @@ func _apply_elixir(item_id: String, user: Node, power: int):
 	"""
 	Route elixir consumables to StatusEffectManager (10-turn buffs).
 	elixir_strength / elixir_fortitude -> blessed, elixir_agility -> hasted,
-	elixir_resist_fire -> shielded; elixir_mana heals `power` HP instead
+	elixir_resist_fire -> fire_resistance; elixir_mana heals `power` HP instead
 	(no mana resource exists yet).
 	"""
 	if user == null or not is_instance_valid(user):
@@ -856,7 +810,7 @@ func _apply_elixir(item_id: String, user: Node, power: int):
 		"elixir_strength":    "blessed",
 		"elixir_fortitude":   "blessed",
 		"elixir_agility":     "hasted",
-		"elixir_resist_fire": "shielded",
+		"elixir_resist_fire": "fire_resistance",
 	}
 	var effect_id: String = effect_map.get(item_id, "")
 	if effect_id == "":
@@ -904,14 +858,6 @@ func get_starting_kit(class_id: String) -> Array:
 # RANDOM LOOT HELPERS
 # =====================================================================
 
-func generate_random_material(tier: MaterialData.Tier = MaterialData.Tier.COMMON) -> MaterialData:
-	"""Get a random material of specified tier"""
-	var tier_materials := get_materials_by_tier(tier)
-	if tier_materials.is_empty():
-		return null
-	return tier_materials[randi() % tier_materials.size()]
-
-
 func roll_item_quality() -> int:
 	"""Roll for item quality (+0/+1/+2/+3)"""
 	var roll := randf()
@@ -938,23 +884,52 @@ func roll_magic_modifier() -> int:
 		return 3
 
 
-func get_random_item_by_type(item_type_str: String, tier: MaterialData.Tier) -> ItemData:
-	"""Return a random registered item matching category string and material tier."""
+func get_loot_candidates(item_type_str: String) -> Array:
+	"""Every item a loot roll for a category ("weapon", "armor", "material",
+	"consumable") may hand out. Weapons, armour and crafting materials only in
+	a material that can be obtained (MaterialData.is_obtainable); the plain-id
+	copies of the default-material versions are left out, so that no item is
+	in the list twice."""
 	var candidates: Array = []
 	for item in items.values():
+		if alias_ids.has(item.item_id):
+			continue
+		var obtainable: bool = item.material != null and item.material.is_obtainable()
 		match item_type_str:
 			"weapon":
-				if item.is_weapon and item.material and item.material.tier == tier:
+				if item.is_weapon and obtainable:
 					candidates.append(item)
 			"armor":
-				if item.is_armor and item.material and item.material.tier == tier:
+				if item.is_armor and obtainable:
 					candidates.append(item)
 			"material":
-				if item.item_type == ItemData.ItemType.MATERIAL and item.material and item.material.tier == tier:
+				if item.item_type == ItemData.ItemType.MATERIAL and obtainable:
 					candidates.append(item)
 			"consumable":
 				if item.item_type == ItemData.ItemType.CONSUMABLE:
 					candidates.append(item)
+	return candidates
+
+
+func get_random_item_by_type(item_type_str: String) -> ItemData:
+	"""A random item of a loot category. A dearer material turns up less often:
+	each item's weight is one over its material's price multiplier, so copper is
+	found twice as often as steel and steel three times as often as Damascus
+	steel. null when the category holds nothing."""
+	var candidates: Array = get_loot_candidates(item_type_str)
 	if candidates.is_empty():
 		return null
-	return candidates[randi() % candidates.size()]
+	var total := 0.0
+	var weights: Array = []
+	for item in candidates:
+		var weight: float = 1.0
+		if item.material != null:
+			weight = 1.0 / maxf(0.01, item.material.price_multiplier)
+		weights.append(weight)
+		total += weight
+	var roll := randf() * total
+	for i in range(candidates.size()):
+		roll -= weights[i]
+		if roll <= 0.0:
+			return candidates[i]
+	return candidates[-1]

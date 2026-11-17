@@ -16,7 +16,8 @@ and "the boot has no script errors" is no longer what done means.
    not a feature.
 2. **Checks.** `tools\run_checks.bat` before every commit: headless smoke test plus a
    windowed screenshot tour. A headless boot proves only that scripts parse. Do not use
-   per-script `--check-only`; it false-positives on autoload names.
+   per-script `--check-only`; it false-positives on autoload names. The run fails on
+   any engine error line and on objects left behind when the smoke test exits.
 3. **Style.** GDScript 4.5, tab indentation, snake_case, `"""docstrings"""`, `print()`
    logging with a system prefix, `push_error()` for programmer errors. No `class_name`
    on autoload scripts. Prefix intentionally unused parameters with `_`.
@@ -63,7 +64,12 @@ and "the boot has no script errors" is no longer what done means.
   type `info`, `success`, `warning` or `error`. `ui/notification_toasts.gd` draws them.
 - **Party-only rules** check `InventoryManager.is_party_member(stats)`. Encumbrance
   applies to the party, not to every creature that rolls a die.
-- **Pause-bound timers** in the combat path: `create_timer(t, false)`. After every
+- **Waits in the combat path** stand still while the game is paused and go when
+  their node goes: `await _timer(t).timeout` in the CombatController, a one-shot
+  child `Timer`. Do not await `get_tree().create_timer()` there, nor a coroutine of
+  the node's own: when the node is freed in the middle of such a wait (a load, the
+  way back to the menu), the timer or the suspended function is never released and
+  the engine reports it as leaked at exit, which fails the checks. After every
   await, check `is_instance_valid` and that combat is still running.
 
 ## 1a. Game flow and saves
@@ -143,29 +149,54 @@ and "the boot has no script errors" is no longer what done means.
   Walking spends a tile of movement per tile reached while `is_taking_turns()` (a
   fight; for the player also the turn mode outside one). The action economy exists
   only in a fight.
-- **Weapons.** `get_melee_weapon()` is the melee weapon in the main hand (null: an
-  unarmed strike) and `get_ranged_weapon()` the weapon in the `ranged` slot (null:
-  none). `get_wielded_weapon()` is what is in hand when no target has been named:
-  the melee weapon; without one, the ranged weapon; with neither, null. Which of
-  them an attack uses depends on the target (section 4). Enemies answer with a
-  stand-in 1d6 melee weapon and carry no ranged weapon (`Enemy.ranged_weapon` is
-  null) until the bestiary. `is_off_hand_free()` and `get_flank_partners()` complete
-  what an attack needs to know (enemies have no flank partners yet).
+- **Weapon sets.** A combatant has two weapon sets, each a main hand and an off
+  hand, and holds one of them. `get_weapon_set()` is the set in hand (1 or 2),
+  `get_weapon(set_index)` the weapon in a set's main hand (0: the set in hand; null:
+  an unarmed strike), `get_hand_instance(hand, set_index)` the item instance in a
+  hand, `get_weapon_instance(weapon)` the piece behind a weapon, `is_off_hand_free()`
+  whether a versatile weapon can be swung in both hands. An attack uses the set in
+  hand and nothing else (section 4). Party members keep their sets as equipment
+  (section 2.2). An enemy answers for its own: set one is `Enemy.weapon`, a stand-in
+  1d6 weapon until the bestiary, and `Enemy.second_weapon` is an optional second
+  set. `swap_weapon_set()` changes the set in hand; only the CombatController calls
+  it. `get_flank_partners()` completes what an attack needs to know (enemies have
+  no flank partners yet).
 - The world lists the combatants in the scene: `World.get_combatants()`,
   `get_combatant_at(tile)`, `is_tile_occupied(tile, exclude)`.
 
-### 2.2 Equipment slot strings (exact)
-`head, neck, shoulder, back, chest, wrist, hands, waist, legs, feet, main_hand, off_hand, ranged`
-plus multi-slots `rings`, `trinkets` (InventoryManager stores Arrays for those two).
-`ItemData.equip_slot` uses exactly these strings (`rings` and `trinkets` are plural).
-`InventoryManager.equip_item()` refuses a two-handed weapon in the main hand while the
-off hand holds something, and anything in the off hand beside a two-handed weapon.
+### 2.2 Equipment slots (exact strings)
+Worn: `head, neck, shoulder, back, chest, wrist, hands, waist, legs, feet`, plus the
+multi-slots `rings` and `trinkets` (InventoryManager stores Arrays for those two).
+Held: two weapon sets, each a main hand and an off hand: `main_hand, off_hand` (set
+one) and `main_hand_2, off_hand_2` (set two); `InventoryManager.weapon_slot(hand,
+set_index)` gives the slot. There is no `ranged` slot.
+
+- `ItemData.equip_slot` names the slot an item is made for; for a weapon or a shield
+  that is its hand (`main_hand` or `off_hand`), and it fits that hand of either set
+  (`hand_of_slot`, `set_of_slot`).
+- One set is in hand: `InventoryManager.get_weapon_set(stats)` (1 or 2). Only it
+  counts: `get_active_equipped_items()` is everything worn plus the set in hand, and
+  that is what armour class, ability bonuses and resistances are worked out from. A
+  shield in the other set gives nothing.
+- A two-handed weapon fills both hands of its set: `get_equip_refusal()` refuses one
+  beside a full off hand and anything in the off hand beside one. So a bow or
+  crossbow never shares a set with a shield.
+- Starting kits are put on by `auto_equip_from_inventory()`: a weapon or shield goes
+  in set one when its hand is free there, otherwise in set two (fighter: longsword
+  and shield, then the light crossbow).
+- **Changing gear is a request** (section 4): `swap_weapons`, `equip`, `unequip`.
+  The character sheet only asks. In a fight the swap costs the action and the other
+  two are refused; outside a fight all three are free. `InventoryManager.equip_item`,
+  `unequip_item`, `move_equipped_item` and `set_weapon_set` are what the controller
+  calls to apply them; nothing else should.
 
 ### 2.3 Item id scheme
-- Material variants: `"{material_id}_{base_id}"`, for example `iron_longsword`,
-  `leather_jerkin`, `steel_helmet`.
+- Material variants: `"{material_id}_{base_id}"`, for example `steel_longsword`,
+  `cowhide_jerkin`, `wrought_iron_helmet`. Every base exists in every material of
+  its kind (a metal base in every metal).
 - Plain-base aliases: `"{base_id}"` (`longsword`, `chain_mail`) registered as the
-  default-material version, because class starting kits use plain ids.
+  default-material version, because class starting kits use plain ids. The defaults
+  (`ItemDatabase.DEFAULT_MATERIALS`): wrought iron, oak, cowhide, fine linen.
 - Weapon bases: dagger, shortsword, longsword, greatsword, handaxe, battleaxe,
   greataxe, mace, warhammer, spear, rapier, quarterstaff, club, shortbow, longbow,
   light_crossbow, heavy_crossbow. They follow the 5e SRD weapon table
@@ -176,13 +207,14 @@ off hand holds something, and anything in the off hand beside a two-handed weapo
   A ranged weapon has `range_normal` and `range_max`, **in tiles** (one tile is 5
   feet): a shortbow's 16 and 64 are the 5e 80 and 320 feet. Read them through
   `CombatManager.get_weapon_range(weapon)`, the one place that knows the unit. All
-  four ranged bases are two-handed and go in the `ranged` slot.
+  four ranged bases are two-handed: one fills both hands of its weapon set.
   `CharacterStats.is_proficient_with_weapon(weapon)` reads proficiency from the class
   data and the character's own list, by category or by base id.
-- Armour bases (slot): helmet (head), chain_mail (chest), chestplate (chest),
-  gauntlets (hands), greaves (legs), plate_boots (feet), shield (off_hand); leather:
-  leather_cap (head), jerkin (chest), gloves (hands), leggings (legs), boots (feet);
-  cloth: hood (head), robe (chest), wraps (hands), pants (legs), slippers (feet).
+- Armour bases (slot), `ItemDatabase.ARMOR_BASES`: metal: helmet (head), chestplate,
+  chain_mail, scale_mail (chest), gauntlets (hands), greaves (legs), plate_boots
+  (feet), shield (off_hand); leather: leather_cap (head), jerkin (chest), gloves
+  (hands), leggings (legs), boots (feet); cloth: hood (head), robe (chest), wraps
+  (hands), pants (legs), slippers (feet). What they do for armour class is in 2.3b.
 - Accessories: `ring_*`, `amulet_*`, `cloak_*`, `belt_*`, `trinket_*`.
 - Consumables: `potion_healing_minor`, `potion_healing`, `potion_healing_greater`,
   `antidote`, food ids (`bread`, `cooked_meat`, ...).
@@ -191,16 +223,139 @@ off hand holds something, and anything in the off hand beside a two-handed weapo
   `wand_{spell_id}`.
 - `ItemDatabase.get_item(item_id)` re-creates any generatable id on demand, so saves
   and recipes never dangle. Generation is deterministic per id.
+- **Renamed materials.** `ItemDatabase.MATERIAL_ALIASES` maps the material ids of the
+  old list to what they became (iron to wrought_iron, mithril to mythril, adamantine
+  to adamantite, hide to pigskin, leather to cowhide, linen to fine_linen).
+  `get_material()` and `get_item()` follow it, so `iron_longsword` in an old save is
+  the wrought iron longsword, and it is saved under its new id from then on. No save
+  migration is involved. `canonical_item_id(id)` gives the id the database knows an
+  item by. Content must use that id: gift lists, quest targets and dialogue
+  conditions compare ids as text, and the content validator fails on a retired one.
+- An item instance carries its own `quality_modifier` (craftsmanship) and
+  `magic_modifier`. Rules read them from the instance, never from the `ItemData`
+  template: `ItemDatabase.get_instance_bonus(instance)` is the higher of the two.
 
-### 2.4 Damage types
-Data uses strings: `physical, slashing, piercing, bludgeoning, fire, cold, lightning,
-acid, poison, necrotic, radiant, force, psychic`.
-`CombatManager.damage_type_from_string(name)` maps to the `DamageType` enum (unknown
-becomes PHYSICAL). Damage is applied with its type: a weapon attack with the
-weapon's, an unarmed strike as bludgeoning, a spell or a status tick with its own.
-`EventBus.damage_dealt(attacker, target, amount, is_critical, damage_type)` carries
-it. Nothing reads the type yet: resistance and vulnerability come with the damage
-pipeline (Phase 2 step 4).
+### 2.3a Materials
+A material (`MaterialData`, registered in `ItemDatabase.load_materials()`) sets how an
+item wears, what it costs and one trait. It never changes damage, armour class,
+weight or any other number of the item.
+
+| Field | Meaning |
+|---|---|
+| `category` / `get_kind()` | `metal`, `wood`, `leather`, `cloth` |
+| `durability_score` | the score in Ákos's material tables |
+| `notches` | `durability_score` / 8, rounded half up, at least 2 (`MaterialData.notches_for`) |
+| `hardness` | one scale for all four kinds |
+| `price_multiplier` | an item's `base_value` is its base type's price times this |
+| `trait_id` | `rusts_easily`, `silvered`, `warm`, ... or `""`. Data only: no trait has an effect yet. (`trait` is a reserved word in GDScript.) |
+| `stage` | 1: can drop, be bought and be crafted (`is_obtainable()`). 0: defined, and an item made of it loads and works, but nothing hands it out |
+
+Stage one is 24 materials, six of each kind. Mythril and adamantite are defined at
+stage 0, as are the eight materials of the old list that have no equivalent yet.
+Loot categories pick only obtainable materials, a dearer one less often (weight 1 /
+price multiplier); the content validator fails on a loot entry, recipe, starting kit
+or reward that names an item of a material that cannot be obtained. Nothing wears
+yet: notches and hardness are shown on the tooltip and used from step 5.
+
+### 2.3b Armour class
+5e rules, worked out in `CharacterStats.apply_equipment_bonuses()` from what is worn
+and stored in `CharacterStats.armor_class`:
+
+**AC = body armour base + Dexterity modifier as the armour allows + shield + the
+armour's and the shield's own bonus + magic that grants AC.** Unarmoured: 10 +
+Dexterity.
+
+| Chest base | 5e armour | `armor_type` | `armor_base` | Dexterity | Strength | Stealth |
+|---|---|---|---|---|---|---|
+| `robe` | clothes | `""` | 0 (unarmoured, 10) | full | | |
+| `jerkin` | leather | `light` | 11 | full | | |
+| `scale_mail` | scale mail | `medium` | 14 | at most +2 | | disadvantage |
+| `chain_mail` | chain mail | `heavy` | 16 | none | 13 | disadvantage |
+| `chestplate` | plate | `heavy` | 18 | none | 15 | disadvantage |
+
+- A shield (`armor_type` `shield`, `armor_class_bonus` 2) adds 2.
+- **No other slot gives armour class**: head, shoulder, back, wrist, hands, waist,
+  legs, feet. Helmets, gauntlets, greaves and boots have `armor_type` `""`, no base
+  and no bonus. They stay in the game; their job comes in a later phase.
+- Body armour and a shield add the higher of their own craftsmanship and magic bonus.
+- Magic that grants AC says so in `ItemData.stat_bonuses` (`{"ac": 1}`: the ring and
+  the cloak of protection) and counts from any slot.
+- A wearer below the body armour's Strength requirement is 10 feet slower
+  (`CharacterStats.is_slowed_by_armor()`, applied in `get_modified_speed_feet()`).
+- Body armour needs the class's proficiency for its category and a shield needs
+  `shields` (`CharacterStats.is_proficient_with_armor`; SRD: fighter all, cleric
+  light, medium and shields, rogue light, wizard none). Without it
+  (`wears_untrained_armor()`): disadvantage on attack rolls and no spellcasting
+  (`SpellManager.can_cast` refuses). Clothes and the other slots need no proficiency.
+- `get_armor_class_breakdown()` gives the parts as `[{label, value}]`; the character
+  sheet shows them. Status effects and cover are added at the moment of an attack.
+- `armor_class` is a stored field, recalculated by `recalculate_derived_stats()`.
+  An enemy has no equipment: 10 + its Dexterity modifier, until the bestiary.
+
+### 2.4 Damage
+Damage types are strings: `physical, slashing, piercing, bludgeoning, fire, cold,
+lightning, acid, poison, necrotic, radiant, force, psychic`
+(`CombatManager.is_damage_type`). A weapon attack deals its weapon's type, an unarmed
+strike bludgeoning, a spell or a status tick its own.
+
+**One pipeline.** Every loss of hit points goes through
+`CombatManager.deal_damage(source, target, amount, damage_type, context)`: weapon
+hits, spells, status ticks, and `Combatant.take_damage()` for damage with nobody
+behind it. Nothing else calls `CharacterStats.take_damage`. `context` says what the
+damage came from: `kind` (`weapon`, `spell`, `effect`; `other` when left out),
+`is_critical`, and `weapon`, `weapon_instance`, `spell_id` or `effect_id`. It returns
+the damage event. The steps, in order:
+
+1. `EventBus.damage_incoming(event)`: `event.amount` is what was rolled, and a
+   listener may change it.
+2. The target's immunity (no damage), resistance (half, rounded down) and
+   vulnerability (double) to the type, as in 5e. Both together: halved, then doubled.
+3. If that would leave the target on 0: `EventBus.dropping_to_zero(event)`. A listener
+   may set `event.prevented = true` (with `event.hp_left`, 1 by default, and
+   `event.prevented_by`, a name to show).
+4. The hit points go. `EventBus.damage_applied(event)`: `event.amount` is now the hit
+   points lost (0 for an immune target). `EventBus.damage_dealt(attacker, target,
+   amount, is_critical, damage_type)` follows when any were lost; it is the short
+   form for listeners that only need to know someone was hurt, and carries the type
+   as the `CombatManager.DamageType` enum.
+5. Death, when the target is on 0.
+
+The event is one Dictionary through all the steps: `source, target, damage_type,
+amount, rolled, is_critical, kind, context, immune, resistant, vulnerable, response
+("" | "immune" | "resisted" | "vulnerable"), prevented, hp_left, prevented_by,
+hp_before, hp_after, killed`.
+
+**An attack roll is announced** with `EventBus.attack_resolved(event)` once it is
+made and its damage applied, hit or miss, by `make_attack` (weapons) and
+`make_spell_attack` (spells): `attacker, target, kind ("weapon" | "unarmed" |
+"spell"), roll (the natural d20), hit, is_crit, is_fumble, outcome ("critical" |
+"hit" | "miss" | "natural_1"), weapon (ItemData or null), weapon_instance (the item
+instance in the attacker's hand, or {}), natural_weapon (no item instance behind a
+weapon attack: an unarmed strike, a creature's own attack), weapon_name, damage_type,
+is_ranged, two_handed, two_handed_grip, damage, damage_response, spell_id, result`.
+Durability (step 5) listens here.
+
+**Who resists what.** `Combatant.get_resistances()`, `get_vulnerabilities()` and
+`get_immunities()` gather damage types from: the body's own lists
+(`damage_resistances`, `damage_vulnerabilities`, `damage_immunities`; an enemy gets
+them from `resistances`, `vulnerabilities`, `immunities` in its row of
+`World.ENEMY_TYPE_DEFS`), the race (`RaceData.resistance_types`,
+`vulnerability_types`, `immunity_types`), the class (`ClassData.damage_resistances`,
+...), every equipped item (`ItemData.damage_resistances`, ...) and active status
+effects (`modifiers.resistances`, ...). Only real damage types count: an elf's
+resistance to charm is not one. `CombatManager.get_damage_response(target, type)`
+says what would happen without dealing anything; the attack readout shows it.
+In the game now: skeletons are vulnerable to bludgeoning, dwarves resist poison, and
+the Elixir of Fire Resistance gives the `fire_resistance` effect.
+
+**Features** that act through the hooks live in `FeatureManager`
+(`autoload/feature_manager.gd`), which also keeps what each character has used since
+its last long rest. The first: Relentless Endurance (`relentless_endurance` in a
+half-orc's racial traits) answers `dropping_to_zero` once between long rests.
+
+**Showing it.** The floating number, the combat log and the attack readout say when
+damage was resisted, doubled or negated (`DamagePopup.response`,
+`ui/combat_log.gd`, `preview_attack().damage_response`).
 
 ### 2.5 Skills (canonical ids)
 `athletics; acrobatics, sleight_of_hand, stealth; arcana, history, investigation,
@@ -221,7 +376,7 @@ intimidation, performance, persuasion`.
 ## 3. Data schemas (Dictionaries)
 
 **Status effect:**
-`{effect_id, display_name, kind: "buff"|"debuff", tick: {timing: "turn_start"|"turn_end", damage_dice: "1d4", damage_type: String, heal_dice: String} (optional), modifiers: {ac: int, speed_tiles: int, attack_advantage: bool, attack_disadvantage: bool, grants_advantage_to_attackers: bool, incapacitated: bool, no_reactions: bool} (all optional), save_to_end: {stat: String, dc: int} (optional), default_duration: int, description}`
+`{effect_id, display_name, kind: "buff"|"debuff", tick: {timing: "turn_start"|"turn_end", damage_dice: "1d4", damage_type: String, heal_dice: String} (optional), modifiers: {ac: int, speed_tiles: int, attack_advantage: bool, attack_disadvantage: bool, grants_advantage_to_attackers: bool, incapacitated: bool, no_reactions: bool, resistances: [damage type], vulnerabilities: [damage type], immunities: [damage type]} (all optional), save_to_end: {stat: String, dc: int} (optional), default_duration: int, description}`
 
 **Spell:**
 `{spell_id, display_name, level: 0-9 (0 = cantrip), school, classes: ["wizard","cleric",...], casting_time: "action"|"bonus_action"|"reaction", range_tiles: int (0 = self), target_type: "enemy"|"ally"|"self"|"point", area_radius_tiles: int (0 = single target), attack_roll: bool, save: {stat, half_on_save: bool} (optional), damage_dice, damage_type, heal_dice, applies_effect: {effect_id, duration} (optional), concentration: bool, duration_turns, description}`
@@ -272,6 +427,7 @@ crisis `{crisis_id, display_name, phases: [{phase: int, name, description}]}`.
     | `action_id` | `params` | Costs | Adds to the result |
     |---|---|---|---|
     | `attack` | `{target: Combatant}` | action | the `CombatManager.make_attack` result (`hit`, `damage`, `damage_type`, `is_crit`, `weapon_name`, `is_ranged`, `advantage`, `disadvantage`, `reasons`, `cover_bonus`, `distance`, ...), `target` |
+    | `swap_weapons` | | action in a fight; nothing outside one | `weapon_set` (the set now in hand), `weapon_name` |
     | `dash` | | action | `movement_added` |
     | `disengage` | | action | |
     | `dodge` | | action | |
@@ -279,23 +435,28 @@ crisis `{crisis_id, display_name, phases: [{phase: int, name, description}]}`.
     | `use_item` | `{item: instance}` | action | `cast` for a scroll or wand |
     | `move` | `{path: Array[Vector2i]}` from the combatant's tile | a tile of movement per tile | `steps` |
     | `end_turn` | | | |
+    | `equip` | `{item: instance, slot}`; with `from_slot`, a move between the weapon sets | refused in a fight | |
+    | `unequip` | `{slot}`; `item` names which ring or trinket | refused in a fight | |
 
     In a fight a request is approved only on the combatant's own turn. Outside a
-    fight nothing is spent and there is no turn to wait for: items, moves and spells
-    on oneself are free, and `attack`, `dash`, `disengage` and `dodge` are refused
-    ("Not in combat"). A `reaction` spell cannot be cast yet.
-  - **An attack is one weapon attack on a hostile, and the weapon follows the
-    target.** An adjacent target: the melee weapon in the main hand, or an unarmed
-    strike. A target beyond reach: the ranged weapon the combatant carries, when the
-    target is within the weapon's maximum range and in line of sight
-    (`CombatGrid.has_line_of_sight`). With nothing but a ranged weapon an adjacent
-    target is shot, or struck unarmed when the weapon cannot be fired. Refused, with
-    the reason: a target beyond reach and no ranged weapon; beyond the maximum
-    range; out of sight; a two-handed weapon, melee or ranged, beside a full off
-    hand. What is in the main hand never stops a shot: drawing and stowing a weapon
-    is the free object interaction, and there is no weapon-swap action. Any
-    combatant attacks this way; the weapons come from `get_melee_weapon()` and
-    `get_ranged_weapon()`.
+    fight nothing is spent and there is no turn to wait for: items, moves, spells on
+    oneself, swapping weapon sets and changing gear are free, and `attack`, `dash`,
+    `disengage` and `dodge` are refused ("Not in combat"). In a fight the only way
+    to change what is in hand is `swap_weapons`: `equip` and `unequip` are refused
+    whoever's turn it is. A `reaction` spell cannot be cast yet.
+  - **An attack is one weapon attack on a hostile, made with the weapon set in
+    hand and nothing else.** A melee weapon, or an unarmed strike, reaches an
+    adjacent target. A ranged weapon shoots a target within its maximum range and in
+    line of sight, an adjacent one included, at disadvantage. In sight means: no
+    wall on the straight line between the two tiles (`CombatGrid.has_line_of_sight`)
+    and not every corner of the target's tile hidden (`CombatGrid.get_cover`).
+    Refused, with the reason: a target beyond reach; beyond the maximum range; out
+    of sight; a two-handed weapon beside a full off hand. When
+    the other weapon set could make the attack the refusal says so ("Out of reach -
+    swap to the Oak Light Crossbow"; for the action bar's question with no target,
+    "No enemy in reach - swap to the Oak Light Crossbow"). Attack never reaches for
+    the other set by itself. Any combatant attacks this way; the weapon comes from
+    `get_weapon()`.
   - An attack is resolved at once: the roll and the damage happen inside the
     request. A melee attack shows its floating number at once. A ranged one sends
     a `Projectile` (`scripts/projectile.gd`: drawn in code, display only, moved in
@@ -303,7 +464,7 @@ crisis `{crisis_id, display_name, phases: [{phase: int, name, description}]}`.
     the target, and the number appears when it lands. A hostile that is attacked
     from outside the fight joins it (`add_combatant`).
   - `get_attack_targets(combatant)` lists the living hostiles the combatant could
-    attack from where it stands, by weapon, reach, range and line of sight; it says
+    attack from where it stands with the set in hand, by reach, range and line of sight; it says
     nothing about the turn. `preview_attack(combatant, target)` is what attacking
     one target would be: `{ok, reason}` as `check_action` answers it, plus `target`,
     `profile`, `weapon_name`, `damage_text`, `distance` and `hit_chance` (the
@@ -312,7 +473,7 @@ crisis `{crisis_id, display_name, phases: [{phase: int, name, description}]}`.
   - **Anything that acts in a fight asks first.** `Combatant.can_act()` is true outside
     a fight and, inside one, only for the turn-holder. Never keep a second idea of
     whose turn it is (a flag, an index in a UI widget).
-  - `ACTION_BAR` lists the seven actions of the action bar in button and key order.
+  - `ACTION_BAR` lists the eight actions of the action bar in button and key order.
   - A fight starts by itself when a living hostile is within `detection_range` of the
     player; hostiles within `activation_range` join, with the whole party.
     `start_combat(participants)` starts one explicitly. `add_combatant()` brings a
@@ -335,28 +496,32 @@ crisis `{crisis_id, display_name, phases: [{phase: int, name, description}]}`.
   - `scripts/initiativetracker.gd`, `scripts/turn_ui.gd` and the action bar only
     draw what the controller says.
 - **CombatManager** rolls every die of a fight. It owns `get_attack_profile`,
-  `get_attack_modifiers`, `get_hit_chance`, `make_attack`, `roll_attack`,
-  `roll_damage`, `apply_damage`, `make_saving_throw`, `roll_initiative`,
+  `get_attack_modifiers`, `get_hit_chance`, `make_attack`, `make_spell_attack`,
+  `roll_attack`, `roll_damage`, `deal_damage` (the damage pipeline, section 2.4),
+  `get_damage_response`, `make_saving_throw`, `roll_initiative`,
   `trigger_opportunity_attack`. It reads StatusEffectManager for advantage, AC
   modifiers and incapacitation, and `scripts/combat_grid.gd` for
   `has_line_of_sight`, `get_cover_ac_bonus`, `is_flanking` and `get_distance_tiles`
   (Chebyshev). It rolls and applies; it does not know whose turn it is.
-  - `get_attack_profile(combatant, target)` is how the combatant attacks that
-    target, by 5e rules, as numbers: `{weapon, weapon_name, damage_dice,
-    flat_damage, damage_type, ability, ability_modifier, proficient, attack_bonus,
-    two_handed_grip, is_ranged, range_normal, range_max, usable, reason}`. The
-    weapon follows the target (melee in reach, ranged beyond it; see the `attack`
-    request above); without a target it is the weapon in hand.
-    `get_melee_profile(combatant)` and `get_ranged_profile(combatant)` (`{}` with no
-    ranged weapon) give the two on their own, `get_unarmed_profile` the unarmed
-    strike. Strength, or Dexterity for a finesse weapon when it is the higher, and
-    always Dexterity for a ranged weapon, for the roll and the damage alike; the
-    proficiency bonus only with proficiency; the larger dice of a versatile weapon
-    when the off hand is empty; an unarmed strike (1 + Strength modifier,
-    bludgeoning, proficient) with no weapon. `range_normal` and `range_max` are
-    tiles (`get_weapon_range`). `usable` is false, with the reason, for a two-handed
-    weapon, melee or ranged, beside a full off hand. `get_damage_text(profile)` is
-    the damage as the player reads it ("1d8+2 slashing").
+  - `get_attack_profile(combatant)` is how the combatant attacks right now, with
+    the weapon set in hand, by 5e rules, as numbers: `{weapon, weapon_instance,
+    weapon_name, damage_dice, flat_damage, damage_bonus, damage_type, ability,
+    ability_modifier, proficient, attack_bonus, two_handed_grip, is_ranged,
+    range_normal, range_max, usable, reason}`. `get_set_profile(combatant,
+    set_index)` is the same for one of its sets (what a swap would give),
+    `get_unarmed_profile` the unarmed strike, `build_attack_profile(combatant,
+    weapon, set_index)` any weapon. Strength, or Dexterity for a finesse weapon
+    when it is the higher, and always Dexterity for a ranged weapon, for the roll
+    and the damage alike; the proficiency bonus only with proficiency; the larger
+    dice of a versatile weapon when the off hand of its set is empty; an unarmed
+    strike (1 + Strength modifier, bludgeoning, proficient) with no weapon. The
+    piece in hand adds its own bonus, read from the item instance
+    (`Combatant.get_weapon_instance`): the higher of its craftsmanship and magic
+    bonus to the attack roll, its magic bonus to the damage. `range_normal` and
+    `range_max` are tiles (`get_weapon_range`). `usable` is false, with the reason,
+    for a two-handed weapon beside a full off hand (equipping prevents the pairing;
+    a state forced some other way still cannot attack). `get_damage_text(profile)`
+    is the damage as the player reads it ("1d8+2 slashing").
   - `get_attack_modifiers(attacker, target, profile)` is everything that bears on
     the roll before the die is cast, and why: `{advantage, disadvantage,
     advantage_reasons, disadvantage_reasons, reasons, attack_bonus, target_ac,
@@ -364,9 +529,16 @@ crisis `{crisis_id, display_name, phases: [{phase: int, name, description}]}`.
     target (disadvantage); a heavily laden party member (disadvantage); for a melee
     attack, flanking (advantage); for a ranged attack, a target beyond the weapon's
     normal range (disadvantage, "long range") and a hostile next to the attacker
-    that is not incapacitated (disadvantage, "enemy adjacent"); cover from
-    `CombatGrid.get_cover_ac_bonus` on the target's AC ("half cover"), which only an
-    attack from beyond reach can meet. Advantage and disadvantage together cancel.
+    that is not incapacitated (disadvantage, "enemy adjacent"); cover on the
+    target's AC, which only an attack from beyond reach can meet. Cover is the 5e
+    rule for a grid (`CombatGrid.get_cover`): from the corner of the attacker's
+    tile with the best view, lines go to the four corners of the target's tile;
+    one or two of them blocked is half cover (+2, "half cover"), three is
+    three-quarters cover (+5), four is no line of sight. Only walls block (there
+    is no closed door yet; `CombatGrid._blocks_sight` is where one would). A line
+    along a wall's face or touching its corner is not blocked, so a clear shot
+    down a corridor has no cover; a gap of no width between two wall corners
+    that touch is blocked. Advantage and disadvantage together cancel.
     `reasons` are words to show the player; the `REASON_*` constants name them.
   - `get_hit_chance(attacker, target, profile)` turns those modifiers into the
     chance to hit, exactly and without rolling: `{chance (0 to 1), percent, needed
@@ -377,17 +549,23 @@ crisis `{crisis_id, display_name, phases: [{phase: int, name, description}]}`.
     shown is what is rolled. Interface code shows this; it never rolls.
   - `make_attack(attacker, target, profile)` is the one weapon attack, melee or
     ranged: profile, d20, damage (dice doubled on a critical hit, plus the same
-    ability modifier), applied with the weapon's damage type. The Attack action
+    ability modifier), put through `deal_damage` with the weapon's damage type. In
+    its result `damage` is the hit points lost, `damage_rolled` what the dice gave,
+    `damage_response` what the target's nature did to it. `make_spell_attack(caster,
+    target, spell)` is the same for a spell with an attack roll. The Attack action
     and opportunity attacks of the player, companions and enemies all come through
     it. `roll_attack(attacker, target, profile)` rolls without applying. Neither
     judges reach, range or sight: that is the controller's check. An opportunity
-    attack is always made with the melee weapon or an unarmed strike.
+    attack is made with the melee weapon in hand; a reactor holding a ranged weapon
+    makes an unarmed strike.
   - A dodging target gives the attacker disadvantage and makes Dexterity saves with
     advantage.
   - Reactions: an opportunity attack spends the reactor's `reaction_used`, which
     comes back at the start of the reactor's own turn. A combatant that has
     disengaged provokes none.
-- **SpellManager** resolves casts through CombatManager and StatusEffectManager, reads
+- **SpellManager** resolves casts through CombatManager, which rolls every die of a
+  spell (attack rolls, damage, saves) and applies its damage, and through
+  StatusEffectManager. It reads
   slot tables from `ClassDatabase.get_class_data(class_id).get_spell_slots(character_level, spell_level)`,
   restores slots on `rest_taken("long")`, and grants class spells when a caster is first
   asked for its list and again on `player_leveled_up`. A spell aimed at a point takes
@@ -403,10 +581,15 @@ crisis `{crisis_id, display_name, phases: [{phase: int, name, description}]}`.
   `Companion`, on the party team); the world spawns them on `companion_recruited` and,
   if a fight is running, adds them to it. `rejoin_party()` returns a dismissed
   companion to the party.
-- **SaveManager** writes `{version: 3, game_version, timestamp, player: {stats,
+- **SaveManager** writes `{version: 4, game_version, timestamp, player: {stats,
   position_x, position_y}, systems: {...}, world: {seed, biome, enemies, ground_items,
-  explored, companions}}`. Equipment serializes as `{character_uid: {slot:
-  instance-dict, or Array for rings and trinkets}}`. See section 1a.
+  explored, companions}}`. `systems.inventory` is `{items, gold, equipped_items:
+  {character_uid: {slot: instance-dict, or Array for rings and trinkets}},
+  weapon_sets: {character_uid: the set in hand}}`; the slots are those of section
+  2.2. `systems.features` is `{used: {character_uid: [feature ids]}}`. Migrations:
+  format 3 had one pair of hands and a `ranged` slot, whose item `_migrate_v3_to_v4`
+  moves to `main_hand_2` (set one stays in hand). Item ids written with a renamed
+  material need no migration (section 2.3). See section 1a.
 
 ## 5. UI
 
@@ -428,24 +611,23 @@ crisis `{crisis_id, display_name, phases: [{phase: int, name, description}]}`.
 - **The action bar** (`scenes/ui/action_bar.tscn`, `ui/action_bar.gd`; one
   `scenes/ui/action_button.tscn` per action) sits in the middle of the bottom bar
   (`scripts/bottomui.gd`). Its buttons follow `CombatController.ACTION_BAR`: Attack,
-  Cast, Use Item, Dash, Disengage, Dodge, End Turn, keys 1 to 7. Every frame it asks
+  Cast, Use Item, Dash, Disengage, Dodge, Swap, End Turn, keys 1 to 8. Every frame it asks
   `check_action()` for each and shows the answer: a button that cannot be used is
   disabled and carries the reason. A press, or the number key, goes to
   `combatant.choose_action(action_id)`, which asks the controller. Above the buttons
   it shows the turn resources of whoever holds the turn. A new action needs an id in
   the controller, a button in the scene and a title in the bar; the bar holds no
   rules of its own. A click on the bottom bar is not a click on the map. The Attack
-  button names what `CombatManager` says the combatant attacks with: one weapon as
-  name and damage, a melee and a ranged weapon as a line each ("Longsword 1d8+2",
-  "Light Crossbow 1d8+1"). A button that can be pressed may carry a note in the
-  reason's place (`show_action(..., note)`): Attack uses it for a ranged weapon that
-  cannot be fired.
+  button names the weapon in hand and its damage ("Longsword", "1d8+2 slashing");
+  the Swap button shows what the other weapon set holds ("Light Crossbow", "1d8+1
+  piercing", or "Longsword", "+ Shield"). Eight buttons fit between the bar's side
+  panels at 148 pixels each; a ninth would not.
 - **Aiming an attack.** Picking Attack (button or key 1) starts aiming; Esc or key 1
   again puts it away. While aiming, `GridCharacter` draws what the controller says
-  and decides nothing: the tiles in reach, the normal and maximum range of the
-  ranged weapon as outlines, a marker on every enemy in `get_attack_targets()`, and
+  and decides nothing: the tiles in reach, for a ranged weapon in hand its normal
+  and maximum range as outlines, a marker on every enemy in `get_attack_targets()`, and
   the enemy under the pointer picked out, in red when it cannot be attacked. The
-  bar's hint line says how far each weapon reaches. The readout beside the enemy
+  bar's hint line says how far the weapon in hand reaches. The readout beside the enemy
   under the pointer is a scene of its own (`scenes/ui/attack_preview.tscn`,
   `ui/attack_preview.gd`, on a CanvasLayer the world creates): it shows
   `combatant.get_aim_preview()`, which is the controller's `preview_attack()`
@@ -454,6 +636,14 @@ crisis `{crisis_id, display_name, phases: [{phase: int, name, description}]}`.
   enemy sends the `attack` request; a refusal is shown and leaves the attack
   selected while someone else can still be attacked; a click on no enemy puts the
   attack away.
+- **The character sheet** (`scripts/character_screen.gd`) shows both weapon sets, one
+  under the other, with a caption that says which is in hand and a SWAP button, and
+  under the armour class the parts it is made of. It changes nothing itself: a
+  drop on a slot sends `equip`, a drop on the pack `unequip`, a drag between the
+  same hand of the two sets `equip` with `from_slot`, the SWAP button
+  `swap_weapons`, a right-click `use_item` - all through the combatant whose sheet
+  it is. A refusal is shown as a notification. An item's tooltip names its material,
+  notches, hardness and trait.
 - After any UI change, run the screenshot tour and look at the pictures.
 
 ## 6. Art

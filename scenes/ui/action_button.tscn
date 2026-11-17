@@ -3,7 +3,7 @@
 [ext_resource type="Script" path="res://ui/action_button.gd" id="1_script"]
 
 [node name="ActionButton" type="Button"]
-custom_minimum_size = Vector2(156, 112)
+custom_minimum_size = Vector2(148, 128)
 focus_mode = 0
 toggle_mode = true
 script = ExtResource("1_script")
@@ -57,7 +57,7 @@ clip_text = true
 
 [node name="Reason" type="Label" parent="Margin/Column"]
 unique_name_in_owner = true
-custom_minimum_size = Vector2(0, 34)
+custom_minimum_size = Vector2(0, 50)
 layout_mode = 2
 size_flags_vertical = 3
 theme_override_colors/font_color = Color(0.95, 0.62, 0.3, 1)
@@ -65,4 +65,4 @@ theme_override_font_sizes/font_size = 12
 text = "reason"
 vertical_alignment = 2
 autowrap_mode = 3
-max_lines_visible = 2
+max_lines_visible = 3

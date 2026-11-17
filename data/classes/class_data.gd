@@ -22,6 +22,11 @@ class_name ClassData
 @export var skill_proficiency_choices: Array[String] = []  # Available skills to choose from
 @export var tool_proficiencies: Array[String] = []  # e.g. ["thieves_tools"] for Rogue
 
+# What the class makes its members to damage, by damage type ("fire", "poison")
+@export var damage_resistances: Array[String] = []
+@export var damage_vulnerabilities: Array[String] = []
+@export var damage_immunities: Array[String] = []
+
 # Primary ability scores (for quick reference)
 @export var primary_abilities: Array[String] = []  # ["str", "con"] for Fighter, ["int"] for Wizard
 

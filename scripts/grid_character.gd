@@ -12,7 +12,7 @@ class_name GridCharacter
 @export var path_preview_color: Color = Color(0, 1, 0, 0.5)
 @export var waypoint_color: Color = Color(1, 1, 0, 0.8)
 
-# Aiming an attack: the reach of the melee weapon, the range of the ranged one,
+# Aiming an attack: the reach of a melee weapon, the range of a ranged one,
 # an enemy that can be attacked, one that cannot
 const AIM_REACH_COLOR := Color(1.0, 0.6, 0.1)
 const AIM_RANGE_COLOR := Color(0.45, 0.75, 1.0)
@@ -341,10 +341,11 @@ func _update_aim(pointer_tile: Vector2i):
 	queue_redraw()
 
 func _draw_aim():
-	"""What an aimed attack looks like on the map: the tiles the melee weapon
-	reaches, how far the ranged weapon shoots plainly and at most, a marker on
-	every enemy that can be attacked, and the enemy under the pointer picked
-	out - in red when it cannot be attacked."""
+	"""What an aimed attack looks like on the map: how far the weapon in hand
+	reaches - the tiles next to the character, and for a ranged weapon how far
+	it shoots plainly and at most - a marker on every enemy that can be
+	attacked, and the enemy under the pointer picked out, in red when it cannot
+	be attacked."""
 	var half := Vector2(tile_size / 2.0, tile_size / 2.0)
 	var tile := Vector2(tile_size, tile_size)
 
@@ -357,11 +358,11 @@ func _draw_aim():
 			if dx != 0 or dy != 0:
 				draw_rect(Rect2(Vector2(dx, dy) * tile_size - half, tile), Color(AIM_REACH_COLOR, 0.3), false, 2.0)
 
-	var ranged: Dictionary = CombatManager.get_ranged_profile(self)
-	if not ranged.is_empty() and ranged.usable:
-		_draw_range_outline(int(ranged.range_normal), Color(AIM_RANGE_COLOR, 0.6), 2.0)
-		if int(ranged.range_max) > int(ranged.range_normal):
-			_draw_range_outline(int(ranged.range_max), Color(AIM_RANGE_COLOR, 0.3), 1.0)
+	var in_hand: Dictionary = CombatManager.get_attack_profile(self)
+	if in_hand.is_ranged and in_hand.usable:
+		_draw_range_outline(int(in_hand.range_normal), Color(AIM_RANGE_COLOR, 0.6), 2.0)
+		if int(in_hand.range_max) > int(in_hand.range_normal):
+			_draw_range_outline(int(in_hand.range_max), Color(AIM_RANGE_COLOR, 0.3), 1.0)
 
 	for target in _aim_targets:
 		if is_instance_valid(target) and target != _aim_hover:
@@ -394,8 +395,8 @@ func _draw_target_corners(centre: Vector2, color: Color, width: float):
 func choose_action(action_id: String):
 	"""The player picked an action, on the action bar or with its number key.
 	Attack starts aiming (the next click names the target), Cast opens the
-	spellbook and Use Item the character sheet; Dash, Disengage, Dodge and End
-	Turn are asked of the CombatController at once. A refusal is shown with
+	spellbook and Use Item the character sheet; Dash, Disengage, Dodge, Swap and
+	End Turn are asked of the CombatController at once. A refusal is shown with
 	its reason."""
 	if is_dying:
 		return
@@ -437,6 +438,15 @@ func choose_action(action_id: String):
 				end_turn()
 			else:
 				EventBus.ui_notification.emit("End Turn: %s" % str(check.reason), "warning")
+
+		CombatController.ACTION_SWAP_WEAPONS:
+			var result: Dictionary = combat.request_action(self, action_id)
+			if result.ok:
+				attack_mode = false
+				EventBus.ui_notification.emit("In hand: %s." % str(result.weapon_name), "info")
+			else:
+				EventBus.ui_notification.emit("Swap: %s" % str(result.reason), "warning")
+			queue_redraw()
 
 		CombatController.ACTION_DASH, CombatController.ACTION_DISENGAGE, CombatController.ACTION_DODGE:
 			var result: Dictionary = combat.request_action(self, action_id)
@@ -884,20 +894,6 @@ func get_turn_number() -> int:
 # ============================================================================
 # COMBAT SYSTEM (REFACTORED TO USE CHARACTERSTATS)
 # ============================================================================
-
-func take_damage(amount: int):
-	"""Direct damage (traps, hazards) also shows a number and updates the HUD.
-	NOTE: attacks should go through CombatManager.apply_damage instead."""
-	if not stats:
-		return
-
-	var world = get_parent()
-	if world:
-		var popup_pos = global_position + Vector2(0, -tile_size * 0.8)
-		DamagePopup.spawn_damage_popup_at(world, popup_pos, amount, false)
-
-	super.take_damage(amount)
-	EventBus.player_hp_changed.emit(stats.current_hp, stats.max_hp)
 
 func _on_damage_dealt_event(attacker, target, amount, is_critical, damage_type):
 	"""Keep the HP signal in sync when CombatManager applies damage to stats"""

@@ -7,9 +7,19 @@ signal combat_started(enemies: Array)
 signal combat_ended(victory: bool)
 signal turn_started(character)
 signal turn_ended(character)
-signal damage_dealt(attacker, target, amount, is_critical, damage_type)  # damage_type: CombatManager.DamageType
+signal damage_dealt(attacker, target, amount, is_critical, damage_type)  # hit points were lost. damage_type: CombatManager.DamageType
 signal character_died(character)
 signal enemy_died(enemy)
+
+# === THE DAMAGE PIPELINE'S HOOKS ===
+# CombatManager emits these as it resolves an attack and applies damage. Each
+# carries one event Dictionary (keys: CombatManager, "THE DAMAGE PIPELINE"). A
+# listener of damage_incoming or dropping_to_zero may change the event to change
+# the outcome; the other two report what happened.
+signal attack_resolved(event: Dictionary)   # an attack roll was made and its damage, if any, applied
+signal damage_incoming(event: Dictionary)   # damage is about to be applied: a listener may change event.amount
+signal damage_applied(event: Dictionary)    # damage was applied (event.amount may be 0: immune, or reduced to nothing)
+signal dropping_to_zero(event: Dictionary)  # the damage would leave the target on 0 hit points: a listener may set event.prevented
 
 # === PLAYER EVENTS ===
 signal player_moved(old_pos: Vector2i, new_pos: Vector2i)

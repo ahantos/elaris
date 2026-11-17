@@ -8,10 +8,12 @@ var EnemyScene = preload("res://scenes/enemy.tscn")
 const GroundItemScript = preload("res://scripts/ground_item.gd")
 const AttackPreviewScene = preload("res://scenes/ui/attack_preview.tscn")
 
-# Enemy identities assigned at spawn (loot tables exist for all four types)
+# Enemy identities assigned at spawn (loot tables exist for all four types).
+# "resistances", "vulnerabilities" and "immunities" list the damage types the
+# type takes half, double and no damage from.
 const ENEMY_TYPE_DEFS: Dictionary = {
 	"goblin":   {"color": Color(0.35, 0.75, 0.25), "base_hp": 10},
-	"skeleton": {"color": Color(0.92, 0.92, 0.82), "base_hp": 12},
+	"skeleton": {"color": Color(0.92, 0.92, 0.82), "base_hp": 12, "vulnerabilities": ["bludgeoning"]},
 	"bandit":   {"color": Color(0.85, 0.45, 0.15), "base_hp": 14},
 	"wolf":     {"color": Color(0.55, 0.55, 0.65), "base_hp": 8},
 }
@@ -181,6 +183,7 @@ func _connect_world_signals():
 	EventBus.companion_dismissed.connect(_on_companion_dismissed)
 	EventBus.game_over.connect(_on_game_over)
 	EventBus.status_effect_ticked.connect(_on_status_effect_ticked)
+	EventBus.damage_applied.connect(_on_damage_applied)
 
 func _begin_new_game(created_stats = null):
 	"""Start a new game in the freshly generated dungeon. created_stats is the
@@ -211,7 +214,7 @@ func _grant_starting_kit():
 	var kit_class = player.stats.class_id if player.stats.class_id != "" else "fighter"
 	for instance in ItemDatabase.get_starting_kit(kit_class):
 		InventoryManager.add_item(instance)
-	# Wear the kit: an unequipped fighter starts at AC 11 instead of 17
+	# Wear the kit: an unequipped fighter starts at AC 11 instead of 18
 	var worn = InventoryManager.auto_equip_from_inventory(player.stats)
 	print("World: starting kit granted (", kit_class, "), ", worn, " items equipped")
 
@@ -338,7 +341,7 @@ func _on_character_created(new_stats):
 	# character's equipment bookkeeping and bag first, so nothing is orphaned
 	# under the old stats object and no second starting kit piles up.
 	if player.stats:
-		InventoryManager.equipped_items.erase(player.stats)
+		InventoryManager.forget_character(player.stats)
 	InventoryManager.items.clear()
 
 	player.stats = new_stats
@@ -579,6 +582,9 @@ func _spawn_enemy(enemy_type: String, level: int, max_hp: int, grid_pos: Vector2
 	enemy.enemy_type = enemy_type
 	enemy.enemy_level = level
 	enemy.enemy_color = type_def.get("color", Color(1, 0, 0))
+	enemy.damage_resistances.assign(type_def.get("resistances", []))
+	enemy.damage_vulnerabilities.assign(type_def.get("vulnerabilities", []))
+	enemy.damage_immunities.assign(type_def.get("immunities", []))
 	enemy.max_hp = max(1, max_hp)
 	enemy.current_hp = enemy.max_hp if current_hp < 0 else clampi(current_hp, 1, enemy.max_hp)
 	_enemy_serial += 1
@@ -881,13 +887,23 @@ func _on_game_over():
 	print("World: game over screen shown")
 
 func _on_status_effect_ticked(target, effect_id: String, amount: int):
-	"""Floating combat text when a status effect ticks damage or healing"""
+	"""Floating combat text when a status effect heals. What one takes away is
+	shown with the rest of the damage that nobody presents (_on_damage_applied)."""
 	if target == null or not (target is Node2D) or not is_instance_valid(target):
 		return
-	var definition = StatusEffectManager.get_effect_definition(effect_id)
-	var tick = definition.get("tick", {})
-	var popup_pos = target.global_position + Vector2(0, -10)
+	var tick = StatusEffectManager.get_effect_definition(effect_id).get("tick", {})
 	if str(tick.get("heal_dice", "")) != "":
-		DamagePopup.spawn_heal_popup_at(self, popup_pos, amount)
-	else:
-		DamagePopup.spawn_damage_popup_at(self, popup_pos, amount, false)
+		DamagePopup.spawn_heal_popup_at(self, target.global_position + Vector2(0, -10), amount)
+
+func _on_damage_applied(event: Dictionary):
+	"""Floating numbers for damage that no attack or cast presents: a status
+	effect's tick, a trap. The combat controller shows its own attacks and casts."""
+	if not str(event.get("kind", "")) in [CombatManager.KIND_EFFECT, CombatManager.KIND_OTHER]:
+		return
+	var target = event.get("target")
+	if target == null or not (target is Node2D) or not is_instance_valid(target):
+		return
+	var amount: int = int(event.get("amount", 0))
+	var response: String = str(event.get("response", ""))
+	if amount > 0 or response != "":
+		DamagePopup.spawn_damage_popup_at(self, target.global_position + Vector2(0, -10), amount, false, response)

@@ -70,6 +70,15 @@ theme_override_colors/font_color = Color(0.68, 0.7, 0.78, 1)
 theme_override_font_sizes/font_size = 15
 text = "1d8+1 piercing damage"
 
+[node name="Response" type="Label" parent="Panel/Column"]
+unique_name_in_owner = true
+custom_minimum_size = Vector2(242, 0)
+layout_mode = 2
+theme_override_colors/font_color = Color(1, 0.85, 0.2, 1)
+theme_override_font_sizes/font_size = 15
+text = "Vulnerable to bludgeoning: double damage"
+autowrap_mode = 3
+
 [node name="Advantage" type="Label" parent="Panel/Column"]
 unique_name_in_owner = true
 custom_minimum_size = Vector2(242, 0)

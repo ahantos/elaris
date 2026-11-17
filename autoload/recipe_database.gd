@@ -31,13 +31,13 @@ func _reg(r: Dictionary):
 func _register_forge_recipes():
 	"""Generate all forge recipes: metal weapons, metal armor, wood weapons."""
 
-	# Tier data: [material_id, unit_count, gold_cost, required_level, auto_known]
+	# [material_id, unit_count, gold_cost, required_level, auto_known]
+	# Only materials that can be obtained: a recipe never makes anything else.
 	var metals := [
-		["bronze",     3,   10,  1, true],
-		["iron",       3,   25,  3, true],
-		["steel",      4,   75,  6, false],
-		["mithril",    4,  300, 10, false],
-		["adamantine", 5, 1000, 15, false],
+		["bronze",         3,   10,  1, true],
+		["wrought_iron",   3,   25,  3, true],
+		["steel",          4,   75,  6, false],
+		["damascus_steel", 4,  300, 10, false],
 	]
 
 	var weapon_bases := [
@@ -72,7 +72,7 @@ func _register_forge_recipes():
 		var gold: int        = metal[2]
 		var req_level: int   = metal[3]
 		var known: bool      = metal[4]
-		var mat_name: String = mat_id.capitalize()
+		var mat_name: String = ItemDatabase.get_material(mat_id).material_name
 
 		for wb in weapon_bases:
 			var base_id: String  = wb[0]
@@ -98,7 +98,7 @@ func _register_forge_recipes():
 		var gold: int        = metal[2]
 		var req_level: int   = metal[3]
 		var known: bool      = metal[4]
-		var mat_name: String = mat_id.capitalize()
+		var mat_name: String = ItemDatabase.get_material(mat_id).material_name
 
 		for ab in armor_bases:
 			var base_id: String = ab[0]
@@ -118,11 +118,11 @@ func _register_forge_recipes():
 			})
 
 	# Wood weapons
-	# Tier data: [material_id, unit_count, gold_cost, required_level, auto_known]
+	# [material_id, unit_count, gold_cost, required_level, auto_known]
 	var woods := [
-		["oak", 3,  8, 1, true],
-		["ash", 3, 20, 3, true],
-		["yew", 4, 60, 6, false],
+		["oak",     3,  8, 1, true],
+		["ash",     3, 20, 3, true],
+		["hickory", 4, 60, 6, false],
 	]
 
 	var wood_bases := [
@@ -138,7 +138,7 @@ func _register_forge_recipes():
 		var gold: int        = wood[2]
 		var req_level: int   = wood[3]
 		var known: bool      = wood[4]
-		var mat_name: String = mat_id.capitalize()
+		var mat_name: String = ItemDatabase.get_material(mat_id).material_name
 
 		for wb in wood_bases:
 			var base_id: String = wb[0]
@@ -169,7 +169,7 @@ func _register_alchemy_recipes():
 		"recipe_id":            "brew_potion_healing_minor",
 		"display_name":         "Brew Minor Healing Potion",
 		"station":              "alchemy_table",
-		"inputs":               [{"item_id": "material_linen", "count": 2}],
+		"inputs":               [{"item_id": "material_fine_linen", "count": 2}],
 		"output_item_id":       "potion_healing_minor",
 		"output_count":         1,
 		"gold_cost":            5,
@@ -183,7 +183,7 @@ func _register_alchemy_recipes():
 		"display_name":         "Brew Healing Potion",
 		"station":              "alchemy_table",
 		"inputs":               [
-			{"item_id": "material_linen",  "count": 2},
+			{"item_id": "material_fine_linen",  "count": 2},
 			{"item_id": "material_silk",   "count": 1},
 		],
 		"output_item_id":       "potion_healing",
@@ -200,7 +200,7 @@ func _register_alchemy_recipes():
 		"station":              "alchemy_table",
 		"inputs":               [
 			{"item_id": "material_silk",   "count": 3},
-			{"item_id": "material_linen",  "count": 2},
+			{"item_id": "material_fine_linen",  "count": 2},
 		],
 		"output_item_id":       "potion_healing_greater",
 		"output_count":         1,
@@ -215,7 +215,7 @@ func _register_alchemy_recipes():
 		"recipe_id":            "brew_antidote",
 		"display_name":         "Brew Antidote",
 		"station":              "alchemy_table",
-		"inputs":               [{"item_id": "material_linen", "count": 3}],
+		"inputs":               [{"item_id": "material_fine_linen", "count": 3}],
 		"output_item_id":       "antidote",
 		"output_count":         1,
 		"gold_cost":            15,
@@ -230,8 +230,8 @@ func _register_alchemy_recipes():
 		"display_name":         "Brew Elixir of Strength",
 		"station":              "alchemy_table",
 		"inputs":               [
-			{"item_id": "material_hide",   "count": 2},
-			{"item_id": "material_linen",  "count": 1},
+			{"item_id": "material_pigskin",   "count": 2},
+			{"item_id": "material_fine_linen",  "count": 1},
 		],
 		"output_item_id":       "elixir_strength",
 		"output_count":         1,
@@ -246,8 +246,8 @@ func _register_alchemy_recipes():
 		"display_name":         "Brew Elixir of Agility",
 		"station":              "alchemy_table",
 		"inputs":               [
-			{"item_id": "material_leather", "count": 1},
-			{"item_id": "material_linen",   "count": 2},
+			{"item_id": "material_cowhide", "count": 1},
+			{"item_id": "material_fine_linen",   "count": 2},
 		],
 		"output_item_id":       "elixir_agility",
 		"output_count":         1,
@@ -263,7 +263,7 @@ func _register_alchemy_recipes():
 		"station":              "alchemy_table",
 		"inputs":               [
 			{"item_id": "material_silk",    "count": 2},
-			{"item_id": "material_leather", "count": 1},
+			{"item_id": "material_cowhide", "count": 1},
 		],
 		"output_item_id":       "elixir_resist_fire",
 		"output_count":         1,
@@ -279,7 +279,7 @@ func _register_alchemy_recipes():
 		"station":              "alchemy_table",
 		"inputs":               [
 			{"item_id": "material_silk",   "count": 2},
-			{"item_id": "material_linen",  "count": 3},
+			{"item_id": "material_fine_linen",  "count": 3},
 		],
 		"output_item_id":       "elixir_mana",
 		"output_count":         1,
@@ -294,8 +294,8 @@ func _register_alchemy_recipes():
 		"display_name":         "Brew Elixir of Fortitude",
 		"station":              "alchemy_table",
 		"inputs":               [
-			{"item_id": "material_hide",    "count": 3},
-			{"item_id": "material_leather", "count": 1},
+			{"item_id": "material_pigskin",    "count": 3},
+			{"item_id": "material_cowhide", "count": 1},
 		],
 		"output_item_id":       "elixir_fortitude",
 		"output_count":         1,
@@ -329,7 +329,7 @@ func _register_cooking_recipes():
 		"recipe_id":            "cook_cooked_meat",
 		"display_name":         "Cook Meat",
 		"station":              "cooking_fire",
-		"inputs":               [{"item_id": "material_hide", "count": 1}],
+		"inputs":               [{"item_id": "material_pigskin", "count": 1}],
 		"output_item_id":       "cooked_meat",
 		"output_count":         1,
 		"gold_cost":            3,
@@ -343,8 +343,8 @@ func _register_cooking_recipes():
 		"display_name":         "Cook Hearty Stew",
 		"station":              "cooking_fire",
 		"inputs":               [
-			{"item_id": "material_hide",  "count": 1},
-			{"item_id": "material_linen", "count": 1},
+			{"item_id": "material_pigskin",  "count": 1},
+			{"item_id": "material_fine_linen", "count": 1},
 		],
 		"output_item_id":       "hearty_stew",
 		"output_count":         1,
@@ -367,7 +367,7 @@ func _register_enchanting_recipes():
 	   of creating a new item instance.
 	"""
 
-	# Weapon enchantments: consume silk (tier 1-2) or mithril-grade (tier 3)
+	# Weapon enchantments: silk, then silver, then Damascus steel as well
 	_reg({
 		"recipe_id":            "enchant_weapon_plus1",
 		"display_name":         "Enchant Weapon +1",
@@ -390,14 +390,14 @@ func _register_enchanting_recipes():
 		"station":              "enchanting_table",
 		"inputs":               [
 			{"item_id": "material_silk",    "count": 3},
-			{"item_id": "material_mithril", "count": 1},
+			{"item_id": "material_silver", "count": 1},
 		],
 		"output_item_id":       "",
 		"output_count":         0,
 		"gold_cost":            500,
 		"required_player_level": 10,
 		"auto_known":           false,
-		"description":          "Deeply enchant a weapon (+2 magic modifier). Requires mithril dust.",
+		"description":          "Deeply enchant a weapon (+2 magic modifier). Requires silver dust.",
 		"is_enchant":           true,
 		"enchant_slot":         "main_hand",
 		"plus_level":           2,
@@ -409,15 +409,15 @@ func _register_enchanting_recipes():
 		"station":              "enchanting_table",
 		"inputs":               [
 			{"item_id": "material_silk",       "count": 4},
-			{"item_id": "material_mithril",    "count": 2},
-			{"item_id": "material_adamantine", "count": 1},
+			{"item_id": "material_silver",    "count": 2},
+			{"item_id": "material_damascus_steel", "count": 1},
 		],
 		"output_item_id":       "",
 		"output_count":         0,
 		"gold_cost":            2000,
 		"required_player_level": 15,
 		"auto_known":           false,
-		"description":          "Master enchant a weapon (+3 magic modifier, cap). Requires adamantine dust.",
+		"description":          "Master enchant a weapon (+3 magic modifier, cap). Requires Damascus steel filings.",
 		"is_enchant":           true,
 		"enchant_slot":         "main_hand",
 		"plus_level":           3,
@@ -446,7 +446,7 @@ func _register_enchanting_recipes():
 		"station":              "enchanting_table",
 		"inputs":               [
 			{"item_id": "material_silk",    "count": 3},
-			{"item_id": "material_mithril", "count": 1},
+			{"item_id": "material_silver", "count": 1},
 		],
 		"output_item_id":       "",
 		"output_count":         0,
@@ -465,8 +465,8 @@ func _register_enchanting_recipes():
 		"station":              "enchanting_table",
 		"inputs":               [
 			{"item_id": "material_silk",       "count": 4},
-			{"item_id": "material_mithril",    "count": 2},
-			{"item_id": "material_adamantine", "count": 1},
+			{"item_id": "material_silver",    "count": 2},
+			{"item_id": "material_damascus_steel", "count": 1},
 		],
 		"output_item_id":       "",
 		"output_count":         0,

@@ -30,8 +30,8 @@ const PROC_KILL_TARGETS: Array = [
 ]
 # [item_id, plural display label]
 const PROC_COLLECT_TARGETS: Array = [
-	["material_hide", "Hides"],
-	["material_iron", "Iron Ingots"],
+	["material_pigskin", "Hides"],
+	["material_wrought_iron", "Iron Ingots"],
 	["potion_healing_minor", "Minor Healing Potions"],
 ]
 

@@ -1,8 +1,9 @@
 # attack_preview.gd
 # The readout beside an enemy while an attack is aimed at it
 # (scenes/ui/attack_preview.tscn): the weapon that would be used, the chance to
-# hit, the damage, and what gives the roll advantage or disadvantage or the
-# target cover - or, for an enemy that cannot be attacked, the reason.
+# hit, the damage, whether the target resists it, is vulnerable or immune to
+# it, and what gives the roll advantage or disadvantage or the target cover -
+# or, for an enemy that cannot be attacked, the reason.
 # Display only. Everything it shows is the CombatController's answer
 # (preview_attack), which the combatant keeps while the pointer rests on an
 # enemy (Combatant.get_aim_preview).
@@ -25,6 +26,7 @@ var _keep_clear: Control = null
 @onready var _weapon: Label = %Weapon
 @onready var _chance: Label = %Chance
 @onready var _damage: Label = %Damage
+@onready var _response: Label = %Response
 @onready var _advantage: Label = %Advantage
 @onready var _disadvantage: Label = %Disadvantage
 @onready var _cover: Label = %Cover
@@ -50,7 +52,7 @@ func get_lines() -> Array[String]:
 	"""The text on show, top to bottom: for checks"""
 	var lines: Array[String] = []
 	if _panel.visible:
-		for label in [_target, _weapon, _chance, _damage, _advantage, _disadvantage, _cover, _refusal]:
+		for label in [_target, _weapon, _chance, _damage, _response, _advantage, _disadvantage, _cover, _refusal]:
 			if label.visible:
 				lines.append(label.text)
 	return lines
@@ -80,11 +82,15 @@ func _fill(preview: Dictionary, target: Combatant):
 	_chance.visible = can_attack
 	_damage.text = "%s damage" % str(preview.get("damage_text", ""))
 	_damage.visible = can_attack
+	# What the target's nature does to this kind of damage: half, double, none
+	var response_text: String = str(preview.get("damage_response", {}).get("text", ""))
+	_response.text = response_text
+	_response.visible = can_attack and response_text != ""
 
 	_show_reasons(_advantage, "Advantage", hit.get("advantage_reasons", []), cancelled, can_attack)
 	_show_reasons(_disadvantage, "Disadvantage", hit.get("disadvantage_reasons", []), cancelled, can_attack)
 	var cover_bonus: int = int(hit.get("cover_bonus", 0))
-	_cover.text = "%s cover: +%d armour class" % ["Full" if cover_bonus >= CombatGrid.COVER_FULL else "Half", cover_bonus]
+	_cover.text = "%s cover: +%d armour class" % ["Three-quarters" if cover_bonus >= CombatGrid.COVER_THREE_QUARTERS else "Half", cover_bonus]
 	_cover.visible = can_attack and cover_bonus > 0
 
 	_refusal.text = "Cannot attack: %s" % str(preview.get("reason", ""))

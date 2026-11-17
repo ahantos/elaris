@@ -9,7 +9,8 @@
 #   modifiers: {ac: int, speed_tiles: int, attack_bonus: int, save_bonus: int,
 #               attack_advantage: bool, attack_disadvantage: bool,
 #               grants_advantage_to_attackers: bool, grants_disadvantage_to_attackers: bool,
-#               incapacitated: bool, no_reactions: bool} (all optional)
+#               incapacitated: bool, no_reactions: bool,
+#               resistances: [damage type], vulnerabilities: [...], immunities: [...]} (all optional)
 #   save_to_end: {stat: String, dc: int} (optional - end-of-turn save shakes the effect off)
 #   persists_through_rest: bool (optional - survives a long rest; default false)
 #   default_duration: int (turns; -1 = until removed / long rest)
@@ -178,6 +179,15 @@ static func get_definitions() -> Dictionary:
 		"modifiers": {"attack_advantage": true, "grants_disadvantage_to_attackers": true},
 		"default_duration": 3,
 		"description": "Unseen: advantage on own attacks, attackers have disadvantage."
+	}
+
+	defs["fire_resistance"] = {
+		"effect_id": "fire_resistance",
+		"display_name": "Fire Resistance",
+		"kind": "buff",
+		"modifiers": {"resistances": ["fire"]},
+		"default_duration": 10,
+		"description": "Warded against flame: fire damage is halved."
 	}
 
 	defs["shielded"] = {

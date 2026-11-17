@@ -14,6 +14,18 @@ var party_members: Array[CharacterStats] = []
 # NOTE: "rings" and "trinkets" slots store Arrays instead of single items
 var equipped_items: Dictionary = {}
 
+# Weapon sets. A character has two, each with a main hand and an off hand, and
+# holds one of them. Set one's slots are "main_hand" and "off_hand", set two's
+# "main_hand_2" and "off_hand_2" (weapon_slot()). An item's equip_slot names the
+# hand it goes in ("main_hand" or "off_hand") and it fits that hand of either
+# set. Only the set in hand counts for attacks, armour class and anything else
+# the gear gives.
+const WEAPON_SET_COUNT: int = 2
+const HANDS: Array[String] = ["main_hand", "off_hand"]
+
+# CharacterStats -> the weapon set in hand (1 or 2). Absent: set one.
+var weapon_sets_in_hand: Dictionary = {}
+
 const STARTING_GOLD: int = 50
 
 func _ready():
@@ -25,6 +37,7 @@ func reset():
 	Called by GameManager.reset_game_state() before a new game or a load."""
 	items.clear()
 	equipped_items.clear()
+	weapon_sets_in_hand.clear()
 	party_members.clear()
 	gold = STARTING_GOLD
 	EventBus.inventory_changed.emit()
@@ -210,91 +223,164 @@ func get_max_slots() -> int:
 # === EQUIPMENT SYSTEM ===
 
 func equip_item(item_instance: Dictionary, character: CharacterStats, slot: String) -> bool:
-	"""
-	Equip an item on a character
-	Returns false if slot occupied or item incompatible
-	Handles multi-item slots (rings, trinkets) as arrays
-	"""
-	
+	"""Equip an item from the pack on a character. slot is an equipment slot; a
+	weapon or shield goes in its hand of either weapon set ("main_hand",
+	"off_hand_2"). Returns false, and changes nothing, when the item does not
+	belong in the slot (get_equip_refusal) or what the slot held cannot go back
+	into the pack. Rings and trinkets are kept as arrays."""
 	if not item_instance.has("item_data"):
 		push_error("InventoryManager.equip_item: Invalid item instance!")
 		return false
-	
-	var item_data: ItemData = item_instance.item_data
-	
-	# Check if item can be equipped in this slot
-	if item_data.equip_slot != slot:
-		print("Cannot equip ", item_data.item_name, " in slot ", slot)
-		return false
 
-	# A two-handed weapon takes both hands: nothing goes in the off hand with it
-	var hands_refusal: String = _two_handed_refusal(item_data, character, slot)
-	if hands_refusal != "":
-		print("Cannot equip ", item_data.item_name, ": ", hands_refusal)
-		EventBus.ui_notification.emit(hands_refusal, "warning")
+	var item_data: ItemData = item_instance.item_data
+	var refusal: String = get_equip_refusal(item_instance, character, slot)
+	if refusal != "":
+		print("Cannot equip ", item_data.item_name, ": ", refusal)
 		return false
 
 	# Initialize equipped items dict for this character if needed
 	if not equipped_items.has(character):
 		equipped_items[character] = {}
-	
+
 	# Handle multi-item slots (rings, trinkets)
 	if slot == "rings" or slot == "trinkets":
-		# Store as array
 		if not equipped_items[character].has(slot):
 			equipped_items[character][slot] = []
-		
-		# Add to array
 		equipped_items[character][slot].append(item_instance)
-		
-		# Remove from inventory
 		remove_item(item_instance.instance_id)
-		
-		# Update character stats
 		recalculate_character_stats(character)
-		
+
 		print("Equipped %s in %s slot (%d total)" % [item_data.item_name, slot, equipped_items[character][slot].size()])
 		EventBus.item_equipped.emit(item_instance, slot)
 		EventBus.equipment_changed.emit(character)
-		
 		return true
-	
-	# Handle single-item slots (normal equipment)
-	# Check if slot is occupied
+
+	# Single-item slots: what is there goes back to the pack first
 	if equipped_items[character].has(slot):
-		# Unequip current item first; abort if it can't return to inventory
 		unequip_item(character, slot)
 		if equipped_items[character].has(slot):
 			print("Cannot equip ", item_data.item_name, ": slot occupied and inventory full")
 			return false
-	
-	# Equip the item
+
 	equipped_items[character][slot] = item_instance
-	
-	# Remove from inventory
 	remove_item(item_instance.instance_id)
-	
-	# Update character stats
 	recalculate_character_stats(character)
-	
+
 	print("Equipped %s in %s slot" % [item_data.item_name, slot])
 	EventBus.item_equipped.emit(item_instance, slot)
 	EventBus.equipment_changed.emit(character)
-	
 	return true
 
-func _two_handed_refusal(item_data: ItemData, character: CharacterStats, slot: String) -> String:
-	"""Why the item cannot go in the slot as far as hands are concerned, or ""
-	when it can: a two-handed weapon needs the off hand empty, and nothing goes
-	in the off hand while a two-handed weapon is in the main hand."""
-	if slot == "main_hand" and item_data.is_two_handed:
-		if not get_equipped_item(character, "off_hand").is_empty():
-			return "%s needs both hands - empty the off hand first." % item_data.item_name
-	elif slot == "off_hand":
-		var main_data = get_equipped_item(character, "main_hand").get("item_data")
-		if main_data is ItemData and main_data.is_two_handed:
-			return "%s needs both hands - nothing can be held in the off hand with it." % main_data.item_name
+func get_equip_refusal(item_instance: Dictionary, character: CharacterStats, slot: String) -> String:
+	"""Why an item cannot go in a slot, or "" when it can: it is not made for
+	that slot, or the hands of the weapon set do not allow it (a two-handed
+	weapon needs the off hand of its set empty, and nothing goes in the off hand
+	beside one - so a bow or crossbow never shares a set with a shield)."""
+	var item_data = item_instance.get("item_data")
+	if not (item_data is ItemData):
+		return "That cannot be equipped"
+	if item_data.equip_slot == "" or item_data.equip_slot != hand_of_slot(slot):
+		return "%s does not go there" % item_data.item_name
+	var set_index: int = set_of_slot(slot)
+	if set_index == 0:
+		return ""
+	if item_data.equip_slot == "main_hand":
+		return _hands_refusal(item_data, get_equipped_item(character, weapon_slot("off_hand", set_index)).get("item_data"))
+	return _hands_refusal(get_equipped_item(character, weapon_slot("main_hand", set_index)).get("item_data"), item_data)
+
+func _hands_refusal(main_data, off_data) -> String:
+	"""Why a main hand and an off hand cannot be one weapon set, or "" when they can"""
+	if main_data is ItemData and main_data.is_two_handed and off_data is ItemData:
+		return "%s needs both hands - nothing can be held in the off hand of its set." % main_data.item_name
 	return ""
+
+func move_equipped_item(character: CharacterStats, from_slot: String, to_slot: String) -> bool:
+	"""Move a weapon or shield from one weapon set to the same hand of the
+	other; what was there changes places with it. Returns false, and changes
+	nothing, when the two slots are not the same hand of different sets or the
+	move would leave a two-handed weapon beside a full off hand."""
+	if get_move_refusal(character, from_slot, to_slot) != "":
+		return false
+	var slots: Dictionary = equipped_items[character]
+	var moving: Dictionary = slots[from_slot]
+	var displaced: Dictionary = slots.get(to_slot, {})
+	slots[to_slot] = moving
+	if displaced.is_empty():
+		slots.erase(from_slot)
+	else:
+		slots[from_slot] = displaced
+	recalculate_character_stats(character)
+	EventBus.equipment_changed.emit(character)
+	return true
+
+func get_move_refusal(character: CharacterStats, from_slot: String, to_slot: String) -> String:
+	"""Why move_equipped_item would refuse, or "" when it would not"""
+	var moving: Dictionary = get_equipped_item(character, from_slot)
+	if moving.is_empty() or set_of_slot(from_slot) == 0 or set_of_slot(to_slot) == 0 \
+			or set_of_slot(from_slot) == set_of_slot(to_slot) or hand_of_slot(from_slot) != hand_of_slot(to_slot):
+		return "That cannot be moved there"
+	var hand: String = hand_of_slot(from_slot)
+	var other_hand: String = "off_hand" if hand == "main_hand" else "main_hand"
+	var displaced = get_equipped_item(character, to_slot).get("item_data")
+	for arrangement in [[to_slot, moving.get("item_data")], [from_slot, displaced]]:
+		var beside = get_equipped_item(character, weapon_slot(other_hand, set_of_slot(arrangement[0]))).get("item_data")
+		var refusal: String = _hands_refusal(arrangement[1], beside) if hand == "main_hand" else _hands_refusal(beside, arrangement[1])
+		if refusal != "":
+			return refusal
+	return ""
+
+# === WEAPON SETS ===
+
+func weapon_slot(hand: String, set_index: int) -> String:
+	"""The equipment slot of a hand ("main_hand", "off_hand") in a weapon set
+	(1 or 2): "main_hand" for set one, "main_hand_2" for set two"""
+	return hand if set_index <= 1 else "%s_%d" % [hand, set_index]
+
+func hand_of_slot(slot: String) -> String:
+	"""The kind of slot an item must be made for to go in an equipment slot:
+	the hand for a weapon-set slot ("main_hand_2" -> "main_hand"), the slot
+	itself for everything else"""
+	for hand in HANDS:
+		if slot == hand or slot.begins_with(hand + "_"):
+			return hand
+	return slot
+
+func set_of_slot(slot: String) -> int:
+	"""The weapon set an equipment slot belongs to (1 or 2), or 0 for a slot
+	that is not a hand"""
+	for hand in HANDS:
+		for set_index in range(1, WEAPON_SET_COUNT + 1):
+			if slot == weapon_slot(hand, set_index):
+				return set_index
+	return 0
+
+func get_weapon_set(character: CharacterStats) -> int:
+	"""The weapon set the character has in hand: 1 or 2"""
+	return int(weapon_sets_in_hand.get(character, 1))
+
+func set_weapon_set(character: CharacterStats, set_index: int):
+	"""Put a weapon set in the character's hands. What the other set gave - a
+	shield's armour class - goes with it. In a fight only the CombatController
+	does this, when it approves a swap_weapons request."""
+	weapon_sets_in_hand[character] = clampi(set_index, 1, WEAPON_SET_COUNT)
+	recalculate_character_stats(character)
+	EventBus.equipment_changed.emit(character)
+
+func swap_weapon_set(character: CharacterStats) -> int:
+	"""Take the other weapon set in hand; returns the set now in hand"""
+	set_weapon_set(character, get_weapon_set(character) % WEAPON_SET_COUNT + 1)
+	return get_weapon_set(character)
+
+func get_hand_item(character: CharacterStats, hand: String, set_index: int = 0) -> Dictionary:
+	"""The item instance in a hand ("main_hand", "off_hand") of a weapon set;
+	set_index 0 is the set in hand. {} for an empty hand."""
+	if character == null:
+		return {}
+	return get_equipped_item(character, weapon_slot(hand, set_index if set_index > 0 else get_weapon_set(character)))
+
+func is_weapon_set_empty(character: CharacterStats, set_index: int) -> bool:
+	"""True when neither hand of a weapon set holds anything"""
+	return get_hand_item(character, "main_hand", set_index).is_empty() and get_hand_item(character, "off_hand", set_index).is_empty()
 
 func unequip_item(character: CharacterStats, slot: String, item_instance: Dictionary = {}) -> Dictionary:
 	"""
@@ -359,6 +445,12 @@ func unequip_item(character: CharacterStats, slot: String, item_instance: Dictio
 	
 	return unequipped
 
+func forget_character(character: CharacterStats):
+	"""Drop everything kept for a character that is no more: what it had
+	equipped and which weapon set it held (the character was created anew)"""
+	equipped_items.erase(character)
+	weapon_sets_in_hand.erase(character)
+
 func get_equipped_item(character: CharacterStats, slot: String) -> Dictionary:
 	"""Get item equipped in a specific slot (returns first item for multi-slots)"""
 	if equipped_items.has(character) and equipped_items[character].has(slot):
@@ -378,25 +470,35 @@ func get_equipped_accessories(character: CharacterStats, slot: String) -> Array:
 	return []
 
 func get_all_equipped_items(character: CharacterStats) -> Array:
-	"""Get all equipped items for a character (flattens arrays for rings/trinkets)"""
-	if not equipped_items.has(character):
-		return []
-	
+	"""Everything the character has equipped, both weapon sets included
+	(flattens arrays for rings/trinkets)"""
+	return _equipped_items(character, false)
+
+func get_active_equipped_items(character: CharacterStats) -> Array:
+	"""What the character's gear gives it right now: everything worn, and the
+	weapon set in hand. The other set is carried, not used."""
+	return _equipped_items(character, true)
+
+func _equipped_items(character: CharacterStats, in_use_only: bool) -> Array:
 	var all_items = []
+	if not equipped_items.has(character):
+		return all_items
+	var in_hand: int = get_weapon_set(character)
 	for slot in equipped_items[character]:
+		var set_index: int = set_of_slot(slot)
+		if in_use_only and set_index != 0 and set_index != in_hand:
+			continue
 		var item = equipped_items[character][slot]
 		if item is Array:
 			# Flatten arrays (rings/trinkets)
 			all_items.append_array(item)
 		else:
 			all_items.append(item)
-	
 	return all_items
 
 func recalculate_character_stats(character: CharacterStats):
-	"""Recalculate character's stats based on equipped items"""
-	var equipped = get_all_equipped_items(character)
-	character.apply_equipment_bonuses(equipped)
+	"""Recalculate character's stats from the gear in use"""
+	character.apply_equipment_bonuses(get_active_equipped_items(character))
 
 func add_item_or_drop(item_instance: Dictionary) -> bool:
 	"""Add an item to the bag; if it does not fit, put it on the ground at the
@@ -414,7 +516,10 @@ func add_item_or_drop(item_instance: Dictionary) -> bool:
 
 func auto_equip_from_inventory(character: CharacterStats) -> int:
 	"""Equip every equippable bag item whose slot is still empty on the character
-	(used for starting kits). Returns how many items were equipped."""
+	(used for starting kits). A weapon or shield goes in weapon set one when its
+	hand is free there and the hands allow it, otherwise in set two: a fighter's
+	longsword and shield make set one and its crossbow set two. Returns how many
+	items were equipped."""
 	var equipped_count := 0
 	for item_instance in items.duplicate():
 		var item_data: ItemData = item_instance.get("item_data")
@@ -423,10 +528,16 @@ func auto_equip_from_inventory(character: CharacterStats) -> int:
 		var slot: String = item_data.equip_slot
 		if slot == "rings" or slot == "trinkets":
 			continue
-		if not get_equipped_item(character, slot).is_empty():
-			continue
-		if equip_item(item_instance, character, slot):
-			equipped_count += 1
+		var candidates: Array = [slot]
+		if slot in HANDS:
+			candidates = []
+			for set_index in range(1, WEAPON_SET_COUNT + 1):
+				candidates.append(weapon_slot(slot, set_index))
+		for candidate in candidates:
+			if get_equipped_item(character, candidate).is_empty() and get_equip_refusal(item_instance, character, candidate) == "":
+				if equip_item(item_instance, character, candidate):
+					equipped_count += 1
+				break
 	return equipped_count
 
 func is_party_member(character: CharacterStats) -> bool:
@@ -475,7 +586,9 @@ func set_party_members(members: Array):
 # === DATA EXPORT/IMPORT (for saving) ===
 
 func to_dict() -> Dictionary:
-	"""Export inventory data for saving (primitives only - see ARCHITECTURE_CONTRACTS.md)"""
+	"""Export inventory data for saving (primitives only - see ARCHITECTURE_CONTRACTS.md):
+	{items, gold, equipped_items: {character uid: {slot: item}}, weapon_sets:
+	{character uid: the set in hand}}"""
 	var item_list: Array = []
 	for item in items:
 		item_list.append(_instance_to_primitive(item))
@@ -497,10 +610,17 @@ func to_dict() -> Dictionary:
 				slots[slot] = _instance_to_primitive(entry)
 		equipped[uid] = slots
 
+	# The set in hand, for the characters whose equipment is saved above
+	var in_hand: Dictionary = {}
+	for character in equipped_items:
+		if "character_uid" in character and character.character_uid != "":
+			in_hand[character.character_uid] = get_weapon_set(character)
+
 	return {
 		"items": item_list,
 		"gold": gold,
-		"equipped_items": equipped
+		"equipped_items": equipped,
+		"weapon_sets": in_hand
 	}
 
 func _instance_to_primitive(item_instance: Dictionary) -> Dictionary:
@@ -540,6 +660,8 @@ func from_dict(data: Dictionary):
 
 	# Equipment: resolve character uids back to live CharacterStats
 	equipped_items.clear()
+	weapon_sets_in_hand.clear()
+	var in_hand: Dictionary = data.get("weapon_sets", {}) if data.get("weapon_sets") is Dictionary else {}
 	var equipped: Dictionary = data.get("equipped_items", {})
 	for uid in equipped:
 		var character = _resolve_character_uid(uid)
@@ -547,6 +669,7 @@ func from_dict(data: Dictionary):
 			print("InventoryManager: skipping equipment for unknown character uid '", uid, "'")
 			continue
 		equipped_items[character] = {}
+		weapon_sets_in_hand[character] = clampi(int(in_hand.get(uid, 1)), 1, WEAPON_SET_COUNT)
 		for slot in equipped[uid]:
 			var entry = equipped[uid][slot]
 			if entry is Array:

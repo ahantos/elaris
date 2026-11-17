@@ -53,11 +53,11 @@ enum ItemType {
 
 # Equipment stats (if applicable)
 @export_group("Equipment Stats")
-@export var equip_slot: String = ""  # "main_hand", "head", "chest", etc.
-@export var armor_class_bonus: int = 0  # AC bonus for armor
+@export var equip_slot: String = ""  # "main_hand", "off_hand", "head", "chest", etc. A weapon or shield goes in that hand of either weapon set
+@export var armor_class_bonus: int = 0  # What a shield adds to armour class (2). Body armour sets a base instead (armor_base)
 @export var damage_dice: String = ""  # "1d8" for weapons
 @export var damage_type: String = ""  # "slashing", "piercing", "bludgeoning"
-@export var stat_bonuses: Dictionary = {}  # {"str": 2, "dex": -1, etc.}
+@export var stat_bonuses: Dictionary = {}  # {"str": 2, "dex": -1, "ac": 1}; "ac" is a magic bonus to armour class, from any slot
 @export var special_properties: Array[String] = []  # ["finesse", "reach", "thrown"]
 
 # Weapon properties
@@ -70,12 +70,20 @@ enum ItemType {
 @export var range_normal: int = 0  # Tiles (5 ft each) a ranged weapon shoots without disadvantage
 @export var range_max: int = 0  # Tiles it shoots at all; beyond range_normal at disadvantage
 
-# Armor properties
+# Armor properties. Armour class comes from body armour and the shield alone:
+# every other piece has armor_type "" and gives none.
 @export var is_armor: bool = false
-@export var armor_type: String = ""  # "light", "medium", "heavy"
-@export var dex_bonus_limit: int = -1  # -1 = unlimited, 2 = max +2 DEX for medium armor
-@export var strength_requirement: int = 0
+@export var armor_type: String = ""  # "light", "medium", "heavy" for body armour, "shield", or "" for a piece that is not armour in the rules' sense
+@export var armor_base: int = 0  # The armour class a body armour sets (leather 11, plate 18); 0 for anything else
+@export var dex_bonus_limit: int = -1  # How much Dexterity modifier body armour lets through: -1 all, 2 medium, 0 heavy
+@export var strength_requirement: int = 0  # Below this Strength the wearer moves 10 feet slower
 @export var stealth_disadvantage: bool = false
+
+# What wearing or holding the item does to damage taken, by damage type
+# (contract strings: "fire", "poison", "bludgeoning")
+@export var damage_resistances: Array[String] = []
+@export var damage_vulnerabilities: Array[String] = []
+@export var damage_immunities: Array[String] = []
 
 # Consumable properties
 @export var is_consumable: bool = false
@@ -150,11 +158,15 @@ func get_full_name() -> String:
 	
 	return full_name
 
+func is_body_armor() -> bool:
+	"""True for armour that sets the wearer's armour class: light, medium or heavy"""
+	return is_armor and armor_base > 0
+
+func is_shield() -> bool:
+	return is_armor and armor_type == "shield"
+
 func get_calculated_value() -> int:
-	"""Get final gold value"""
-	if material:
-		return material.calculate_item_value(base_value, quality_modifier, magic_modifier)
-	
+	"""Get final gold value. base_value already holds the material's price."""
 	var value = base_value
 	if quality_modifier > 0:
 		value = int(value * (1.0 + quality_modifier * 0.5))
@@ -166,10 +178,7 @@ func get_calculated_durability() -> int:
 	"""Get final max durability"""
 	if not has_durability:
 		return 0
-	
-	if material:
-		return material.calculate_item_durability(max_durability, quality_modifier)
-	
+
 	var durability = max_durability
 	if quality_modifier > 0:
 		durability = int(durability * (1.0 + quality_modifier * 0.15))
