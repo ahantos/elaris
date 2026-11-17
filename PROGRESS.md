@@ -22,6 +22,12 @@ called `CURRENT_WORK.md` until Phase 1. The plan it tracks is in section 7 of
   smoke checks, no engine errors, 31 screenshots.
 - Standing agreement since 2026-11-16: commit as work proceeds, on the phase branch.
   Push and merge only when Ákos asks.
+- Two folders sit next to the repo since 2026-11-17. `..\elaris-worktrees\` holds
+  the separate working copy for whichever Phase 2 step is being built. `..\pxl\` is
+  a checkout of the drawing tool (https://github.com/uilianks/pxl). Temporary
+  session folders are not used for work any more: one was withdrawn mid-run and
+  stopped two background jobs.
+- `art_work\bakeoff\` is untracked while the art experiment is still running in it.
 
 ## Waiting on Ákos
 
@@ -57,7 +63,7 @@ exit test are in section 7 of the plan; the durability rules are in section 8.
 | 1 | One combatant base with teams for the player, enemies and companions; one authority for whose turn it is; the combat loop out of `world.gd` | Done 2026-11-17. Built on `phase-2-step-1`, reviewed, merged. Not yet played by Ákos |
 | 2 | Turn resources (movement, action, bonus action, reaction) and the action bar: Attack with the equipped weapon, Dash, Disengage, Dodge, End Turn | Done 2026-11-17. Built on `phase-2-step-2`, reviewed, merged. Not yet played by Ákos |
 | 3 | Ranged attacks: range, line of sight, targeting, hit chance shown before committing | Done 2026-11-17. Built on `phase-2-step-3`, reviewed, merged. Not yet played by Ákos |
-| 4 | One damage pipeline with types, resistance, vulnerability and hooks; 5e armour class; armour and material data reworked so materials add no stats; two weapon sets swapped with an action; the smaller fixes from step 3 (longbow range, cover) | Being built on branch `phase-2-step-4` by a background agent (started 2026-11-17). Not yet reviewed or merged. If the session that started it has ended: look at `git log phase-2-combat-core..phase-2-step-4`, run the checks on that branch, review, then merge |
+| 4 | One damage pipeline with types, resistance, vulnerability and hooks; 5e armour class; armour and material data reworked so materials add no stats; two weapon sets swapped with an action; the smaller fixes from step 3 (longbow range, cover) | Being built on branch `phase-2-step-4` by a background agent (started 2026-11-17), in the working copy at `C:\Users\Akos\Documents\GitHub\elaris-worktrees\step4`. Not yet reviewed or merged. It was interrupted once with only the material data rewritten and uncommitted. If the session that started it has ended: look at `git status` and `git log phase-2-combat-core..phase-2-step-4` in that working copy, run the checks there, finish or review, then merge |
 | 5 | Durability as designed: notches, marks, blows, hardness, debuffs, buffs, field kits and scrap, ageing, the segmented bar. Also, agreed 2026-11-17: the figure on the map shows what the character is wearing, assembled from layers (the placeholder set has layers for body, legs, boots, gloves, cloak, head and both hands; none for shoulder, wrist or waist), so a broken or missing piece is visible | |
 | 6 | Bestiary as data (goblin, skeleton, bandit, wolf, one boss); behaviours (rusher, archer, caster, pack); perception by line of sight; encounters by budget | |
 | 7 | Companions as party combatants that enemies target, driven by the same behaviours. Settle here, by Ákos playing both, whether companions default to player control or to acting on their own (he wondered on 2026-11-17 whether anyone wants to control four characters, then left the decision as it stands; my lean is AI by default because fights are frequent and small) | |

@@ -11,3 +11,8 @@ tools/out/
 
 # Art builds (previews, sheets, per-layer images) are regenerated from the art files
 art_work/out/
+
+# Art builds anywhere under art_work, and reference pictures that are not ours to publish
+art_work/**/out/
+art_work/local_refs/
+art_work/bakeoff/study/
