@@ -8,3 +8,6 @@ tmpclaude*
 
 # Check output (logs, screenshots)
 tools/out/
+
+# Art builds (previews, sheets, per-layer images) are regenerated from the art files
+art_work/out/
