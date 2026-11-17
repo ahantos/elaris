@@ -463,19 +463,87 @@ Made by Ákos on 2026-11-16.
 | 1 | Combat input | Weapon-based action bar. The light / medium / heavy buttons go |
 | 2 | Party in combat | The player controls each member on their turn, with an option to hand companions to AI |
 | 3 | Towns | Town screen plus a world map of locations |
-| 4 | Durability and repair | Keep. It is a core mechanic. How it works is still open and needs more thought (design brief below) |
+| 4 | Durability and repair | Keep. It is a core mechanic. Decided 2026-11-17: shape B (erosion), with critical hits as the main event, scaled by material, quality and magic. Start from the rules below and tune by play |
 | 5 | Level range | 1–5 for now, with expansion planned (below). Nothing may hard-code 5 |
 | 6 | Art | Own art eventually, drawn at 32×32. Until then the Dungeon Crawl Stone Soup CC0 tiles as placeholders, wired so own art drops in by replacing files (below) |
 | 7 | Names and lore | Deferred. The code's names stay until decided: Brackenford / Dawnwatch / Mournstead and Merchants' Guild / Order of the Dawn / Gravewardens. The design doc says Ironhold / Silverwood / Blackstone Keep and Royal Guard / Thieves Guild / Order of Light, and refers to a campaign setting that is not written down in the repo |
 | 8 | Multiplayer | Shelved for now. Every system assumes one local player |
 
-### Durability — design brief (open)
+### Durability
 
-Status: core mechanic, design undecided. Needed before Phase 2. Nothing in Phases 0–1
-depends on it.
+Status: decided 2026-11-17. Shape B below, built around critical hits, as a starting
+point to tune by play. The starting rules follow; the options that were considered are
+kept after them for reference.
 
-Today the field exists on every item instance and material tiers set its maximum
-(20 to 150), but nothing ever wears and repair has no caller.
+#### Starting rules (version 1)
+
+**Notches.** Weapons, shields, body armour and helmets have a small number of
+condition notches. Nothing else wears. Notches replace the unused 20-to-150 point
+durability value.
+
+| Material tier | Notches |
+|---|---|
+| Common | 3 |
+| Uncommon | 4 |
+| Rare | 5 |
+| Epic | 6 |
+| Legendary | 7 |
+
+Each level of craftsmanship quality adds one notch.
+
+**What wears gear: the extremes of the die.** Ordinary hits and misses never wear
+anything. Wear comes from natural 20s, natural 1s, and attacks aimed at gear.
+
+- **You are critically hit:** your shield loses a notch if you carry one, otherwise
+  your body armour does. Shields exist to take that blow.
+- **You roll a natural 1 on an attack:** your weapon loses a notch.
+- **You critically hit an armoured enemy:** its shield or armour loses a notch, and
+  its AC drops for everyone attacking it after you.
+- **Gear-targeting attacks:** a Sunder action, and creatures whose attacks corrode
+  (rust, acid), strip notches directly.
+
+**Material, quality and magic decide how bad it is.**
+
+- **Heavier blow.** A critical hit from a two-handed or bludgeoning weapon strips two
+  notches instead of one.
+- **Tier advantage.** If the attacking weapon's material tier is above the tier of the
+  piece it damages, it strips one extra notch. A fine blade shears cheap armour.
+- **Ward.** Magic gear resists: +1 ignores a lost notch 25% of the time, +2 50%, +3 75%.
+- More notches for better material and better craftsmanship, as in the table.
+
+**What a lost notch costs.**
+
+- Body armour and helmets: −1 AC per lost notch, never below the wearer's unarmoured AC.
+- Weapons: −1 to hit per lost notch.
+- Shields: full bonus until the last notch goes. They are a buffer, not a slope.
+- At zero notches the piece is **broken**: no bonus, a weapon cannot attack. It is
+  never destroyed and can always be repaired.
+
+**Repair.**
+
+- A repair kit restores one notch on one piece, out of combat.
+- The smith restores everything for gold; the cost per notch rises with material tier.
+- Looted gear arrives with notches already missing.
+
+**Dials to tune by play.** Notch counts per tier; whether ordinary hits should ever
+wear gear; the extra notches for heavy weapons and tier advantage; ward percentages;
+kit strength and smith prices; whether helmets wear at all.
+
+**Special effects to try once the base works.**
+
+- *Shield sacrifice:* when critically hit, choose to let the shield take two notches
+  and turn the critical hit into a normal one.
+- *Crit effects by damage type:* slashing rends armour (the standard notch),
+  bludgeoning dents it harder or staggers, piercing finds the gap and bleeds instead
+  of damaging gear.
+- *Material properties:* adamantine armour that critical hits cannot notch, silver
+  that notches easily, and similar.
+- *Scars:* a piece that has been broken and repaired loses a notch for good.
+
+#### Background: the options considered
+
+Before Phase 1 the field existed on every item instance and material tiers set its
+maximum (20 to 150), but nothing ever wore and repair had no caller.
 
 **The underlying tension.** The two games the pitch names treat armour in opposite
 ways. In 5e, armour makes you harder to hit and absorbs nothing; the rules have no
@@ -515,14 +583,14 @@ ordinary combat.
 7. **Field repair.** Kits and camp, or town only? Does a tool proficiency matter?
 8. **Which slots.** Weapon, shield and body armour only, or all thirteen?
 
-**Current lean, not a decision:** shape B in a restrained form. Keep 5e's to-hit. Give
-weapon, shield, body armour and helmet a small number of coarse notches set by
-material, lost on dice-driven events rather than every swing. Each notch is −1. At
-zero the piece is broken and unusable but never destroyed. Kits restore some notches
-in the field; the smith restores all. Magic gear wears more slowly. Sundering and
-gear-eating monsters are in.
+**Outcome:** shape B, as set out in the starting rules above. The sub-questions were
+answered as: wear inside a fight (1); armour makes you harder to hit (2); dice-driven
+triggers, critical hits above all (3); nothing destroyed, scars held back as a later
+option (4); sundering and corroding enemies are in (5); magic gear wears more slowly
+(6); kits in the field, the smith in town (7); weapon, shield, body armour and
+helmet (8).
 
-**Whatever shape is chosen, these hold:**
+**These hold whatever the tuning:**
 
 - Wear runs through the Phase 2 damage pipeline, so it covers the whole party and can
   be modified by materials, features and enchantments.

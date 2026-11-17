@@ -1,6 +1,6 @@
 # Progress
 
-Last updated: 2026-11-16
+Last updated: 2026-11-17
 
 This is the status file: what is done, what is next, what is waiting on Ákos. It was
 called `CURRENT_WORK.md` until Phase 1. The plan it tracks is in section 7 of
@@ -12,7 +12,7 @@ called `CURRENT_WORK.md` until Phase 1. The plan it tracks is in section 7 of
 |---|---|
 | 0. Truthful baseline | Done. Committed on `phase-0-truthful-baseline` |
 | 1. Game shell and state | Done. Committed on `phase-1-game-shell`, which builds on Phase 0. Not yet played by Ákos |
-| 2. Combat core | Next. Blocked on the durability decision |
+| 2. Combat core | Next. Durability is decided (2026-11-17); waiting for Ákos's go |
 
 - Nothing is pushed and nothing is merged into `main`. `main` is still the June commit.
 - `tools\run_checks.bat` passes at the Phase 1 commit: 154 smoke checks, no engine
@@ -24,8 +24,8 @@ called `CURRENT_WORK.md` until Phase 1. The plan it tracks is in section 7 of
 
 1. **Play the Phase 1 build:** menu, new game, save, load, die, load again. Say what
    feels wrong.
-2. **The durability design** (section 8 of the plan has the brief and eight
-   questions). Phase 2 cannot start without it.
+2. **Go for Phase 2.** Durability is settled: erosion built around critical hits,
+   starting rules in section 8 of the plan, to be tuned by play.
 3. **Merge and push:** whether Phases 0 and 1 go into `main`, and whether to push.
 4. `tilesets/TX Tileset Stone Ground.png` is unused and its licence is not recorded.
    Delete it?

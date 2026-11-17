@@ -100,7 +100,8 @@ a system as working because its manager runs; check that a player can reach it.
 ## Decisions already made (2026-11-16)
 Weapon-based action bar replaces the three attack buttons. The player controls each
 party member, with an AI option. Towns are a screen, with a world map of locations.
-Durability is a core mechanic; its design is still open. Levels 1-5 first. Art is
+Durability is a core mechanic: gear loses notches on critical hits and natural 1s,
+scaled by material, quality and magic (starting rules in section 8 of the plan). Levels 1-5 first. Art is
 32x32, own art later, DCSS CC0 tiles as placeholders. Multiplayer is shelved. Names
 and lore are deferred. Details in section 8 of the plan.
 
