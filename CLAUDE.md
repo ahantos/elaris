@@ -51,9 +51,10 @@ a system as working because its manager runs; check that a player can reach it.
   is read-only and comes from the controller.
 - `scripts/combatant.gd` - `Combatant`, the base of every creature that fights: tile
   and grid conversion, stats, team, `is_hostile_to()`, `is_alive()`, `can_act()`,
-  the resources of a turn (movement, action, bonus action, reaction), the weapon in
-  hand, walkability, the one A* pathfinder (`find_path`), HP bar and damage flash.
-  `scripts/grid_character.gd` (player: input, path preview), `scripts/enemy.gd` (enemy
+  the resources of a turn (movement, action, bonus action, reaction), the melee
+  weapon in hand and the ranged weapon carried, walkability, the one A* pathfinder
+  (`find_path`), HP bar and damage flash. `scripts/grid_character.gd` (player:
+  input, path preview, the markers of an aimed attack), `scripts/enemy.gd` (enemy
   AI) and `scripts/companion.gd` (follow, ally AI) extend it. Hostility is by team,
   never by "is it in `world.enemies`".
 - `scripts/combat_controller.gd` - `CombatController`, a Node under World and the one
@@ -63,15 +64,25 @@ a system as working because its manager runs; check that a player can reach it.
   one side is left. Attack, Cast, Use Item, Dash, Disengage, Dodge, a move and End
   Turn are all `request_action(combatant, action_id, params)`: it checks the turn
   and the cost, applies the action and returns the result. Player input, enemy AI
-  and companion AI all act through it. See contracts section 4.
-- `autoload/combat_manager.gd` - every die: `get_attack_profile()` (the weapon in
-  hand by 5e rules: ability, proficiency, versatile, unarmed), `make_attack()` (the
-  one weapon attack, for everyone), saving throws, opportunity attacks.
+  and companion AI all act through it. One Attack covers melee and ranged: the
+  weapon follows the target, and the controller checks reach, range and line of
+  sight. `get_attack_targets()` and `preview_attack()` tell the HUD who can be
+  attacked and what an attack would be. See contracts section 4.
+- `autoload/combat_manager.gd` - every die: `get_attack_profile()` (the weapon for a
+  target by 5e rules: melee in reach, ranged beyond; ability, proficiency,
+  versatile, unarmed), `get_attack_modifiers()` (advantage, disadvantage and cover,
+  with the reasons), `get_hit_chance()` (the exact chance, nothing rolled),
+  `make_attack()` (the one weapon attack, for everyone), saving throws,
+  opportunity attacks.
+- `scripts/projectile.gd` - the arrow a ranged attack shows on its way. Display only.
 - `scripts/initiativetracker.gd`, `scripts/turn_ui.gd` - display only; they show what
   the controller says and keep no turn state of their own.
 - `scripts/bottomui.gd` holds the bottom bar; the action bar in its middle is a scene
   (`scenes/ui/action_bar.tscn`, `ui/action_bar.gd`, `ui/action_button.gd`). It shows
   what `check_action()` answers and sends presses to `combatant.choose_action()`.
+- `scenes/ui/attack_preview.tscn`, `ui/attack_preview.gd` - the readout beside the
+  enemy an attack is aimed at: weapon, chance to hit, damage, reasons. It shows the
+  controller's `preview_attack()` answer and works nothing out itself.
 - `ui/*.gd` - panels built in code and registered with `UIManager`, which owns
   exclusivity and pausing. `ui/notification_toasts.gd` draws `EventBus.ui_notification`.
 - `scripts/character_screen.gd`, `scripts/save_load_menu.gd` - older screens with their
@@ -89,7 +100,8 @@ a system as working because its manager runs; check that a player can reach it.
 - Layout: `set_anchors_and_offsets_preset()`, not `set_anchors_preset()`, on any Control
   that is already in the tree. The latter keeps the current rectangle.
 - Speed is in feet on `CharacterStats` (30 = 6 tiles). `get_modified_movement_speed()`
-  returns tiles.
+  returns tiles. Weapon ranges (`ItemData.range_normal`, `range_max`) are in tiles:
+  read them through `CombatManager.get_weapon_range()`.
 - Anything the game gives the player goes through `InventoryManager.add_item_or_drop()`.
 - Item instances are Dictionaries wrapping an `ItemData` Resource. `Object.get()` takes
   one argument; a default value on a Resource is a script error.
@@ -115,7 +127,7 @@ a system as working because its manager runs; check that a player can reach it.
 | Key | Action |
 |---|---|
 | WASD / click | Move. Ctrl+click adds waypoints, right-click cancels |
-| 1 | Attack with the weapon in hand, then click an adjacent enemy (1 again puts it away) |
+| 1 | Attack, then click a marked enemy: the melee weapon on an adjacent one, the ranged weapon on one further away. Resting the pointer on an enemy shows the chance to hit (1 again puts it away) |
 | 2 | Cast: opens the spellbook; ready a spell, then click its target |
 | 3 | Use Item: opens the character sheet; right-click a potion, scroll or wand |
 | 4 / 5 / 6 | Dash / Disengage / Dodge |
