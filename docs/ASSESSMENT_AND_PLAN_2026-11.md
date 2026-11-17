@@ -494,6 +494,20 @@ These are his and are fixed points for whatever the final rules become:
   rarity band.
 - The rest comes from the system he designed for his homebrew D&D campaign.
 
+Added later on 2026-11-17, after he supplied that system (`PROGRESS.md` says where
+it is and which parts have been read). He called it "quite unbalanced" as it ran at
+the table and wants it streamlined, keeping the feeling: gear should matter, and it
+should matter what it is made of.
+
+- Pace is shape B's: gear wears visibly inside a fight.
+- The per-material break threshold goes. The same penalty range applies to every
+  piece instead: the last 25% of its durability.
+- +2 and +3 gear wears too. It has much more durability, or wears more slowly;
+  which of the two is still open.
+- The twelve named damage states and their separate repair methods get simplified.
+- The material count rises heavily from today's 20.
+- Resting rules are needed, as a separate discussion.
+
 #### Provisional sketch (to be replaced by the homebrew system)
 
 Written before Ákos mentioned his own system. Keep what fits it; drop the rest.
