@@ -107,10 +107,27 @@ and "the boot has no script errors" is no longer what done means.
 - Runtime: key per-character state by the `CharacterStats` instance.
 - Persistence: `CharacterStats.character_uid` (`"player"` for the player,
   `"companion_<id>"` for companions). Save by uid, resolve back on load.
-- Combat entities are Nodes (`GridCharacter`, `Enemy`, `Companion`) each exposing
-  `.stats` (CharacterStats) and `.grid_position` (Vector2i). APIs that need position or
-  damage take the Node; APIs about knowledge or resources take the CharacterStats.
-  Phase 2 replaces the three scripts with one combatant base.
+- Combat entities are Nodes that extend `Combatant` (`scripts/combatant.gd`):
+  `GridCharacter` (the player), `Enemy`, `Companion`. Each exposes `.stats`
+  (CharacterStats), `.grid_position` (Vector2i) and `.team` (`Combatant.Team.PARTY` or
+  `HOSTILE`). APIs that need position or damage take the Node; APIs about knowledge or
+  resources take the CharacterStats.
+- **Hostility is by team.** Ask `a.is_hostile_to(b)`, `combatant.get_hostiles()` or
+  `get_ally_positions()`. Do not test membership of `world.enemies` or compare with
+  the player; `world.enemies` and `world.companion_nodes` remain as the world's own
+  bookkeeping (spawning, saving). Enemy AI still picks only the player as its target.
+- **Alive is `combatant.is_alive()`**, not `is_instance_valid`: the player's body stays
+  in the scene after death.
+- **What the base owns:** grid conversion (`grid_to_world`, `world_to_grid`,
+  `spawn_at`), `is_walkable` (a floor or door tile no other combatant stands on),
+  `find_path` (the only A* in the project), `take_damage`, `flash_damage`,
+  `draw_hp_bar`, `animate_attack`, opportunity-attack checks on leaving a hostile's
+  reach, and the turn interface the combat controller calls: `is_player_controlled()`,
+  `take_turn()`, `on_combat_started()`, `on_combat_ended()`. A subclass that overrides
+  `_ready()` calls `super._ready()` first. What a combatant does on its turn stays in
+  the subclass.
+- The world lists the combatants in the scene: `World.get_combatants()`,
+  `get_combatant_at(tile)`, `is_tile_occupied(tile, exclude)`.
 
 ### 2.2 Equipment slot strings (exact)
 `head, neck, shoulder, back, chest, wrist, hands, waist, legs, feet, main_hand, off_hand, ranged`
@@ -190,23 +207,58 @@ crisis `{crisis_id, display_name, phases: [{phase: int, name, description}]}`.
 
 ## 4. Cross-system calls
 
+- **CombatController** (`scripts/combat_controller.gd`, a Node under World, reached as
+  `world.combat`) is the one authority for whose turn it is. It is not an autoload: it
+  lives and dies with the World scene, so it needs no `reset()`.
+  - It owns the initiative order (Combatants, highest roll first, companions rolling
+    like everyone else), the turn-holder, the round count, the per-round
+    `CombatManager.reset_round_reactions()`, and starting and ending a fight.
+  - Read it with `active`, `current_combatant()`, `is_turn_of(combatant)`,
+    `get_order()`, `get_initiative(combatant)`, `round_number`.
+  - **Anything that acts in a fight asks first.** `Combatant.can_act()` is true outside
+    a fight and, inside one, only for the turn-holder. The player's attack, spell
+    cast, move and End Turn all go through it. Never keep a second idea of whose turn
+    it is (a flag, an index in a UI widget).
+  - A fight starts by itself when a living hostile is within `detection_range` of the
+    player; hostiles within `activation_range` join, with the whole party.
+    `start_combat(participants)` starts one explicitly. `add_combatant()` brings a
+    latecomer in; `remove_combatant()` takes out one that died or left. Neither changes
+    whose turn it is, and a combatant that dies on its own turn does not cost the next
+    one its turn. `end_combat()` stops the fight; it ends by itself, after a short
+    delay, when the order no longer holds two living combatants hostile to each other.
+  - Turns: a player-controlled combatant gets `start_new_turn()` and keeps the turn
+    until it calls `end_turn()`, which asks the controller. Everyone else gets
+    `take_turn()`; the controller waits for the move to finish, pauses, and passes the
+    turn on. Status-effect turn hooks are still called by the combatant itself.
+  - Signals: `combat_started(combatants)`, `combat_ended(victory)`,
+    `turn_started(combatant)`, `turn_ended(combatant)`, `round_started(number)`,
+    `order_changed()`. It also emits `EventBus.combat_started(hostiles)`,
+    `combat_ended(victory)`, `turn_started(combatant)` and `turn_ended(combatant)` for
+    every combatant. `victory` means the party outlived every hostile in that fight.
+    Outside combat (manual turn mode, T) the player emits the two turn signals itself.
+  - `scripts/initiativetracker.gd` and `scripts/turn_ui.gd` only draw what the
+    controller says.
 - **CombatManager** owns `roll_attack`, `roll_damage`, `apply_damage`,
   `make_saving_throw`, `roll_initiative`, `trigger_opportunity_attack`. It reads
   StatusEffectManager for advantage, AC modifiers and incapacitation, and
   `scripts/combat_grid.gd` for `has_line_of_sight`, `get_cover_ac_bonus`, `is_flanking`
-  and `get_distance_tiles` (Chebyshev).
+  and `get_distance_tiles` (Chebyshev). It rolls and applies; it does not know whose
+  turn it is.
 - **SpellManager** resolves casts through CombatManager and StatusEffectManager, reads
   slot tables from `ClassDatabase.get_class_data(class_id).get_spell_slots(character_level, spell_level)`,
   restores slots on `rest_taken("long")`, and grants class spells when a caster is first
-  asked for its list and again on `player_leveled_up`.
+  asked for its list and again on `player_leveled_up`. A spell aimed at a point takes
+  the combatants hostile to the caster within the radius, and the caster itself when
+  it stands there; the caster's own side is spared.
 - **CraftingManager** consumes through `InventoryManager.remove_item / has_item /
   get_item` and produces through `ItemDatabase.create_item_instance` and
   `InventoryManager.add_item_or_drop`.
 - **QuestManager** awards through `InventoryManager.add_gold`, `add_item_or_drop`,
   `GameManager.player.stats.gain_experience` and `FactionManager.modify_reputation`.
 - **CompanionManager** builds stats with `CharacterBuilder.build(class_id, race_id,
-  base_stats, name)` and creates nodes with `create_companion_node(companion_id)`; the
-  world spawns them on `companion_recruited`. `rejoin_party()` returns a dismissed
+  base_stats, name)` and creates nodes with `create_companion_node(companion_id)` (a
+  `Companion`, on the party team); the world spawns them on `companion_recruited` and,
+  if a fight is running, adds them to it. `rejoin_party()` returns a dismissed
   companion to the party.
 - **SaveManager** writes `{version: 3, game_version, timestamp, player: {stats,
   position_x, position_y}, systems: {...}, world: {seed, biome, enemies, ground_items,

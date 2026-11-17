@@ -70,7 +70,7 @@ func take_turn():
 	StatusEffectManager.process_turn_start(self)
 
 	# The tick may have killed this enemy - die() already notified the world,
-	# and the world's loop advances the chain on its own
+	# and the combat controller passes the turn on by itself
 	if is_dying or not stats or not stats.is_alive():
 		return
 

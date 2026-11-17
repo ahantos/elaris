@@ -44,15 +44,15 @@ var attack_mode: bool = false
 var selected_attack_type: String = ""
 var has_attacked_this_turn: bool = false
 
-# Turn management signal
-signal turn_ended
-
 # Class id the sprite was last chosen for (see _refresh_sprite)
 var _sprite_class_id: String = ""
 
 func _init():
 	team = Team.PARTY
 	damage_flash_color = Color(1.5, 0.5, 0.5)
+
+func is_player_controlled() -> bool:
+	return true
 
 func _ready():
 	super._ready()
@@ -250,7 +250,7 @@ func _input(event):
 				end_turn()
 		
 		elif event.keycode == KEY_1 and event.pressed and not event.echo:
-			if turn_based_mode and not is_moving:
+			if turn_based_mode and not is_moving and can_act():
 				if has_attacked_this_turn:
 					print("You've already attacked this turn!")
 				else:
@@ -265,7 +265,7 @@ func _input(event):
 					queue_redraw()
 		
 		elif event.keycode == KEY_2 and event.pressed and not event.echo:
-			if turn_based_mode and not is_moving:
+			if turn_based_mode and not is_moving and can_act():
 				if has_attacked_this_turn:
 					print("You've already attacked this turn!")
 				else:
@@ -280,7 +280,7 @@ func _input(event):
 					queue_redraw()
 		
 		elif event.keycode == KEY_3 and event.pressed and not event.echo:
-			if turn_based_mode and not is_moving:
+			if turn_based_mode and not is_moving and can_act():
 				if has_attacked_this_turn:
 					print("You've already attacked this turn!")
 				else:
@@ -384,6 +384,10 @@ func show_path_preview(destination: Vector2i):
 
 func execute_move():
 	"""Execute the previewed path"""
+	if not can_act():
+		print("Cannot move: it is not your turn.")
+		return
+
 	var path_to_execute: Array[Vector2i]
 	
 	if waypoints.size() > 0:
@@ -605,6 +609,10 @@ func attack_enemy(enemy: Combatant, attack_type: String):
 	if not enemy or not turn_based_mode or not is_hostile_to(enemy):
 		return
 
+	if not can_act():
+		print("Cannot attack: it is not your turn.")
+		return
+
 	if has_attacked_this_turn:
 		print("You've already attacked this turn!")
 		return
@@ -690,8 +698,11 @@ func _handle_pending_spell_click(click_grid: Vector2i):
 		SpellManager.clear_pending_cast(self)
 		return
 
-	var world = _get_world()
-	var in_world_combat = world != null and world.in_combat
+	var in_world_combat = in_combat()
+
+	if in_world_combat and not can_act():
+		EventBus.ui_notification.emit("It is not your turn!", "warning")
+		return
 
 	if in_world_combat and has_attacked_this_turn:
 		EventBus.ui_notification.emit("You have already acted this turn!", "warning")
@@ -800,10 +811,9 @@ func _check_ground_pickup():
 
 func toggle_turn_based_mode():
 	"""Toggle turn-based mode on/off"""
-	# Turn-based mode is controlled by the world while in combat -
-	# toggling it off mid-combat would desync the combat loop
-	var world = _get_world()
-	if world and world.in_combat:
+	# Turn-based mode belongs to the combat controller while in combat -
+	# toggling it off mid-combat would desync the turn loop
+	if in_combat():
 		print("Cannot toggle turn-based mode during combat!")
 		return
 
@@ -819,8 +829,25 @@ func toggle_turn_based_mode():
 	else:
 		print("Turn-based mode DISABLED - Free movement with WASD or click")
 
+func on_combat_started():
+	"""A fight has begun: stop where we stand and wait for a turn"""
+	stop_moving()
+	cancel_preview()
+	turn_based_mode = true
+	# No movement until initiative grants the player a turn
+	# (start_new_turn restores it)
+	moves_remaining = 0
+	queue_redraw()
+
+func on_combat_ended():
+	"""Back to free movement"""
+	turn_based_mode = false
+	wasd_movement_enabled = true
+	queue_redraw()
+
 func start_new_turn():
-	"""Start a new turn with full movement"""
+	"""Start a new turn with full movement. In combat the CombatController
+	calls this when the player's turn comes up."""
 	turn_number += 1
 	moves_remaining = stats.get_modified_movement_speed()  # UPDATED - Uses encumbrance
 	has_attacked_this_turn = false
@@ -839,11 +866,12 @@ func start_new_turn():
 	print("=== Turn ", turn_number, " started ===")
 	print("Movement available: ", moves_remaining, " tiles")
 
-	# Emit event
-	EventBus.turn_started.emit(self)
+	# In combat the CombatController announces every turn itself
+	if not in_combat():
+		EventBus.turn_started.emit(self)
 
 	# Incapacitated (stunned/paralyzed/frozen): lose the turn. Deferred so the
-	# world's combat loop is never advanced re-entrantly from inside this call.
+	# turn loop is never advanced re-entrantly from inside this call.
 	if StatusEffectManager.is_incapacitated(self):
 		moves_remaining = 0
 		EventBus.ui_notification.emit("You are incapacitated and lose your turn!", "warning")
@@ -851,20 +879,23 @@ func start_new_turn():
 		call_deferred("_auto_end_incapacitated_turn")
 
 func _auto_end_incapacitated_turn():
-	"""Deferred auto end-of-turn while incapacitated (world combat only -
-	outside combat the player can still press SPACE themselves)"""
+	"""Deferred auto end-of-turn while incapacitated (combat only - outside
+	combat the player can still press SPACE themselves)"""
 	if is_dying or not turn_based_mode or is_moving:
 		return
-	var world = _get_world()
-	if not world or not world.in_combat:
-		return
-	if world.initiative_tracker and not world.initiative_tracker.is_player_turn():
+	if not in_combat():
 		return
 	end_turn()
 
 func end_turn():
-	"""Manually end the current turn"""
+	"""End the player's turn. In combat only the turn-holder has a turn to end:
+	on anyone else's turn this does nothing at all."""
 	if not turn_based_mode:
+		return
+
+	var combat = _get_combat()
+	var in_world_combat = combat != null and combat.active
+	if in_world_combat and not combat.is_turn_of(self):
 		return
 
 	if is_moving:
@@ -873,23 +904,19 @@ func end_turn():
 
 	print("Turn ", turn_number, " ended. Moves used: ", max(0, moves_granted_this_turn - moves_remaining))
 
-	var world = _get_world()
-	var in_world_combat = world != null and world.in_combat
-
 	if in_world_combat:
-		# No leftover movement while enemies take their turns
+		# No leftover movement while the others take their turns
 		moves_remaining = 0
 
 	# End-of-turn status bookkeeping (ticks, end saves, duration countdown)
 	StatusEffectManager.process_turn_end(self)
 
-	# Emit event (NEW)
-	EventBus.turn_ended.emit(self)
-	turn_ended.emit()
-
-	# In combat the world's initiative loop grants the next turn;
-	# outside combat (manual T mode) we cycle our own turns
-	if not in_world_combat:
+	if in_world_combat:
+		# The controller announces the end of the turn and starts the next one
+		combat.end_turn(self)
+	else:
+		# Outside combat (manual T mode) we cycle our own turns
+		EventBus.turn_ended.emit(self)
 		start_new_turn()
 
 func get_moves_remaining() -> int:

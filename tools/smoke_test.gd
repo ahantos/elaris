@@ -7,6 +7,7 @@ extends SceneTree
 #   - notifications reach the screen,
 #   - the fixed defects stay fixed (gifting, crafting level, loot pickup, ...),
 #   - a scripted fight runs to its end,
+#   - the combat controller alone decides whose turn it is,
 #   - content ids referenced across systems exist,
 #   - every enemy, class, companion, item and biome tile has real art on the 32px grid.
 #
@@ -93,6 +94,20 @@ func _free_floor_near(world, origin: Vector2i, min_distance: int = 3) -> Vector2
 				return origin + offset
 	return origin
 
+func _open_tiles_near(world, origin: Vector2i, min_distance: int, max_distance: int, count: int) -> Array:
+	"""Free walkable tiles around origin with a clear line to it, nearest first"""
+	var grid_script = load("res://scripts/combat_grid.gd")
+	var found: Array = []
+	for radius in range(min_distance, max_distance + 1):
+		for dx in range(-radius, radius + 1):
+			for dy in range(-radius, radius + 1):
+				if max(abs(dx), abs(dy)) != radius or found.size() >= count:
+					continue
+				var tile: Vector2i = origin + Vector2i(dx, dy)
+				if world.player.is_walkable(tile) and grid_script.has_line_of_sight(origin, tile, world.current_dungeon.dungeon_grid):
+					found.append(tile)
+	return found
+
 func _finish():
 	print("[SMOKE] ---------------------------------------------")
 	print("[SMOKE] %d passed, %d failed" % [_passed, _failures.size()])
@@ -143,7 +158,8 @@ func _run():
 	_check_class_data()
 	_check_content()
 	await _check_fight(world)
-	_check_casters(world)  # last in part 1: replaces the player's stats
+	_check_casters(world)  # replaces the player's stats
+	await _check_turn_authority(world)  # last in part 1: fights as the wizard _check_casters leaves behind
 
 	# Part 2: the game as a player meets it - menu, new game, save, load, death
 	await _check_game_flow()
@@ -686,12 +702,12 @@ func _check_fight(world):
 	Engine.time_scale = 6.0
 	await _wait(0.5)
 	check(world.in_combat, "combat starts when an enemy is near")
-	check(world.initiative_tracker.combatants.size() >= 2, "initiative holds the player and the enemy")
+	check(world.combat.get_order().size() >= 2 and world.combat.get_order().has(player), "initiative holds the player and the enemy")
 
 	var rounds := 0
 	while world.in_combat and is_instance_valid(player) and rounds < 40:
 		var waited := 0.0
-		while world.in_combat and not world.initiative_tracker.is_player_turn() and waited < 6.0:
+		while world.in_combat and not world.combat.is_turn_of(player) and waited < 6.0:
 			await _wait(0.05)
 			waited += 0.05
 		if not world.in_combat:
@@ -718,6 +734,222 @@ func _check_fight(world):
 	check(not world.in_combat, "combat ends when the nearby enemies are dead", "still in combat after %d rounds" % rounds)
 	check(stats.experience > xp_before, "kills award XP", "%d -> %d" % [xp_before, stats.experience])
 	check(not player.turn_based_mode, "player returns to free movement after combat")
+
+# ---------------------------------------------------------------------------
+#  Turn authority: the combat controller alone decides whose turn it is
+# ---------------------------------------------------------------------------
+
+func _check_turn_authority(world):
+	"""A staged fight: the wizard and a companion against three goblins. Two of
+	the goblins have a DEX that puts them first and second in every initiative
+	order, so the checks do not depend on the dice."""
+	var combat_mgr = _mgr("CombatManager")
+	var effects = _mgr("StatusEffectManager")
+	var spells = _mgr("SpellManager")
+	var comp = _mgr("CompanionManager")
+	var bus = _mgr("EventBus")
+	var grid_script = load("res://scripts/combat_grid.gd")
+	var teams = load("res://scripts/combatant.gd").Team
+	var hostile_team: int = teams.HOSTILE
+	var controller = world.combat
+	var player = world.player
+	var stats = player.stats
+
+	check(controller != null and not controller.active and controller.current_combatant() == null
+		and not controller.is_turn_of(player) and player.can_act(),
+		"outside combat nobody holds the turn and the player is free to act")
+
+	# No blow may end this fight early
+	stats.max_hp = 500
+	stats.current_hp = 500
+	comp.recruit("brom")
+	await _wait(0.3)
+	var brom = world.companion_nodes.get("brom")
+	var here: Vector2i = player.grid_position
+	var beside: Array = _open_tiles_near(world, here, 1, 1, 1)
+	var further: Array = _open_tiles_near(world, here, 2, 4, 2)
+	check(brom != null and beside.size() == 1 and further.size() == 2, "test setup: room for a staged fight around the player")
+	if brom == null or beside.size() != 1 or further.size() != 2:
+		return
+
+	# Spawned and set up within one frame: the controller notices them on the next
+	var first = world._spawn_enemy("goblin", 1, 500, beside[0])
+	var second = world._spawn_enemy("goblin", 1, 500, further[0])
+	var third = world._spawn_enemy("goblin", 1, 500, further[1])
+	first.stats.dexterity = 1010   # initiative +500
+	second.stats.dexterity = 510   # initiative +250
+
+	var cast_count: Array = [0]
+	var on_cast = func(_caster, _spell_id, _targets): cast_count[0] += 1
+	bus.spell_cast.connect(on_cast)
+	var turn_starts: Array = []
+	var on_turn = func(combatant): turn_starts.append(combatant.get_instance_id())
+	controller.turn_started.connect(on_turn)
+	var endings: Array = []
+	var on_end = func(victory): endings.append([victory, player.turn_based_mode, world.initiative_tracker.visible])
+	controller.combat_ended.connect(on_end)
+
+	var waited := 0.0
+	while not world.in_combat and waited < 3.0:
+		await _wait(0.02)
+		waited += 0.02
+	check(world.in_combat and controller.active, "test setup: the staged fight started")
+	if not world.in_combat:
+		return
+
+	var order: Array = controller.get_order()
+	for combatant in order:
+		if combatant.team == hostile_team:
+			combatant.stats.max_hp = 500
+			combatant.stats.current_hp = 500
+	check(order.has(player) and order.has(brom) and order.has(first) and order.has(second) and order.has(third),
+		"a recruited companion is in the initiative order, with the player and every enemy near enough",
+		"%d in the order" % order.size())
+	var sorted_by_roll := true
+	for i in range(1, order.size()):
+		if controller.get_initiative(order[i - 1]) < controller.get_initiative(order[i]):
+			sorted_by_roll = false
+	check(order[0] == first and order[1] == second and sorted_by_roll,
+		"the order runs from the highest initiative roll to the lowest")
+	check(controller.current_combatant() == first and controller.is_turn_of(first) and not controller.is_turn_of(player)
+		and not controller.is_turn_of(brom) and controller.round_number == 1 and turn_starts == [first.get_instance_id()],
+		"the fight opens with the first combatant's turn, and nobody else's")
+	check(world.initiative_tracker.visible and world.turn_ui.current_turn_type == "enemy" and player.turn_based_mode,
+		"the initiative bar and the turn banner show the controller's fight")
+
+	# --- an enemy holds the turn: the player can do nothing ---
+	var enemy_hp: int = first.stats.current_hp
+	player.has_attacked_this_turn = false  # the old gate would let everything through
+	check(not player.can_act(), "the player may not act on an enemy's turn")
+	player.attack_enemy(first, "heavy")
+	check(not player.has_attacked_this_turn, "the player's attack is refused during an enemy's turn")
+
+	spells.set_pending_cast(player, "fire_bolt")
+	player._handle_pending_spell_click(first.grid_position)
+	check(cast_count[0] == 0 and spells.get_pending_cast(player) == "fire_bolt" and not player.has_attacked_this_turn,
+		"the player's spell cast is refused during an enemy's turn")
+	spells.clear_pending_cast(player)
+
+	var step: Array = _open_tiles_near(world, here, 1, 1, 1)
+	player.moves_remaining = 6  # even with movement in hand
+	if not step.is_empty():
+		player.show_path_preview(step[0])
+		player.execute_move()
+	check(not step.is_empty() and not player.is_moving and player.grid_position == here,
+		"the player's move is refused during an enemy's turn")
+	player.cancel_preview()
+	player.moves_remaining = 0
+
+	effects.apply_effect(player, "blessed", 5)
+	var turn_before: int = player.turn_number
+	_press(KEY_SPACE)
+	await _frames(2)
+	var blessing: Array = effects.get_active_effects(player)
+	check(controller.current_combatant() == first and player.turn_number == turn_before
+		and blessing.size() == 1 and int(blessing[0].duration_remaining) == 5,
+		"SPACE during an enemy's turn does nothing: no turn ends and no effect ticks down")
+	world.bottom_ui._on_end_turn_pressed()
+	world.bottom_ui._on_heavy_attack_pressed()
+	check(controller.current_combatant() == first and not player.attack_mode,
+		"the End Turn and attack buttons do nothing during an enemy's turn")
+	effects.clear_effects(player)
+	await _wait(0.3)  # an attack that had gone through would have landed by now
+	check(first.stats.current_hp == enemy_hp and controller.current_combatant() == first,
+		"no blow from the player lands during the enemy's turn")
+
+	# --- the player's own turn ---
+	Engine.time_scale = 4.0
+	waited = 0.0
+	while world.in_combat and not controller.is_turn_of(player) and waited < 15.0:
+		await _wait(0.02)
+		waited += 0.02
+	check(controller.is_turn_of(player) and player.can_act(), "the player's turn comes round")
+	if not controller.is_turn_of(player):
+		Engine.time_scale = 1.0
+		return
+
+	# The second goblin sits before the player in the order: taking it out moves
+	# every later index, and must not move the turn
+	combat_mgr.apply_damage(second, 9999, combat_mgr.DamageType.PHYSICAL, player, false)
+	check(controller.is_turn_of(player) and not controller.get_order().has(second),
+		"removing a dead combatant from the order does not change whose turn it is")
+
+	comp.recruit("whisper")
+	await _wait(0.3)
+	var whisper = world.companion_nodes.get("whisper")
+	check(whisper != null and controller.get_order().has(whisper) and controller.is_turn_of(player),
+		"a companion recruited mid-fight joins the order without taking the turn")
+	comp.dismiss("whisper")
+	comp.dismiss("brom")
+	var party_left: Array = controller.get_order().filter(func(combatant): return combatant.team == teams.PARTY)
+	check(party_left == [player] and controller.get_order().size() >= 3 and controller.is_turn_of(player),
+		"a companion who leaves mid-fight leaves the order without moving the turn")
+	await _frames(2)
+
+	var target = null
+	for combatant in controller.get_order():
+		if combatant.team == hostile_team and grid_script.has_line_of_sight(
+				player.grid_position, combatant.grid_position, world.current_dungeon.dungeon_grid):
+			target = combatant
+	if target != null:
+		spells.set_pending_cast(player, "fire_bolt")
+		player._handle_pending_spell_click(target.grid_position)
+	check(target != null and cast_count[0] == 1 and player.has_attacked_this_turn and spells.get_pending_cast(player) == "",
+		"on the player's own turn the same spell is cast")
+
+	step = _open_tiles_near(world, player.grid_position, 1, 1, 1)
+	if not step.is_empty():
+		player.show_path_preview(step[0])
+		player.execute_move()
+	check(not step.is_empty() and player.is_moving, "on the player's own turn the same move is made")
+	waited = 0.0
+	while player.is_moving and waited < 3.0:
+		await _wait(0.02)
+		waited += 0.02
+
+	# --- a combatant that dies on its own turn ---
+	# The first goblin burns to death as its next turn starts. The turn must pass
+	# to whoever follows it in the order; the old loop skipped that combatant.
+	first.stats.current_hp = 1
+	effects.apply_effect(first, "burning", 5)
+	order = controller.get_order()
+	var doomed_id: int = first.get_instance_id()
+	var successor_id: int = order[1].get_instance_id()
+	var after_player_id: int = order[(order.find(player) + 1) % order.size()].get_instance_id()
+	var round_before: int = controller.round_number
+	check(order[0] == first and order.size() >= 3, "test setup: the doomed goblin is first of at least three in the order",
+		"%d in the order" % order.size())
+	turn_starts.clear()
+	player.end_turn()
+	check(turn_starts.size() == 1 and turn_starts[0] == after_player_id and not controller.is_turn_of(player),
+		"ending the turn passes it to the next combatant in the order, after all the comings and goings")
+	waited = 0.0
+	while world.in_combat and waited < 30.0 and (not doomed_id in turn_starts or turn_starts.find(doomed_id) == turn_starts.size() - 1):
+		await _wait(0.02)
+		waited += 0.02
+	var after_doomed: int = turn_starts.find(doomed_id) + 1
+	check(after_doomed > 0 and (not is_instance_valid(first) or not first.is_alive()), "test setup: the goblin died on its own turn")
+	check(after_doomed > 0 and after_doomed < turn_starts.size() and turn_starts[after_doomed] == successor_id,
+		"a combatant that dies on its own turn does not make the next one skip its turn")
+	check(controller.round_number == round_before + 1, "the round count goes up by one when the order wraps",
+		"%d -> %d" % [round_before, controller.round_number])
+
+	# --- the last hostile falls ---
+	check(world.in_combat and endings.is_empty(), "the fight goes on while a hostile combatant is alive")
+	for combatant in controller.get_order():
+		if combatant.team == hostile_team:
+			combat_mgr.apply_damage(combatant, 9999, combat_mgr.DamageType.PHYSICAL, player, false)
+	waited = 0.0
+	while endings.is_empty() and waited < 5.0:
+		await _wait(0.02)
+		waited += 0.02
+	Engine.time_scale = 1.0
+	check(endings.size() == 1 and endings[0] == [true, false, false] and controller.current_combatant() == null,
+		"combat ends, as a victory, when no hostile combatant is left alive", str(endings))
+
+	bus.spell_cast.disconnect(on_cast)
+	controller.turn_started.disconnect(on_turn)
+	controller.combat_ended.disconnect(on_end)
 
 # ---------------------------------------------------------------------------
 #  Casters: starting spells and spells gained on level-up

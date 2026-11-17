@@ -44,11 +44,24 @@ a system as working because its manager runs; check that a player can reach it.
   `scenes/world.tscn`. `GameManager` owns the transitions and `reset_game_state()`;
   `SaveManager` owns save files; the World scene saves and restores its own state.
   See contracts section 1a before touching any of it.
-- `scripts/world.gd` - the game scene: start-up from a seed or a save, spawning, the
-  combat loop, hotkeys, panel registration, loot and XP on kill. Still too large; the
-  combat loop comes out in Phase 2, when it is rebuilt.
-- `scripts/grid_character.gd` (player), `scripts/enemy.gd`, `scripts/companion.gd` -
-  three unrelated scripts; a shared combatant model is Phase 2.
+- `scripts/world.gd` - the game scene: start-up from a seed or a save, spawning,
+  hotkeys, panel registration, loot and XP on kill, companion nodes. It owns the
+  combat controller (`world.combat`) and lists the combatants in the scene
+  (`get_combatants()`, `get_combatant_at()`, `is_tile_occupied()`). `world.in_combat`
+  is read-only and comes from the controller.
+- `scripts/combatant.gd` - `Combatant`, the base of every creature that fights: tile
+  and grid conversion, stats, team, `is_hostile_to()`, `is_alive()`, `can_act()`,
+  walkability, the one A* pathfinder (`find_path`), HP bar and damage flash.
+  `scripts/grid_character.gd` (player: input, path preview), `scripts/enemy.gd` (enemy
+  AI) and `scripts/companion.gd` (follow, ally AI) extend it. Hostility is by team,
+  never by "is it in `world.enemies`".
+- `scripts/combat_controller.gd` - `CombatController`, a Node under World and the one
+  authority for whose turn it is: starts a fight when a hostile is near the player,
+  rolls initiative for every combatant in it (companions included), hands out turns,
+  counts rounds, ends the fight when one side is left. Anything that acts in combat
+  asks it first (`is_turn_of`, or `Combatant.can_act()`). See contracts section 4.
+- `scripts/initiativetracker.gd`, `scripts/turn_ui.gd` - display only; they show what
+  the controller says and keep no turn state of their own.
 - `ui/*.gd` - panels built in code and registered with `UIManager`, which owns
   exclusivity and pausing. `ui/notification_toasts.gd` draws `EventBus.ui_notification`.
 - `scripts/character_screen.gd`, `scripts/save_load_menu.gd` - older screens with their

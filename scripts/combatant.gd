@@ -44,7 +44,7 @@ func _ready():
 	EventBus.damage_dealt.connect(_on_damage_dealt_event)
 
 # ============================================================================
-# TEAM
+# TEAM AND TURN
 # ============================================================================
 
 func is_alive() -> bool:
@@ -56,10 +56,41 @@ func is_hostile_to(other) -> bool:
 	"""True when other is a combatant on another team"""
 	return is_instance_valid(other) and other is Combatant and other.team != team
 
+func is_player_controlled() -> bool:
+	"""True when this combatant's turn waits for the player's input. The
+	CombatController then calls start_new_turn() and waits for end_turn();
+	everyone else gets take_turn()."""
+	return false
+
+func take_turn():
+	"""Act for one turn without input (see is_player_controlled)"""
+	pass
+
+func on_combat_started():
+	"""The CombatController calls this on everyone who joins a fight"""
+	queue_redraw()
+
+func on_combat_ended():
+	"""The CombatController calls this on everyone who took part, when the fight ends"""
+	queue_redraw()
+
 func in_combat() -> bool:
 	"""True while the world is running a fight"""
 	var world = _get_world()
 	return world != null and world.in_combat
+
+func can_act() -> bool:
+	"""May this combatant act right now? Outside a fight, whenever it likes; in
+	a fight, only on its own turn."""
+	if not is_alive():
+		return false
+	var combat = _get_combat()
+	return combat == null or not combat.active or combat.is_turn_of(self)
+
+func _get_combat():
+	"""The world's CombatController, or null when there is none"""
+	var world = _get_world()
+	return world.get("combat") if world else null
 
 func _get_world():
 	"""Get the cached World node (re-resolves if missing/freed)"""

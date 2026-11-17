@@ -253,7 +253,7 @@ func _run():
 		await _shot("combat_start")
 		for round_number in range(12):
 			var waited := 0.0
-			while world.in_combat and is_instance_valid(player) and not world.initiative_tracker.is_player_turn() and waited < 12.0:
+			while world.in_combat and is_instance_valid(player) and not world.combat.is_turn_of(player) and waited < 12.0:
 				await _wait(0.2)
 				waited += 0.2
 			if not world.in_combat or not is_instance_valid(player):
