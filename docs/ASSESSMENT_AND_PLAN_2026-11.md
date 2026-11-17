@@ -647,6 +647,13 @@ Shoulder, back, wrist, hands, waist, legs and feet. Agreed 2026-11-17.
 
 - His material lists replace the game's ladder of 20. They are added in stages, zone
   by zone, not all at once.
+- Stage one, agreed 2026-11-17, for levels 1 to 5:
+  - Metal: copper, wrought iron, bronze, steel, silver, Damascus steel.
+  - Wood: pine, oak, ash, maple, hickory, ironwood.
+  - Leather: pigskin, deerskin, cowhide, boiled leather, wolfhide, bearhide.
+  - Cloth: burlap, roughspun wool, cotton, wool, fine linen, silk.
+  Mythril, adamantite and the other top materials stay defined but do not drop in
+  the first zone.
 - A material sets the notch count, hardness, price, weight and a trait. In his
   system it does not change the damage die or the armour class; the game's current
   materials add +1 to +3 to both. He confirmed those bonuses go: materials "should
