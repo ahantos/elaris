@@ -97,6 +97,110 @@ sprite("longsword", { w: 32, h: 96 },
     .pqrrrsr.
     ..ppqqp..`))
 
+// Slim version: the same hilt and the same rendering, with a blade five pixels wide
+// instead of seven. The point is a single column for five rows, then three wide for
+// twelve, then five to the guard, so each edge has only two steps and they grow.
+function halfSlim(y) {
+  if (y < 7) return 0
+  if (y < 19) return 1
+  return 2
+}
+const FULLER_SLIM = [28, 62]
+
+function toneSlim(y, x) {
+  const h = halfSlim(y), i = x - CX
+  if (h === 0) return 4
+  if (i === h) return 5
+  if (i === -h) return y > 44 && h > 1 ? 1 : 2
+  if (i < 0) return y >= FULLER_SLIM[0] && y <= FULLER_SLIM[1] ? 1 : 2
+  if (i === 0) return 4
+  return 3
+}
+
+sprite("longsword_slim", { base: "longsword" },
+  rect(9, 0, 14, BASE + 1, "_"),                       // take the wide blade off the shared hilt
+  (c) => {
+    for (let y = TIP; y <= BASE; y++) {
+      const h = halfSlim(y)
+      for (let x = CX - h; x <= CX + h; x++) {
+        let t = toneSlim(y, x)
+        const yy = y + Math.floor((x - CX) / 2)
+        for (const [y0, y1, d] of BANDS)
+          if (yy >= y0 && yy <= y1 && !(d > 0 && t === 1)) t += d
+        c.px(x, y, String(Math.max(1, Math.min(5, t))))
+      }
+    }
+    c.px(CX - 1, FULLER_SLIM[0] - 1, "2"); c.px(CX - 1, FULLER_SLIM[1] + 1, "2")
+    // wear: two nicks in the working edge, one short scratch on the back edge
+    c.px(CX + 2, 30, "_"); c.px(CX + 1, 30, "5"); c.px(CX + 1, 31, "5")
+    c.px(CX + 2, 50, "_"); c.px(CX + 1, 50, "5"); c.px(CX + 1, 51, "5")
+    c.px(CX - 2, 43, "3"); c.px(CX - 2, 44, "3")
+  })
+
+// Final version: the slim blade on a hilt resized for it. Changes from longsword_slim:
+// - the point is two pixels wide for five rows under a two-row single pixel, and the
+//   single pixel is the brightest tone, so the point still shows at 1x;
+// - nicks are a mid-tone pixel in the edge instead of a missing one;
+// - guard 25 wide instead of 28 and symmetric about the ridge, centre block 7 instead
+//   of 9 with a narrower garnet, smaller end knobs; pommel 7 wide instead of 9.
+sprite("longsword_final", { w: 32, h: 96 },
+  (c) => {
+    for (let y = TIP; y <= BASE; y++) {
+      const h = halfSlim(y)
+      const x0 = y < 9 ? CX : CX - h, x1 = y < 4 ? CX : y < 9 ? CX + 1 : CX + h
+      for (let x = x0; x <= x1; x++) {
+        let t = y < 4 ? 5 : y < 9 ? (x === CX ? 4 : 5) : toneSlim(y, x)
+        const yy = y + Math.floor((x - CX) / 2)
+        for (const [y0, y1, d] of BANDS)
+          if (yy >= y0 && yy <= y1 && !(d > 0 && t === 1)) t += d
+        c.px(x, y, String(Math.max(1, Math.min(5, t))))
+      }
+    }
+    c.px(CX - 1, FULLER_SLIM[0] - 1, "2"); c.px(CX - 1, FULLER_SLIM[1] + 1, "2")
+    // wear: two shallow nicks in the working edge, one short scratch on the back edge
+    c.px(CX + 2, 30, "3"); c.px(CX + 1, 30, "5"); c.px(CX + 1, 31, "5")
+    c.px(CX + 2, 50, "3"); c.px(CX + 1, 50, "5"); c.px(CX + 1, 51, "5")
+    c.px(CX - 2, 43, "3"); c.px(CX - 2, 44, "3")
+  },
+
+  // guard: nine pixels each side of a seven-pixel block
+  // each row: left knob (3), left arm (6), centre block (7), right arm (6), right knob (3)
+  grid(4, 67, [
+    [".s.", "......", "stttttv", "......", ".v."],
+    ["rst", "tttttt", "rqbddtv", "tttttv", "tvt"],
+    ["qrs", "ssssss", "rqbd5tt", "ssssst", "sts"],
+    ["qrs", "rrrrrr", "rqbcdst", "rrrrrs", "sss"],
+    ["pqr", "pppppp", "qqaccss", "pppppq", "rsr"],
+    [".p.", "......", "qrabbss", "......", ".p."],
+    ["...", "......", "pqrrrsq", "......", "..."],
+    ["...", "......", ".ppppp.", "......", "..."],
+  ].map((r) => r.join("")).join("\n")),
+
+  // grip: unchanged
+  grid(14, 75, `
+    lLmMm
+    lLmMm
+    llLLm
+    lLmMm
+    lLmMm
+    llLLm
+    rstvs
+    qrsts
+    lLmMm
+    lLmMm
+    llLLm
+    lLmmm`),
+
+  // wheel pommel, seven wide, with the small garnet
+  grid(13, 87, `
+    ..stv..
+    .rstvt.
+    qrcd5ts
+    qqbcdss
+    pqbbcsr
+    .pqrrr.
+    ..ppq..`))
+
 // The same picture on the two floor colours and a dark inventory slot, for review
 scene("longsword_review", { w: 120, h: 104, bg: "#181616" },
   layer("slots", rect(4, 4, 32, 96, "#3a322c"), rect(44, 4, 32, 96, "#56483a"), rect(84, 4, 32, 96, "#1e2422")),
