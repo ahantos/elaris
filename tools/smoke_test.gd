@@ -16,8 +16,12 @@ extends SceneTree
 
 const WORLD_SCENE := "res://scenes/world.tscn"
 const MENU_SCENE := "res://scenes/main_menu.tscn"
-const TEST_SAVE_DIR := "user://saves_smoke_test/"
 const TEST_SLOT := 3
+
+# Scratch saves go in a folder of this run's own, removed when the run ends.
+# user:// is shared by every checkout of the project, so a fixed folder let two
+# runs at once delete and read each other's saves.
+var _save_dir: String = "user://saves_smoke_test_%d/" % OS.get_process_id()
 
 # Dangling references that are known and scheduled. A new dangling id fails the
 # run; so does an entry here that no longer occurs (delete it when it is fixed).
@@ -63,10 +67,15 @@ func _mgr(mgr_name: String) -> Node:
 	return root.get_node(mgr_name)
 
 func _clear_test_saves():
-	var dir := DirAccess.open(TEST_SAVE_DIR)
+	var dir := DirAccess.open(_save_dir)
 	if dir:
 		for file_name in dir.get_files():
 			dir.remove(file_name)
+
+func _remove_test_saves():
+	"""Delete this run's scratch folder and everything in it"""
+	_clear_test_saves()
+	DirAccess.remove_absolute(ProjectSettings.globalize_path(_save_dir))
 
 func _world() -> Node:
 	"""The current World scene, or null while another scene is showing"""
@@ -114,6 +123,7 @@ func _finish():
 	for label in _failures:
 		print("[SMOKE]   failed: ", label)
 	print("[SMOKE] RESULT: ", "PASS" if _failures.is_empty() else "FAIL")
+	_remove_test_saves()
 	quit(0 if _failures.is_empty() else 1)
 
 # ---------------------------------------------------------------------------
@@ -124,8 +134,7 @@ func _run():
 	seed(20261116)
 	# Saves written by this run go to a scratch folder, never the player's own
 	var saves = _mgr("SaveManager")
-	saves.use_save_directory(TEST_SAVE_DIR)
-	_clear_test_saves()
+	saves.use_save_directory(_save_dir)
 
 	# Part 1: the world scene on its own (what the editor's F6 does)
 	change_scene_to_file(WORLD_SCENE)
@@ -164,7 +173,6 @@ func _run():
 	# Part 2: the game as a player meets it - menu, new game, save, load, death
 	await _check_game_flow()
 
-	_clear_test_saves()
 	_finish()
 
 # ---------------------------------------------------------------------------

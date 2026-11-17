@@ -99,7 +99,9 @@ and "the boot has no script errors" is no longer what done means.
   `GameManager.game_over()`. Code that used `is_instance_valid(player)` to mean "the
   player is alive" must use `World._player_alive()` or check `stats.is_alive()`.
 - **Checks and saves.** Tool scripts call `SaveManager.use_save_directory()` with a
-  scratch folder before anything else, so they can never touch real saves.
+  scratch folder before anything else, so they can never touch real saves. The folder
+  is named after the run's process id and removed when the run ends: `user://` is
+  shared by every checkout of the project, and two runs must not share a folder.
 
 ## 2. Shared identifiers and conventions
 
