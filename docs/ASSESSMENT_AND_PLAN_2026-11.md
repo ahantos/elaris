@@ -658,9 +658,18 @@ None of these blocks the Phase 2 hooks.
   insulated layer of fur, wool or a cloak; waterproofing such as an oiled cloak or
   waxed boots). Each kind of weather needs so many layers, and an underdressed
   character makes Constitution saves against exposure, then exhaustion.
-- Which piece a critical hit lands on, now that more than the shield and body
-  armour can take it. The blows table above still says shield, otherwise body
-  armour.
+- Which piece a critical hit lands on. Spreading crits evenly over all worn armour
+  protects body armour too much (his objection, and the arithmetic agrees): a
+  notch on a secondary piece costs nothing until the piece breaks, and the first
+  lost notch is free on every piece. He still likes the idea ("sounded
+  interesting but maybe there is no way to make it work"). Put to him: the shield
+  takes the notch as before; without a shield, two crits in three hit the body
+  armour and one in three lands on one of the other worn armour pieces, picked at
+  random. The share is a dial. The blows table above still says shield, otherwise
+  body armour.
+- Upkeep for the seven secondary slots. A character goes from about four pieces to
+  keep up to about eleven. Proposed: a slower marks factor for those slots, and a
+  repair-all action for kits and the smith.
 - Material traits: kept, or out along with the stat bonuses. He deferred it ("we
   can talk about traits later").
 - Resting rules. A separate discussion; it includes whether anything clears marks.
