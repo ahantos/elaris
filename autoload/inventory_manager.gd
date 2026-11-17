@@ -226,7 +226,14 @@ func equip_item(item_instance: Dictionary, character: CharacterStats, slot: Stri
 	if item_data.equip_slot != slot:
 		print("Cannot equip ", item_data.item_name, " in slot ", slot)
 		return false
-	
+
+	# A two-handed weapon takes both hands: nothing goes in the off hand with it
+	var hands_refusal: String = _two_handed_refusal(item_data, character, slot)
+	if hands_refusal != "":
+		print("Cannot equip ", item_data.item_name, ": ", hands_refusal)
+		EventBus.ui_notification.emit(hands_refusal, "warning")
+		return false
+
 	# Initialize equipped items dict for this character if needed
 	if not equipped_items.has(character):
 		equipped_items[character] = {}
@@ -275,6 +282,19 @@ func equip_item(item_instance: Dictionary, character: CharacterStats, slot: Stri
 	EventBus.equipment_changed.emit(character)
 	
 	return true
+
+func _two_handed_refusal(item_data: ItemData, character: CharacterStats, slot: String) -> String:
+	"""Why the item cannot go in the slot as far as hands are concerned, or ""
+	when it can: a two-handed weapon needs the off hand empty, and nothing goes
+	in the off hand while a two-handed weapon is in the main hand."""
+	if slot == "main_hand" and item_data.is_two_handed:
+		if not get_equipped_item(character, "off_hand").is_empty():
+			return "%s needs both hands - empty the off hand first." % item_data.item_name
+	elif slot == "off_hand":
+		var main_data = get_equipped_item(character, "main_hand").get("item_data")
+		if main_data is ItemData and main_data.is_two_handed:
+			return "%s needs both hands - nothing can be held in the off hand with it." % main_data.item_name
+	return ""
 
 func unequip_item(character: CharacterStats, slot: String, item_instance: Dictionary = {}) -> Dictionary:
 	"""

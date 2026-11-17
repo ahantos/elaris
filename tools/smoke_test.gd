@@ -7,6 +7,9 @@ extends SceneTree
 #   - notifications reach the screen,
 #   - the fixed defects stay fixed (gifting, crafting level, loot pickup, ...),
 #   - a scripted fight runs to its end,
+#   - attacks use the weapon in hand by 5e rules,
+#   - a turn has movement, an action, a bonus action and a reaction, and every
+#     action is a request the combat controller approves,
 #   - the combat controller alone decides whose turn it is,
 #   - content ids referenced across systems exist,
 #   - every enemy, class, companion, item and biome tile has real art on the 32px grid.
@@ -159,6 +162,7 @@ func _run():
 	await _check_debug_keys(world)
 	_check_starting_character(world)
 	_check_encumbrance(world)
+	_check_weapons(world)
 	await _check_art(world)
 	_check_crafting(world)
 	await _check_companions(world)
@@ -167,6 +171,7 @@ func _run():
 	_check_class_data()
 	_check_content()
 	await _check_fight(world)
+	await _check_actions(world)
 	_check_casters(world)  # replaces the player's stats
 	await _check_turn_authority(world)  # last in part 1: fights as the wizard _check_casters leaves behind
 
@@ -252,6 +257,30 @@ func _check_layout(world):
 	check(is_equal_approx(bottom.size.x, screen.size.x) and is_equal_approx(bottom.end.y, screen.size.y) and bottom.size.y >= 200.0,
 		"bottom bar spans the screen and sits on its lower edge", str(bottom))
 
+	# The action bar: seven actions in key order, centred in the bottom bar,
+	# clear of the panels at either end
+	var bar = world.bottom_ui.action_bar
+	await _frames(2)
+	var titles: Array = []
+	var in_order := true
+	var last_end := 0.0
+	var row_top := -1.0
+	for action_id in world.combat.ACTION_BAR:
+		var button: Button = bar.get_button(action_id)
+		var rect: Rect2 = button.get_global_rect()
+		titles.append(button.get_title())
+		if rect.position.x < last_end or not bottom.encloses(rect) or (row_top >= 0.0 and not is_equal_approx(rect.position.y, row_top)):
+			in_order = false
+		last_end = rect.end.x
+		row_top = rect.position.y
+	var first_rect: Rect2 = bar.get_button(world.combat.ACTION_BAR[0]).get_global_rect()
+	check(titles == ["Attack", "Cast", "Use Item", "Dash", "Disengage", "Dodge", "End Turn"] and in_order,
+		"the action bar shows its seven actions in key order, in one row inside the bottom bar", str(titles))
+	check(first_rect.position.x >= 340.0 and last_end <= 1680.0 and absf((first_rect.position.x + last_end) / 2.0 - screen.size.x / 2.0) <= 2.0,
+		"the action bar is centred and clear of the panels at either end", "%d to %d" % [first_rect.position.x, last_end])
+	check(bottom.encloses(bar._hint.get_global_rect()) and bottom.encloses(bar._movement_label.get_global_rect()),
+		"the action bar's resource strip and hint line are inside the bottom bar")
+
 	# Character sheet and save menu (older screens)
 	world.character_screen.show_character(world.player.stats)
 	await _frames(2)
@@ -278,6 +307,16 @@ func _press(keycode: Key):
 		event.physical_keycode = keycode
 		event.pressed = pressed
 		root.push_input(event)
+
+func _click(screen_pos: Vector2):
+	"""Send a real left click, press and release, through the viewport"""
+	for pressed in [true, false]:
+		var event := InputEventMouseButton.new()
+		event.button_index = MOUSE_BUTTON_LEFT
+		event.pressed = pressed
+		event.position = screen_pos
+		event.global_position = screen_pos
+		root.push_input(event, true)  # already in the viewport's own coordinates
 
 func _check_debug_keys(world):
 	var game = _mgr("GameManager")
@@ -326,9 +365,9 @@ func _check_encumbrance(world):
 		str(player.stats.get_modified_movement_speed()))
 	check(enemy.stats.get_modified_movement_speed() == 6, "enemy speed ignores the party's load",
 		str(enemy.stats.get_modified_movement_speed()))
-	var enemy_roll: Dictionary = combat.roll_attack(enemy.stats, player.stats, enemy.create_temp_weapon(), false, false, enemy, player, [])
+	var enemy_roll: Dictionary = combat.roll_attack(enemy, player)
 	check(not enemy_roll.get("disadvantage", false), "enemy attacks are not at disadvantage from the party's load")
-	var player_roll: Dictionary = combat.roll_attack(player.stats, enemy.stats, player.create_temp_weapon("medium"), false, false, player, enemy, [])
+	var player_roll: Dictionary = combat.roll_attack(player, enemy)
 	check(player_roll.get("disadvantage", false), "encumbered party member attacks at disadvantage")
 	inv.gold = gold_before
 	check(player.stats.get_modified_movement_speed() == 6, "movement returns to 6 tiles once the load is gone")
@@ -729,8 +768,7 @@ func _check_fight(world):
 					adjacent = enemy
 					break
 		if adjacent != null:
-			player.attack_enemy(adjacent, "heavy")
-			await _wait(0.15)
+			world.combat.request_action(player, "attack", {"target": adjacent})
 		player.end_turn()
 		await _wait(0.1)
 		rounds += 1
@@ -742,6 +780,611 @@ func _check_fight(world):
 	check(not world.in_combat, "combat ends when the nearby enemies are dead", "still in combat after %d rounds" % rounds)
 	check(stats.experience > xp_before, "kills award XP", "%d -> %d" % [xp_before, stats.experience])
 	check(not player.turn_based_mode, "player returns to free movement after combat")
+
+# ---------------------------------------------------------------------------
+#  Weapons: an attack is made with what is in the hand, by 5e rules
+# ---------------------------------------------------------------------------
+
+func _damage_range(combat, profile: Dictionary, is_crit: bool = false) -> Array:
+	"""The lowest and highest damage in 300 rolls of an attack profile"""
+	var lowest := 1000000
+	var highest := -1000000
+	for i in range(300):
+		var damage: int = combat.roll_damage(profile, is_crit)
+		lowest = min(lowest, damage)
+		highest = max(highest, damage)
+	return [lowest, highest]
+
+func _check_weapons(world):
+	"""The default fighter (STR 14, DEX 12, proficiency +2) with its starting
+	kit: longsword, shield, light crossbow in the ranged slot"""
+	var combat = _mgr("CombatManager")
+	var inv = _mgr("InventoryManager")
+	var items = _mgr("ItemDatabase")
+	var player = world.player
+	var stats = player.stats
+	var longsword: Dictionary = inv.get_equipped_item(stats, "main_hand")
+	var shield: Dictionary = inv.get_equipped_item(stats, "off_hand")
+	var crossbow: Dictionary = inv.get_equipped_item(stats, "ranged")
+	check(stats.class_id == "fighter" and stats.get_str_modifier() == 2 and stats.get_dex_modifier() == 1 and stats.proficiency_bonus == 2
+		and not longsword.is_empty() and longsword.item_data.item_id == "longsword" and not shield.is_empty() and not crossbow.is_empty(),
+		"test setup: the fighter holds a longsword and a shield and carries a crossbow")
+	if longsword.is_empty() or shield.is_empty() or crossbow.is_empty():
+		return
+
+	# --- the equipped weapon's die and damage type; versatile with a shield ---
+	var profile: Dictionary = combat.get_attack_profile(player)
+	check(profile.weapon == longsword.item_data and profile.weapon_name == "Iron Longsword" and profile.damage_dice == "1d8"
+		and profile.damage_type == "slashing" and profile.usable,
+		"an attack uses the weapon in the main hand: its die and its damage type",
+		"%s %s %s" % [profile.weapon_name, profile.damage_dice, profile.damage_type])
+	check(profile.ability == "str" and profile.ability_modifier == 2 and profile.proficient and profile.attack_bonus == 4,
+		"the attack roll adds the Strength modifier and the proficiency bonus", "+%d" % profile.attack_bonus)
+	check(_damage_range(combat, profile) == [3, 10], "damage is the weapon's die plus the same ability modifier",
+		str(_damage_range(combat, profile)))
+	var crit_range: Array = _damage_range(combat, profile, true)
+	check(crit_range[0] >= 4 and crit_range[1] > 10 and crit_range[1] <= 18, "a critical hit rolls the weapon's die twice", str(crit_range))
+	check(not profile.two_handed_grip, "a versatile weapon held beside a shield uses its one-handed die")
+
+	# --- versatile: the larger die with the off hand empty ---
+	inv.unequip_item(stats, "off_hand")
+	profile = combat.get_attack_profile(player)
+	check(profile.damage_dice == "1d10" and profile.two_handed_grip and _damage_range(combat, profile) == [3, 12],
+		"a versatile weapon uses its larger die when the off hand is empty", "%s %s" % [profile.damage_dice, str(_damage_range(combat, profile))])
+	var versatile_ids: Array = []
+	for item_id in ["longsword", "battleaxe", "warhammer", "quarterstaff", "spear"]:
+		var weapon = items.get_item(item_id)
+		versatile_ids.append("%s %s/%s%s" % [item_id, weapon.damage_dice, weapon.versatile_dice, " 2h" if weapon.is_two_handed else ""])
+	check(versatile_ids == ["longsword 1d8/1d10", "battleaxe 1d8/1d10", "warhammer 1d8/1d10", "quarterstaff 1d6/1d8", "spear 1d6/1d8"],
+		"the versatile weapons carry their two-handed die, as in the 5e weapon table", str(versatile_ids))
+
+	# --- two-handed: both hands, enforced where equipping happens ---
+	var greatsword: Dictionary = items.create_item_instance("greatsword")
+	inv.add_item(greatsword)
+	inv.equip_item(shield, stats, "off_hand")
+	check(not inv.equip_item(greatsword, stats, "main_hand") and inv.get_equipped_item(stats, "main_hand") == longsword,
+		"a two-handed weapon cannot be equipped while the off hand holds something")
+	inv.unequip_item(stats, "off_hand")
+	check(inv.equip_item(greatsword, stats, "main_hand") and not inv.equip_item(shield, stats, "off_hand")
+		and inv.get_equipped_item(stats, "off_hand").is_empty(),
+		"nothing can be equipped in the off hand beside a two-handed weapon")
+	profile = combat.get_attack_profile(player)
+	check(profile.damage_dice == "2d6" and profile.usable, "a two-handed weapon in both hands attacks with its own dice", profile.damage_dice)
+	inv.equipped_items[stats]["off_hand"] = shield  # a state an old save can hold
+	profile = combat.get_attack_profile(player)
+	check(not profile.usable and "both hands" in profile.reason, "a two-handed weapon beside a full off hand cannot attack, and says why", profile.reason)
+	inv.equipped_items[stats].erase("off_hand")
+
+	# --- finesse: the better of Strength and Dexterity ---
+	var rapier: Dictionary = items.create_item_instance("rapier")
+	inv.add_item(rapier)
+	inv.equip_item(rapier, stats, "main_hand")
+	profile = combat.get_attack_profile(player)
+	check(profile.weapon_name == "Iron Rapier" and profile.ability == "str" and profile.ability_modifier == 2,
+		"a finesse weapon uses Strength when that is the higher modifier", "%s %+d" % [profile.ability, profile.ability_modifier])
+	stats.dexterity = 18
+	profile = combat.get_attack_profile(player)
+	check(profile.ability == "dex" and profile.ability_modifier == 4 and profile.attack_bonus == 6 and _damage_range(combat, profile) == [5, 12],
+		"a finesse weapon uses Dexterity when that is the higher modifier, for the attack roll and the damage",
+		"%s %+d, damage %s" % [profile.ability, profile.ability_modifier, str(_damage_range(combat, profile))])
+	var plain: Dictionary = combat.build_attack_profile(player, longsword.item_data)
+	check(plain.ability == "str" and plain.ability_modifier == 2, "a weapon without finesse uses Strength however high Dexterity is")
+	stats.dexterity = 12
+
+	# --- proficiency comes from the class, by weapon group or by name ---
+	var battleaxe = items.get_item("battleaxe")
+	var club = items.get_item("club")
+	check(rapier.item_data.weapon_category == "martial" and club.weapon_category == "simple" and items.get_item("longbow").weapon_category == "martial"
+		and items.get_item("light_crossbow").weapon_category == "simple" and items.get_item("steel_dagger").weapon_category == "simple",
+		"weapons say whether they are simple or martial")
+	stats.class_id = "wizard"
+	profile = combat.get_attack_profile(player)
+	var wizard_club: Dictionary = combat.build_attack_profile(player, club)
+	check(not profile.proficient and profile.attack_bonus == 2 and wizard_club.proficient and wizard_club.attack_bonus == 4,
+		"a weapon the class is not proficient with gets no proficiency bonus", "rapier +%d, club +%d" % [profile.attack_bonus, wizard_club.attack_bonus])
+	stats.class_id = "rogue"
+	check(combat.get_attack_profile(player).proficient and not combat.build_attack_profile(player, battleaxe).proficient,
+		"a class can be proficient with a weapon by name: a rogue with a rapier, not with a battleaxe")
+	stats.class_id = "fighter"
+	check(combat.get_attack_profile(player).proficient and combat.build_attack_profile(player, battleaxe).proficient,
+		"a fighter is proficient with martial weapons")
+
+	# --- a ranged weapon in hand, then nothing in hand ---
+	inv.unequip_item(stats, "main_hand")
+	profile = combat.get_attack_profile(player)
+	check(profile.weapon == crossbow.item_data and profile.is_ranged and not profile.usable and "ranged" in profile.reason,
+		"with the main hand empty the carried ranged weapon is the weapon in hand, and it cannot attack yet", profile.reason)
+	inv.unequip_item(stats, "ranged")
+	profile = combat.get_attack_profile(player)
+	check(profile.weapon == null and profile.weapon_name == "Unarmed strike" and profile.damage_type == "bludgeoning" and profile.proficient
+		and profile.attack_bonus == 4 and profile.usable and _damage_range(combat, profile) == [3, 3] and _damage_range(combat, profile, true) == [3, 3],
+		"with no weapon the attack is an unarmed strike: 1 + Strength modifier bludgeoning, proficient",
+		"%s %s %s" % [profile.weapon_name, str(_damage_range(combat, profile)), profile.damage_type])
+
+	# Back to the starting kit
+	inv.equip_item(longsword, stats, "main_hand")
+	inv.equip_item(shield, stats, "off_hand")
+	inv.equip_item(crossbow, stats, "ranged")
+	inv.remove_item(greatsword.instance_id)
+	inv.remove_item(rapier.instance_id)
+	stats.current_hp = stats.max_hp
+	check(inv.get_equipped_item(stats, "main_hand") == longsword and inv.get_equipped_item(stats, "off_hand") == shield
+		and inv.get_equipped_item(stats, "ranged") == crossbow, "test teardown: the starting kit is back in place")
+
+# ---------------------------------------------------------------------------
+#  Turn resources and actions: everything done in a turn is a request
+# ---------------------------------------------------------------------------
+
+func _until(condition: Callable, timeout: float = 15.0) -> bool:
+	"""Wait until the condition holds; false when it never does"""
+	var waited := 0.0
+	while not condition.call() and waited < timeout:
+		await _wait(0.02)
+		waited += 0.02
+	return condition.call()
+
+func _walk(player, tile: Vector2i) -> bool:
+	"""Walk the player to a tile the way a click does; true when it got there"""
+	player.show_path_preview(tile)
+	player.execute_move()
+	await _until(func(): return not player.is_moving, 5.0)
+	player.cancel_preview()
+	return player.grid_position == tile
+
+func _toughen(stats):
+	"""Enough HP that no blow can end a staged fight (changing equipment recalculates it)"""
+	stats.max_hp = 500
+	stats.current_hp = 500
+
+func _find_lane(world, origin: Vector2i) -> Array:
+	"""[centre, step]: five free floor tiles in a straight line near origin, for
+	a staged fight. The centre may be the player's own tile. [] when none."""
+	var player = world.player
+	for radius in range(0, 7):
+		for dx in range(-radius, radius + 1):
+			for dy in range(-radius, radius + 1):
+				if max(abs(dx), abs(dy)) != radius:
+					continue
+				var centre: Vector2i = origin + Vector2i(dx, dy)
+				if centre != player.grid_position and not player.is_walkable(centre):
+					continue
+				for step in [Vector2i(1, 0), Vector2i(0, 1)]:
+					var free := true
+					for offset in [-2, -1, 1, 2]:
+						if not player.is_walkable(centre + step * offset):
+							free = false
+					if free:
+						return [centre, step]
+	return []
+
+func _potion_stack(inv) -> Dictionary:
+	for carried in inv.items:
+		if carried.item_data.item_id == "potion_healing_minor":
+			return carried
+	return {}
+
+func _check_actions(world):
+	"""A staged fight: the default fighter against one goblin that cannot be
+	killed and that anything but a natural 1 hits. Checks what a turn is given,
+	what each action costs, and that every action is a request the controller
+	approves - the player's, the enemy's and a companion's alike."""
+	var combat_mgr = _mgr("CombatManager")
+	var effects = _mgr("StatusEffectManager")
+	var inv = _mgr("InventoryManager")
+	var items = _mgr("ItemDatabase")
+	var comp = _mgr("CompanionManager")
+	var bus = _mgr("EventBus")
+	var ui = _mgr("UIManager")
+	var controller = world.combat
+	var player = world.player
+	var stats = player.stats
+	var bar = world.bottom_ui.action_bar
+	var sheet = world.character_screen
+	var home: Vector2i = player.grid_position
+
+	var lane: Array = _find_lane(world, home)
+	check(not lane.is_empty() and not world.in_combat, "test setup: a lane of free floor for the staged fight")
+	if lane.is_empty() or world.in_combat:
+		return
+	var here: Vector2i = lane[0]
+	var step: Vector2i = lane[1]
+	if here != home:
+		player.teleport_to_grid(here)
+	_toughen(stats)
+	for i in range(4):
+		inv.add_item(items.create_item_instance("potion_healing_minor"))
+	var potions: Dictionary = _potion_stack(inv)
+
+	# What the fight announces
+	var taken: Array = []  # [combatant, action id, result] for every approved request
+	var on_action = func(combatant, action_id, result): taken.append([combatant, action_id, result])
+	controller.action_taken.connect(on_action)
+	var blows: Array = []  # [attacker, target, amount, damage type]
+	var on_damage = func(attacker, target, amount, _is_crit, damage_type): blows.append([attacker, target, amount, damage_type])
+	bus.damage_dealt.connect(on_damage)
+	var reactions: Array = []
+	var on_reaction = func(reactor, _reaction_id, _source): reactions.append(reactor)
+	bus.reaction_triggered.connect(on_reaction)
+	var turn_log: Array = []  # [combatant, was its reaction spent when its turn began]
+	var on_turn = func(combatant): turn_log.append([combatant, combatant.reaction_used])
+	controller.turn_started.connect(on_turn)
+	var notes: Array = []
+	var on_note = func(message, _type): notes.append(message)
+	bus.ui_notification.connect(on_note)
+
+	var goblin = world._spawn_enemy("goblin", 1, 500, here + step)
+	goblin.stats.armor_class = -100
+	Engine.time_scale = 4.0
+	var started: bool = await _until(func(): return world.in_combat, 3.0)
+	# Only the staged goblin fights: anyone else the fight pulled in sits it out
+	for other in controller.get_order():
+		if other != player and other != goblin:
+			controller.remove_combatant(other)
+	var my_turn: bool = started and await _until(func(): return controller.is_turn_of(player) or not world.in_combat)
+	var fighters: Array = controller.get_order()
+	check(started and my_turn and controller.is_turn_of(player) and fighters.size() == 2 and fighters.has(goblin),
+		"test setup: the staged fight started, the player against the goblin, and the player's turn came",
+		"%d in the order" % fighters.size())
+	if not controller.is_turn_of(player):
+		Engine.time_scale = 1.0
+		return
+
+	# --- what a turn is given ---
+	check(player.movement_left == 6 and player.movement_granted == 6 and not player.action_used
+		and not player.bonus_action_used and not player.reaction_used,
+		"a turn starts with a speed's worth of movement, the action, the bonus action and the reaction",
+		"movement %d" % player.movement_left)
+	await _frames(2)
+	var attack_button = bar.get_button("attack")
+	check(not attack_button.disabled and "Iron Longsword" in attack_button.get_detail() and "1d8" in attack_button.get_detail(),
+		"the Attack button names the equipped weapon and its die", attack_button.get_detail())
+	check(bar._turn_label.text == "Your turn" and bar._movement_label.text == "Movement 6 / 6" and bar._action_label.text == "Action ready"
+		and bar._bonus_label.text == "Bonus action ready" and bar._action_label.visible,
+		"the HUD shows the turn-holder's movement and that its action and bonus action are unspent",
+		"%s | %s | %s" % [bar._turn_label.text, bar._movement_label.text, bar._action_label.text])
+
+	# --- a request out of turn ---
+	var goblin_before: Array = [goblin.action_used, goblin.movement_left]
+	var out_of_turn: Dictionary = controller.request_action(goblin, "dash")
+	check(not out_of_turn.ok and out_of_turn.reason == "Not your turn" and [goblin.action_used, goblin.movement_left] == goblin_before,
+		"a request from a combatant whose turn it is not is refused and costs nothing", str(out_of_turn))
+
+	# --- Attack: the equipped weapon, once a turn ---
+	var hit: Dictionary = {}
+	var hp_lost := 0
+	for attempt in range(40):
+		player.action_used = false
+		blows.clear()
+		var hp_before: int = goblin.stats.current_hp
+		var swing: Dictionary = controller.request_action(player, "attack", {"target": goblin})
+		if swing.ok and swing.hit:
+			hit = swing
+			hp_lost = hp_before - goblin.stats.current_hp
+			break
+	check(not hit.is_empty() and hit.weapon_name == "Iron Longsword" and hit.damage_dice == "1d8" and hit.damage_type == "slashing"
+		and hit.damage >= (4 if hit.is_crit else 3) and hit.damage <= (18 if hit.is_crit else 10) and hp_lost == hit.damage,
+		"the Attack action hits with the equipped weapon's die and damage type", str(hit.get("damage", "no hit")))
+	check(blows.size() == 1 and blows[0][0] == player and blows[0][1] == goblin and blows[0][2] == hp_lost
+		and blows[0][3] == combat_mgr.DamageType.SLASHING,
+		"the weapon's damage type travels with the damage to where it is applied", str(blows))
+	var hp_after_first: int = goblin.stats.current_hp
+	var second: Dictionary = controller.request_action(player, "attack", {"target": goblin})
+	check(player.action_used and not second.ok and second.reason == "Action spent" and goblin.stats.current_hp == hp_after_first,
+		"a second attack in the same turn is refused", str(second))
+	await _frames(2)
+	check(attack_button.disabled and attack_button.get_reason() == "Action spent" and bar._action_label.text == "Action spent",
+		"with the action spent the Attack button is disabled and says why", attack_button.get_reason())
+	player.refresh_turn_resources()  # test setup, here and below: a fresh turn's resources without waiting a round
+	var friendly: Dictionary = controller.request_action(player, "attack", {"target": player})
+	check(not friendly.ok and not player.action_used, "an attack on anything but a hostile combatant is refused")
+
+	# --- a ranged weapon in hand, then nothing in hand ---
+	var sword: Dictionary = inv.unequip_item(stats, "main_hand")
+	_toughen(stats)
+	var ranged_check: Dictionary = controller.check_action(player, "attack")
+	var ranged_try: Dictionary = controller.request_action(player, "attack", {"target": goblin})
+	await _frames(2)
+	check(not ranged_check.ok and "ranged" in ranged_check.reason and not ranged_try.ok and not player.action_used,
+		"an attack with a ranged weapon in hand is refused: ranged attacks cannot be made yet", str(ranged_check.reason))
+	check(attack_button.disabled and attack_button.get_reason() == "Ranged attacks cannot be made yet" and "Crossbow" in attack_button.get_detail(),
+		"the action bar says that the ranged weapon in hand cannot attack yet",
+		"%s / %s" % [attack_button.get_detail(), attack_button.get_reason()])
+	var bow: Dictionary = inv.unequip_item(stats, "ranged")
+	_toughen(stats)
+	var punch: Dictionary = {}
+	for attempt in range(40):
+		player.action_used = false
+		blows.clear()
+		var swing: Dictionary = controller.request_action(player, "attack", {"target": goblin})
+		if swing.ok and swing.hit:
+			punch = swing
+			break
+	check(not punch.is_empty() and punch.weapon_name == "Unarmed strike" and punch.damage == 3 and punch.damage_type == "bludgeoning"
+		and blows.size() == 1 and blows[0][3] == combat_mgr.DamageType.BLUDGEONING,
+		"with nothing in hand the Attack action is an unarmed strike for 1 + Strength modifier", str(punch.get("damage", "no hit")))
+	inv.equip_item(sword, stats, "main_hand")
+	inv.equip_item(bow, stats, "ranged")
+	_toughen(stats)
+
+	# --- Dash ---
+	player.refresh_turn_resources()
+	var dash: Dictionary = controller.request_action(player, "dash")
+	check(dash.ok and player.action_used and player.movement_left == 12 and player.movement_granted == 12 and dash.movement_added == 6,
+		"Dash costs the action and adds the combatant's speed to this turn's movement", "movement %d" % player.movement_left)
+	check(not controller.request_action(player, "dash").ok and player.movement_left == 12, "a second Dash in the same turn is refused")
+
+	# --- Disengage, and the opportunity attack it prevents ---
+	player.refresh_turn_resources()
+	var hp_before_walk: int = stats.current_hp
+	var disengage: Dictionary = controller.request_action(player, "disengage")
+	var walked_away: bool = await _walk(player, here - step)
+	check(disengage.ok and walked_away and reactions.is_empty() and not goblin.reaction_used and stats.current_hp == hp_before_walk,
+		"after Disengage, walking out of an enemy's reach provokes no opportunity attack", "%d reactions" % reactions.size())
+	check(player.movement_left == 5, "each tile walked costs a tile of this turn's movement", "movement %d" % player.movement_left)
+	await _walk(player, here)
+	player.refresh_turn_resources()
+	walked_away = await _walk(player, here - step)
+	check(walked_away and reactions == [goblin] and goblin.reaction_used,
+		"without Disengage the same step provokes an opportunity attack, which spends the attacker's reaction", "%d reactions" % reactions.size())
+	await _walk(player, here)
+	await _walk(player, here - step)
+	check(reactions == [goblin], "one reaction a round: no second opportunity attack before the attacker's next turn", "%d reactions" % reactions.size())
+	await _walk(player, here)
+	player.movement_left = 0
+	check(not await _walk(player, here - step) and player.grid_position == here, "a move is refused when the turn's movement is used up")
+
+	# --- Dodge ---
+	player.refresh_turn_resources()
+	var dodge: Dictionary = controller.request_action(player, "dodge")
+	var dex_save: Dictionary = combat_mgr.make_saving_throw(stats, "dex", 10, false, false, player)
+	var wis_save: Dictionary = combat_mgr.make_saving_throw(stats, "wis", 10, false, false, player)
+	check(dodge.ok and player.action_used and player.is_dodging() and combat_mgr.roll_attack(goblin, player).disadvantage,
+		"Dodge costs the action and gives attack rolls against the dodger disadvantage")
+	check(dex_save.advantage and not wis_save.advantage, "a dodging combatant makes Dexterity saves, and only those, with advantage")
+
+	# --- the enemy's turn: SPACE ends ours; nothing of ours is approved meanwhile ---
+	var spent_before: bool = goblin.reaction_used
+	turn_log.clear()
+	taken.clear()
+	_press(KEY_SPACE)
+	await _frames(1)
+	check(controller.is_turn_of(goblin) and player.movement_left == 0, "SPACE ends the player's turn and unused movement is lost")
+	check(spent_before and turn_log.size() == 1 and turn_log[0] == [goblin, false] and not goblin.reaction_used,
+		"the reaction spent on an opportunity attack is back at the start of the combatant's own turn", str(turn_log))
+	var enemy_swings: Array = taken.filter(func(entry): return entry[0] == goblin and entry[1] == "attack")
+	check(enemy_swings.size() == 1 and enemy_swings[0][2].disadvantage and enemy_swings[0][2].weapon_name == "Enemy Weapon"
+		and combat_mgr.roll_attack(goblin, player).disadvantage,
+		"an enemy attacks through the same request, at disadvantage while the Dodge lasts", "%d attacks" % enemy_swings.size())
+	var count_before: int = int(potions.stack_count)
+	notes.clear()
+	sheet.show_character(stats)
+	sheet._use_inventory_item(inv.items.find(potions))
+	sheet.hide_screen()
+	check(int(potions.stack_count) == count_before and notes == ["Not your turn"] and not controller.request_action(player, "dodge").ok,
+		"an item cannot be used, nor an action taken, on someone else's turn", str(notes))
+
+	# --- our next turn: the Dodge is over ---
+	await _until(func(): return controller.is_turn_of(player) or not world.in_combat)
+	check(controller.is_turn_of(player) and not player.is_dodging() and not combat_mgr.roll_attack(goblin, player).disadvantage,
+		"the Dodge ends at the start of the dodger's next turn")
+	controller.request_action(player, "dodge")
+	effects.apply_effect(player, "stunned", 1)
+	check(not player.is_dodging() and not combat_mgr.roll_attack(goblin, player).disadvantage, "a Dodge ends early when the dodger is incapacitated")
+	effects.clear_effects(player)
+
+	# --- Use Item costs the action ---
+	player.refresh_turn_resources()
+	notes.clear()
+	sheet.show_character(stats)
+	sheet._use_inventory_item(inv.items.find(potions))
+	var after_first: int = int(potions.stack_count)
+	var action_after_first: bool = player.action_used
+	sheet._use_inventory_item(inv.items.find(potions))
+	sheet.hide_screen()
+	check(after_first == count_before - 1 and action_after_first, "using a potion in a fight costs the action",
+		"%d -> %d" % [count_before, after_first])
+	check(int(potions.stack_count) == after_first and notes == ["Action spent"], "a second item in the same turn is refused", str(notes))
+
+	# --- the action bar's keys and buttons ---
+	player.refresh_turn_resources()
+	_press(KEY_4)
+	check(player.action_used and player.movement_left == 12, "key 4 takes the Dash action")
+	player.refresh_turn_resources()
+	_press(KEY_5)
+	check(player.action_used and player.disengaged, "key 5 takes the Disengage action")
+	player.refresh_turn_resources()
+	_press(KEY_6)
+	check(player.action_used and player.is_dodging(), "key 6 takes the Dodge action")
+	player.refresh_turn_resources()
+	_press(KEY_1)
+	await _frames(2)
+	check(player.attack_mode and attack_button.button_pressed and "click an adjacent enemy" in bar._hint.text,
+		"key 1 starts aiming the Attack action, and the bar shows it", bar._hint.text)
+	_press(KEY_1)
+	check(not player.attack_mode, "key 1 again puts the attack away")
+	_press(KEY_1)
+	notes.clear()
+	_click(attack_button.get_global_rect().get_center())
+	await _frames(1)
+	check(notes.is_empty() and not player.is_moving and not player.is_path_selected,
+		"a click on the action bar is not a click on the map behind it", str(notes))
+	check(not player.attack_mode, "clicking the Attack button while aiming puts the attack away")
+	player.attack_mode = false
+	_press(KEY_3)
+	await _frames(1)
+	check(sheet.visible, "key 3, Use Item, opens the pack")
+	sheet.hide_screen()
+	notes.clear()
+	_press(KEY_2)
+	await _frames(1)
+	check(not ui.is_panel_open() and notes == ["Cast: No spells known"], "key 2, Cast, tells a character without spells that it has none", str(notes))
+	bar.get_button("dodge").pressed.emit()
+	check(player.action_used and player.is_dodging(), "a button of the action bar takes its action")
+	await _frames(2)
+	var cast_button = bar.get_button("cast")
+	check(bar.get_button("dash").disabled and bar.get_button("dash").get_reason() == "Action spent" and not bar.get_button("end_turn").disabled
+		and cast_button.disabled and cast_button.get_reason() == "No spells known" and "Dodging" in bar._state_label.text,
+		"the bar disables what cannot be done, with the reason, and leaves End Turn open",
+		"dash '%s', end turn '%s', cast '%s', state '%s'" % [bar.get_button("dash").get_reason(), bar.get_button("end_turn").get_reason(),
+			cast_button.get_reason(), bar._state_label.text])
+
+	# --- an enemy that moves and then attacks: end-of-turn effects come after the blow ---
+	player.refresh_turn_resources()
+	player.teleport_to_grid(here - step * 2)
+	effects.apply_effect(goblin, "prone", 1)  # disadvantage on its attacks; gone at the end of its turn
+	taken.clear()
+	_press(KEY_7)
+	check(controller.is_turn_of(goblin), "key 7 ends the turn")
+	await _frames(2)
+	check(bar._turn_label.text == "Goblin's turn" and attack_button.disabled and attack_button.get_reason() == "Not your turn",
+		"on an enemy's turn the HUD shows that combatant's resources and the buttons say it is not our turn", bar._turn_label.text)
+	await _until(func(): return controller.is_turn_of(player) or not world.in_combat)
+	var goblin_turn: Array = taken.filter(func(entry): return entry[0] == goblin)
+	check(goblin_turn.size() == 2 and goblin_turn[0][1] == "move" and goblin_turn[1][1] == "attack" and goblin.grid_position == here - step,
+		"an enemy's move and its attack are both requests to the controller", "%d requests" % goblin_turn.size())
+	check(goblin_turn.size() == 2 and goblin_turn[1][2].disadvantage and not effects.has_effect(goblin, "prone"),
+		"an enemy that moves and then attacks runs its end-of-turn effects after the blow, not before")
+
+	# --- a companion's turn is made of requests too, within its movement ---
+	comp.rejoin_party("kaelen")
+	await _wait(0.3)
+	var kaelen = world.companion_nodes.get("kaelen")
+	check(kaelen != null and controller.get_order().has(kaelen) and controller.is_turn_of(player), "test setup: a companion joined the fight")
+	if kaelen != null:
+		kaelen.teleport_to_grid(here + step * 2)
+		kaelen.stats.movement_speed = 5  # one tile a turn
+		taken.clear()
+		controller.request_action(player, "end_turn")
+		await _until(func(): return controller.is_turn_of(player) or not world.in_combat)
+		var kaelen_turn: Array = taken.filter(func(entry): return entry[0] == kaelen)
+		var strayed: Vector2i = kaelen.grid_position - (here + step * 2)
+		check(kaelen_turn.size() == 1 and kaelen_turn[0][1] == "move" and kaelen_turn[0][2].steps == 1
+			and max(abs(strayed.x), abs(strayed.y)) == 1 and kaelen.movement_left == 0,
+			"a companion's move is a request, and stops where its movement for the turn runs out", "%d requests" % kaelen_turn.size())
+		kaelen.teleport_to_grid(here)
+		var punches: Array = []
+		for round_number in range(8):
+			taken.clear()
+			controller.request_action(player, "end_turn")
+			await _until(func(): return controller.is_turn_of(player) or not world.in_combat)
+			punches = taken.filter(func(entry): return entry[0] == kaelen and entry[1] == "attack" and entry[2].hit)
+			if not punches.is_empty():
+				break
+		check(not punches.is_empty() and punches[0][2].weapon_name == "Unarmed strike" and punches[0][2].damage_type == "bludgeoning"
+			and punches[0][2].damage == max(1, 1 + kaelen.stats.get_str_modifier()),
+			"a companion with nothing equipped attacks through the same request, with an unarmed strike")
+
+	# --- the fight ends; outside one nothing is spent ---
+	combat_mgr.apply_damage(goblin, 9999, combat_mgr.DamageType.PHYSICAL, player, false)
+	await _until(func(): return not world.in_combat, 5.0)
+	Engine.time_scale = 1.0
+	check(not world.in_combat and not player.action_used and player.movement_left == 0, "test setup: the staged fight is over")
+	count_before = int(potions.stack_count)
+	sheet.show_character(stats)
+	sheet._use_inventory_item(inv.items.find(potions))
+	sheet._use_inventory_item(inv.items.find(potions))
+	sheet.hide_screen()
+	check(int(potions.stack_count) == count_before - 2 and not player.action_used, "outside a fight items are free: two in a row, no action spent")
+	var idle_dash: Dictionary = controller.request_action(player, "dash")
+	check(not idle_dash.ok and idle_dash.reason == "Not in combat", "Dash, like Attack, Disengage and Dodge, is only taken in a fight", str(idle_dash))
+	await _frames(2)
+	check(bar._turn_label.text == "Exploring" and not bar._action_label.visible and attack_button.disabled
+		and attack_button.get_reason() == "Not in combat" and not bar.get_button("use_item").disabled,
+		"outside a fight the bar offers what can still be done: no action economy, items still usable")
+
+	# --- outside a fight a move is still a request, with no movement to count ---
+	var stroll_to: Vector2i = player.grid_position
+	for tile in _open_tiles_near(world, player.grid_position, 4, 6, 12):
+		var clear := true
+		for enemy in world.enemies:
+			if is_instance_valid(enemy) and enemy.is_alive() and Vector2(enemy.grid_position - tile).length() < 14.0:
+				clear = false
+		if clear:
+			stroll_to = tile
+			break
+	check(stroll_to != player.grid_position, "test setup: somewhere to walk to, well away from any enemy")
+	taken.clear()
+	var strolled: bool = await _walk(player, stroll_to)
+	var stroll: Array = taken.filter(func(entry): return entry[0] == player and entry[1] == "move")
+	check(strolled and not world.in_combat and stroll.size() == 1 and stroll[0][2].steps >= 4 and player.movement_left == 0,
+		"outside a fight a move is still a request to the controller, and needs no movement", "%d requests" % stroll.size())
+	if kaelen != null and is_instance_valid(kaelen):
+		var near_enough = func(): return not kaelen.is_moving and Vector2(kaelen.grid_position - player.grid_position).length() < 3.0
+		var caught_up: bool = await _until(near_enough, 8.0)
+		var follow: Array = taken.filter(func(entry): return entry[0] == kaelen and entry[1] == "move")
+		check(caught_up and not follow.is_empty(), "outside a fight a companion follows the player, asking for its moves", "%d requests" % follow.size())
+		comp.dismiss("kaelen")
+		await _wait(0.2)
+
+	# --- the turn mode outside a fight counts movement out, and nothing else ---
+	var beside: Array = _open_tiles_near(world, player.grid_position, 1, 1, 1)
+	player.toggle_turn_based_mode()
+	var granted: int = player.movement_left
+	if not beside.is_empty():
+		await _walk(player, beside[0])
+	var after_step: int = player.movement_left
+	await _frames(2)
+	var mode_shown: String = "%s | %s" % [bar._turn_label.text, bar._movement_label.text]
+	var end_open: bool = not bar.get_button("end_turn").disabled
+	var dodge_in_turn_mode: Dictionary = controller.request_action(player, "dodge")
+	_press(KEY_SPACE)
+	check(player.turn_based_mode and not world.in_combat and granted == 6 and after_step == 5 and player.movement_left == 6,
+		"in the turn mode outside a fight a turn's movement is counted out, and SPACE starts a new turn",
+		"%d, %d, %d" % [granted, after_step, player.movement_left])
+	check(mode_shown == "Turn mode | Movement 5 / 6" and end_open and not dodge_in_turn_mode.ok and not player.action_used,
+		"the turn mode has no action economy: End Turn is open, Dodge is not", mode_shown)
+	player.toggle_turn_based_mode()
+	check(not player.turn_based_mode, "test teardown: back to free movement")
+
+	controller.action_taken.disconnect(on_action)
+	bus.damage_dealt.disconnect(on_damage)
+	bus.reaction_triggered.disconnect(on_reaction)
+	controller.turn_started.disconnect(on_turn)
+	bus.ui_notification.disconnect(on_note)
+	for node in world.ground_items_node.get_children():
+		node.queue_free()
+	if player.grid_position != home:
+		player.teleport_to_grid(home)
+	stats.recalculate_derived_stats()  # back to the real maximum
+	stats.current_hp = stats.max_hp
+	await _frames(2)
+
+func _check_cast_costs(world, target):
+	"""On the wizard's own turn, with the action already spent on a cantrip:
+	what the other casting times cost"""
+	var spells = _mgr("SpellManager")
+	var controller = world.combat
+	var player = world.player
+	var stats = player.stats
+	var again: Dictionary = controller.request_action(player, "cast", {"spell_id": "fire_bolt", "target": target})
+	check(not again.ok and again.reason == "Action spent" and not again.get("final", false),
+		"a second action spell in the same turn is refused", str(again))
+
+	_press(KEY_2)
+	await _frames(1)
+	check(_mgr("UIManager").is_panel_open("spellbook"), "key 2, Cast, opens a caster's spellbook")
+	_mgr("UIManager").close_panel()
+
+	var back: Vector2i = player.grid_position
+	var spots: Array = _open_tiles_near(world, back, 2, 4, 1)
+	var slots_before: int = spells.get_remaining_slots(stats, 2)
+	check(not spots.is_empty() and slots_before > 0 and spells.knows_spell(stats, "misty_step"),
+		"test setup: a bonus-action spell to cast and a place to aim it")
+	if spots.is_empty():
+		return
+	var hop: Dictionary = controller.request_action(player, "cast", {"spell_id": "misty_step", "target": spots[0]})
+	check(hop.ok and player.bonus_action_used and player.grid_position == spots[0] and spells.get_remaining_slots(stats, 2) == slots_before - 1,
+		"a bonus-action spell costs the bonus action, and its teleport moves the caster", str(hop.get("reason", "")))
+	var hop_again: Dictionary = controller.request_action(player, "cast", {"spell_id": "misty_step", "target": back})
+	check(not hop_again.ok and hop_again.reason == "Bonus action spent" and spells.get_remaining_slots(stats, 2) == slots_before - 1,
+		"a second bonus-action spell in the same turn is refused and spends no slot", str(hop_again))
+	player.teleport_to_grid(back)
+
+	var first_slots: int = spells.get_remaining_slots(stats, 1)
+	var reaction: Dictionary = controller.request_action(player, "cast", {"spell_id": "shield_spell", "target": player})
+	check(not reaction.ok and "reaction" in reaction.reason and reaction.get("final", false) and spells.get_remaining_slots(stats, 1) == first_slots
+		and _mgr("StatusEffectManager").get_active_effects(player).is_empty(),
+		"a reaction spell cannot be cast on the caster's own turn yet", str(reaction))
 
 # ---------------------------------------------------------------------------
 #  Turn authority: the combat controller alone decides whose turn it is
@@ -827,26 +1470,27 @@ func _check_turn_authority(world):
 
 	# --- an enemy holds the turn: the player can do nothing ---
 	var enemy_hp: int = first.stats.current_hp
-	player.has_attacked_this_turn = false  # the old gate would let everything through
+	player.action_used = false  # a gate on the action alone would let everything through
 	check(not player.can_act(), "the player may not act on an enemy's turn")
-	player.attack_enemy(first, "heavy")
-	check(not player.has_attacked_this_turn, "the player's attack is refused during an enemy's turn")
+	var refused: Dictionary = controller.request_action(player, "attack", {"target": first})
+	check(not refused.ok and refused.reason == "Not your turn" and not player.action_used,
+		"the player's attack is refused during an enemy's turn", str(refused))
 
 	spells.set_pending_cast(player, "fire_bolt")
 	player._handle_pending_spell_click(first.grid_position)
-	check(cast_count[0] == 0 and spells.get_pending_cast(player) == "fire_bolt" and not player.has_attacked_this_turn,
+	check(cast_count[0] == 0 and spells.get_pending_cast(player) == "fire_bolt" and not player.action_used,
 		"the player's spell cast is refused during an enemy's turn")
 	spells.clear_pending_cast(player)
 
 	var step: Array = _open_tiles_near(world, here, 1, 1, 1)
-	player.moves_remaining = 6  # even with movement in hand
+	player.movement_left = 6  # even with movement in hand
 	if not step.is_empty():
 		player.show_path_preview(step[0])
 		player.execute_move()
 	check(not step.is_empty() and not player.is_moving and player.grid_position == here,
 		"the player's move is refused during an enemy's turn")
 	player.cancel_preview()
-	player.moves_remaining = 0
+	player.movement_left = 0
 
 	effects.apply_effect(player, "blessed", 5)
 	var turn_before: int = player.turn_number
@@ -856,10 +1500,11 @@ func _check_turn_authority(world):
 	check(controller.current_combatant() == first and player.turn_number == turn_before
 		and blessing.size() == 1 and int(blessing[0].duration_remaining) == 5,
 		"SPACE during an enemy's turn does nothing: no turn ends and no effect ticks down")
-	world.bottom_ui._on_end_turn_pressed()
-	world.bottom_ui._on_heavy_attack_pressed()
-	check(controller.current_combatant() == first and not player.attack_mode,
-		"the End Turn and attack buttons do nothing during an enemy's turn")
+	world.bottom_ui.action_bar._on_action_pressed("end_turn")
+	world.bottom_ui.action_bar._on_action_pressed("attack")
+	world.bottom_ui.action_bar._on_action_pressed("dodge")
+	check(controller.current_combatant() == first and not player.attack_mode and not player.action_used and not player.dodging,
+		"the action bar's buttons do nothing during an enemy's turn")
 	effects.clear_effects(player)
 	await _wait(0.3)  # an attack that had gone through would have landed by now
 	check(first.stats.current_hp == enemy_hp and controller.current_combatant() == first,
@@ -902,8 +1547,9 @@ func _check_turn_authority(world):
 	if target != null:
 		spells.set_pending_cast(player, "fire_bolt")
 		player._handle_pending_spell_click(target.grid_position)
-	check(target != null and cast_count[0] == 1 and player.has_attacked_this_turn and spells.get_pending_cast(player) == "",
-		"on the player's own turn the same spell is cast")
+	check(target != null and cast_count[0] == 1 and player.action_used and not player.bonus_action_used and spells.get_pending_cast(player) == "",
+		"on the player's own turn the same spell is cast, and costs the action its casting time names")
+	await _check_cast_costs(world, target)
 
 	step = _open_tiles_near(world, player.grid_position, 1, 1, 1)
 	if not step.is_empty():
@@ -1128,6 +1774,8 @@ func _check_game_flow():
 
 	# --- no saving in combat ---
 	var enemy = world.enemies[0]
+	world.player.stats.max_hp = 500  # the enemy's first blow must not end this fight before the checks
+	world.player.stats.current_hp = 500
 	for offset in [Vector2i(1, 0), Vector2i(-1, 0), Vector2i(0, 1), Vector2i(0, -1)]:
 		if world.player.is_walkable(enemy.grid_position + offset):
 			world.player.teleport_to_grid(enemy.grid_position + offset)
@@ -1163,7 +1811,6 @@ func _check_game_flow():
 	await _frames(3)
 	check(not ui.is_panel_open() and not paused, "ESC closes the pause menu again")
 	world.player.attack_mode = true
-	world.player.selected_attack_type = "light"
 	world.player.turn_based_mode = true
 	_press(KEY_ESCAPE)
 	await _frames(3)

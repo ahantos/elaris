@@ -79,7 +79,6 @@ func _art_tour(world):
 	player.add_waypoint(here + Vector2i(4, 0))
 	player.add_waypoint(here + Vector2i(4, 3))
 	player.attack_mode = true
-	player.selected_attack_type = "heavy"
 	player.queue_redraw()
 	var ground_script = load("res://scripts/ground_item.gd")
 	var dagger: Dictionary = root.get_node("ItemDatabase").create_item_instance("iron_dagger")
@@ -96,7 +95,6 @@ func _art_tour(world):
 	await _wait(0.25)
 	await _shot("map_overlays")
 	player.attack_mode = false
-	player.selected_attack_type = ""
 	player.cancel_preview()
 	for drop in drops:
 		drop.free()
@@ -271,14 +269,21 @@ func _run():
 						adjacent = enemy
 						break
 			if adjacent != null:
-				player.attack_mode = true
-				player.selected_attack_type = "heavy"
-				player.queue_redraw()
+				# The way a player does it: pick Attack on the bar, then the target
+				player.choose_action("attack")
 				await _wait(0.25)
 				if round_number <= 1:
 					await _shot("combat_attack_selected")
-				player.attack_enemy(adjacent, "heavy")
+				player.attack_mode = false
+				player.queue_redraw()
+				world.combat.request_action(player, "attack", {"target": adjacent})
 				await _wait(0.4)
+				if round_number <= 1:
+					await _shot("combat_action_spent")
+			elif round_number == 0:
+				player.choose_action("dash")
+				await _wait(0.3)
+				await _shot("combat_dash")
 			player.end_turn()
 			await _wait(0.8)
 			if round_number == 0:

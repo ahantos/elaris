@@ -1,5 +1,7 @@
 # enemy.gd
-# A hostile combatant run by a simple AI: close on the player and attack.
+# A hostile combatant run by a simple AI: close on the player and attack. What
+# the AI decides - a move, an attack - it asks of the CombatController, like
+# every other combatant.
 extends Combatant
 class_name Enemy
 
@@ -22,8 +24,8 @@ var player: GridCharacter = null
 var path: Array[Vector2i] = []
 var path_index: int = 0
 
-# Effective move budget for the current turn (moves_per_turn +/- status effects)
-var moves_budget_this_turn: int = 6
+# The weapon every enemy attacks with until the bestiary gives each type its own
+var _stand_in_weapon: ItemData = null
 
 func _init():
 	team = Team.HOSTILE
@@ -53,12 +55,13 @@ func initialize_stats():
 	stats.movement_speed = moves_per_turn * CharacterStats.FEET_PER_TILE  # stats hold feet
 	stats.character_name = enemy_type.capitalize()
 	stats.level = enemy_level
-	moves_budget_this_turn = moves_per_turn
 
 	print("Enemy stats initialized: ", enemy_type, " lv", enemy_level, " HP ", stats.current_hp, "/", stats.max_hp)
 
 func take_turn():
-	"""Enemy takes its turn (status-effect hooks run at start and on every exit path)"""
+	"""Enemy takes its turn: attack the player when next to it, otherwise close
+	in and attack on arrival. Status-effect hooks run at the start and on every
+	exit path; the end-of-turn ones only after the turn's blow has landed."""
 	if is_moving:
 		return
 
@@ -82,42 +85,62 @@ func take_turn():
 		return
 
 	# Player gone or dead - nothing to do
-	if not is_instance_valid(player) or not player.stats or not player.stats.is_alive():
+	if not is_instance_valid(player) or not player.is_alive():
 		_finish_turn_effects()
 		return
 
-	# Combat move budget for this turn (slowed/hasted/restrained adjust it)
-	moves_budget_this_turn = max(0, moves_per_turn + StatusEffectManager.get_speed_modifier_tiles(self))
-
-	var player_pos = player.get_grid_position()
-
-	# Check if already adjacent to player
-	var dx = abs(grid_position.x - player_pos.x)
-	var dy = abs(grid_position.y - player_pos.y)
-
-	if dx <= 1 and dy <= 1 and (dx + dy) > 0:
-		# Already adjacent - attack (await so turn-end effects land after the swing)
-		await attack_player()
-		if is_dying or not stats or not stats.is_alive():
-			return
+	if _is_next_to(player):
+		_attack(player)
 		_finish_turn_effects()
 		return
 
 	# Rooted in place (restrained etc.) - nothing else to do this turn
-	if moves_budget_this_turn <= 0:
+	if movement_left <= 0:
 		print("%s cannot move this turn!" % name)
 		_finish_turn_effects()
 		return
 
-	# Calculate path toward player
-	path = _calculate_path_to_player(player_pos)
+	# As far along the way to the player as this turn's movement reaches
+	var route: Array = _calculate_path_to_player(player.get_grid_position())
+	if route.size() > movement_left + 1:
+		route = route.slice(0, movement_left + 1)
 
-	if path.size() <= 1:
-		path.clear()
+	# The turn goes on in _physics_process, and ends in _on_move_finished
+	if not request_action(CombatController.ACTION_MOVE, {"path": route}).ok:
 		_finish_turn_effects()
-		return
 
-	# Start moving (movement is capped to moves_budget_this_turn in _physics_process)
+func _finish_turn_effects():
+	"""End-of-turn status bookkeeping (ticks, end saves, duration countdown)"""
+	if is_dying or not stats or not stats.is_alive():
+		return
+	StatusEffectManager.process_turn_end(self)
+
+func get_wielded_weapon() -> ItemData:
+	"""A stand-in until the bestiary gives each enemy type its own attacks: a
+	plain 1d6 weapon"""
+	if _stand_in_weapon == null:
+		_stand_in_weapon = ItemData.new()
+		_stand_in_weapon.item_name = "Enemy Weapon"
+		_stand_in_weapon.is_weapon = true
+		_stand_in_weapon.weapon_category = "simple"
+		_stand_in_weapon.damage_dice = "1d6"
+	return _stand_in_weapon
+
+func get_flank_partners() -> Array:
+	"""Enemies do not flank yet: their attacks stay as they were until the
+	bestiary and its behaviours are built"""
+	return []
+
+func _is_next_to(other: Combatant) -> bool:
+	return CombatGrid.get_distance_tiles(grid_position, other.get_grid_position()) == 1
+
+func _attack(target: Combatant):
+	"""One attack on an adjacent target, asked of the CombatController"""
+	request_action(CombatController.ACTION_ATTACK, {"target": target})
+
+func follow_path(tiles: Array):
+	"""Start walking an approved path (see Combatant.follow_path)"""
+	path.assign(tiles)
 	path_index = 1
 
 	# Leaving a hostile's melee reach provokes an opportunity attack
@@ -129,69 +152,6 @@ func take_turn():
 
 	target_position = grid_to_world(path[path_index])
 	is_moving = true
-
-func _finish_turn_effects():
-	"""End-of-turn status bookkeeping (ticks, end saves, duration countdown)"""
-	if is_dying or not stats or not stats.is_alive():
-		return
-	StatusEffectManager.process_turn_end(self)
-
-func create_temp_weapon() -> ItemData:
-	"""Create temporary weapon for enemy (TEMPORARY - Phase 2 will give enemies real weapons)"""
-	var weapon = ItemData.new()
-	weapon.item_name = "Enemy Weapon"
-	weapon.is_weapon = true
-	weapon.weapon_type = "simple"
-	weapon.damage_dice = "1d6"  # Simple enemy attack
-	
-	return weapon
-
-func attack_player():
-	"""Attack the player with animation (REFACTORED)"""
-	if not is_instance_valid(player) or not player.stats:
-		return
-
-	# Get weapon (TODO: enemies will have weapons in Phase 2)
-	var weapon = create_temp_weapon()
-
-	# Attack animation
-	animate_attack(player.global_position)
-
-	# Wait for animation (pauses with the tree so damage can't resolve
-	# while a pause menu is open)
-	await get_tree().create_timer(0.15, false).timeout
-
-	# Player may have been freed during the animation delay
-	if not is_instance_valid(player) or not player.stats:
-		return
-
-	# Roll attack using CombatManager (nodes unlock status effects, cover and AC mods)
-	var result = CombatManager.roll_attack(stats, player.stats, weapon, false, false, self, player, [])
-	if result.is_empty():
-		return
-
-	if result.get("auto_fail", false):
-		print("%s is incapacitated and cannot attack!" % name)
-		return
-
-	var popup_pos = player.global_position + Vector2(0, -tile_size * 0.8)
-
-	if result.is_fumble:
-		print("%s fumbled the attack!" % name)
-		DamagePopup.spawn_miss_popup_at(get_parent(), popup_pos)
-	elif result.hit:
-		if result.is_crit:
-			print("%s lands a CRITICAL HIT on Player for %d damage!" % [name, result.damage])
-			DamagePopup.spawn_damage_popup_at(get_parent(), popup_pos, result.damage, true)
-		else:
-			print("%s hits Player for %d damage!" % [name, result.damage])
-			DamagePopup.spawn_damage_popup_at(get_parent(), popup_pos, result.damage, false)
-
-		# Apply damage using CombatManager
-		CombatManager.apply_damage(player, result.damage, CombatManager.DamageType.PHYSICAL, self, result.is_crit)
-	else:
-		print("%s missed Player! (Rolled %d vs AC %d)" % [name, result.total, result.target_ac])
-		DamagePopup.spawn_miss_popup_at(get_parent(), popup_pos)
 
 func _calculate_path_to_player(player_pos: Vector2i) -> Array[Vector2i]:
 	"""Calculate path using A* to get adjacent to player"""
@@ -244,14 +204,14 @@ func _calculate_path_to_player(player_pos: Vector2i) -> Array[Vector2i]:
 func _physics_process(delta):
 	if is_moving and path.size() > 0:
 		position = position.move_toward(target_position, move_speed * delta)
-		
+
 		if position.distance_to(target_position) < 1.0:
 			position = target_position
 			grid_position = path[path_index]
 			path_index += 1
-			
-			# Check if should continue moving
-			if path_index < path.size() and path_index <= moves_budget_this_turn:
+			spend_movement()
+
+			if path_index < path.size() and movement_left > 0:
 				# Leaving a hostile's melee reach provokes an opportunity attack
 				_check_opportunity_attacks(grid_position, path[path_index])
 				if is_dying or not stats or not stats.is_alive():
@@ -261,32 +221,23 @@ func _physics_process(delta):
 					return
 				target_position = grid_to_world(path[path_index])
 			else:
-				# Done moving this turn
 				is_moving = false
 				path.clear()
 				path_index = 0
+				_on_move_finished()
 
-				# After moving, check if adjacent to player and attack
-				check_and_attack_player()
-
-				# End-of-turn status bookkeeping (ticks, end saves, durations)
-				_finish_turn_effects()
-	
 	# Always redraw to show HP bar
 	queue_redraw()
 
-func check_and_attack_player():
-	"""Check if adjacent to player after moving and attack if so"""
-	if is_dying or not is_instance_valid(player):
+func _on_move_finished():
+	"""The rest of a turn that began with a move: attack the player if the move
+	ended next to it, and only then the end-of-turn status bookkeeping, so that
+	what expires at the end of the turn is still in force for the blow"""
+	if is_dying:
 		return
-
-	var player_pos = player.get_grid_position()
-	var dx = abs(grid_position.x - player_pos.x)
-	var dy = abs(grid_position.y - player_pos.y)
-	
-	# Adjacent means within 1 tile (including diagonals)
-	if dx <= 1 and dy <= 1 and (dx + dy) > 0:
-		attack_player()
+	if is_instance_valid(player) and player.is_alive() and _is_next_to(player):
+		_attack(player)
+	_finish_turn_effects()
 
 func _draw():
 	"""Draw HP bar above enemy"""

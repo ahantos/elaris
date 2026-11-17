@@ -1,13 +1,21 @@
 # combat_manager.gd
-# AutoLoad singleton - handles all combat logic, damage calculation, attack rolls,
-# saving throws, status-effect integration, positional modifiers (cover/flanking via
-# CombatGrid) and the reaction framework (opportunity attacks).
+# AutoLoad singleton - every die rolled in a fight: attack rolls, damage, saving
+# throws, initiative, opportunity attacks. It works out what a combatant attacks
+# with (the weapon in hand, by 5e rules), reads status effects and position
+# (cover and flanking via CombatGrid), and applies the damage. It does not know
+# whose turn it is: the CombatController decides what may be done and asks here
+# for the outcome.
 extends Node
 
 # Combat constants
 const BASE_AC: int = 10  # Base armor class (10 + DEX)
 const CRIT_THRESHOLD: int = 20  # Natural 20 = crit
 const FUMBLE_THRESHOLD: int = 1  # Natural 1 = fumble
+
+# An unarmed strike (5e): 1 + Strength modifier, bludgeoning, always proficient
+const UNARMED_NAME: String = "Unarmed strike"
+const UNARMED_DAMAGE: int = 1
+const UNARMED_DAMAGE_TYPE: String = "bludgeoning"
 
 # Damage types
 enum DamageType {
@@ -43,87 +51,178 @@ const DAMAGE_TYPE_FROM_STRING: Dictionary = {
 	"psychic": DamageType.PSYCHIC
 }
 
-# One reaction per combatant per round, keyed by instance id (safe across node frees).
-# The CombatController calls reset_round_reactions() when a new initiative round
-# begins; the set is also cleared automatically when combat ends.
-var reactions_used: Dictionary = {}
-
 func _ready():
-	EventBus.combat_ended.connect(_on_combat_ended)
 	print("CombatManager initialized")
 
-func reset():
-	"""Back to a fresh game. Called by GameManager.reset_game_state()."""
-	reactions_used.clear()
+# === WHAT A COMBATANT ATTACKS WITH ===
+
+func get_attack_profile(attacker: Combatant) -> Dictionary:
+	"""How the combatant attacks right now: the weapon in its hand, or an
+	unarmed strike when it holds none. See build_attack_profile for the keys."""
+	return build_attack_profile(attacker, attacker.get_wielded_weapon())
+
+func get_unarmed_profile(attacker: Combatant) -> Dictionary:
+	"""The combatant's unarmed strike, whatever it is holding"""
+	return build_attack_profile(attacker, null)
+
+func build_attack_profile(attacker: Combatant, weapon: ItemData) -> Dictionary:
+	"""One attack by 5e rules, as numbers. weapon null is an unarmed strike.
+	- Ability: Strength; a finesse weapon uses Dexterity when that is higher;
+	  a ranged weapon uses Dexterity.
+	- Proficiency bonus only when the attacker is proficient with the weapon.
+	- A versatile weapon uses its larger dice when the off hand is empty.
+	- A two-handed weapon with something in the off hand, and (until ranged
+	  attacks are built) a ranged weapon, cannot attack: usable is false and
+	  reason says why.
+	Returns {weapon: ItemData or null, weapon_name, damage_dice ("" when the
+	damage has no dice), flat_damage, damage_type (contract string), ability
+	("str" | "dex"), ability_modifier, proficient, attack_bonus, two_handed_grip,
+	is_ranged, usable, reason}."""
+	var stats: CharacterStats = attacker.stats
+	var strength: int = stats.get_str_modifier()
+	var profile: Dictionary = {
+		"weapon": null,
+		"weapon_name": UNARMED_NAME,
+		"damage_dice": "",
+		"flat_damage": UNARMED_DAMAGE,
+		"damage_type": UNARMED_DAMAGE_TYPE,
+		"ability": "str",
+		"ability_modifier": strength,
+		"proficient": true,
+		"attack_bonus": strength + stats.proficiency_bonus,
+		"two_handed_grip": false,
+		"is_ranged": false,
+		"usable": true,
+		"reason": "",
+	}
+	if weapon == null or not weapon.is_weapon:
+		return profile
+
+	profile["weapon"] = weapon
+	profile["weapon_name"] = weapon.item_name
+	profile["damage_type"] = weapon.damage_type if weapon.damage_type != "" else "physical"
+	profile["is_ranged"] = weapon.is_ranged
+	if weapon.damage_dice != "":
+		profile["damage_dice"] = weapon.damage_dice
+		profile["flat_damage"] = 0
+
+	var off_hand_free: bool = attacker.is_off_hand_free()
+	if _weapon_has_property(weapon, "versatile") and weapon.versatile_dice != "" and off_hand_free:
+		profile["damage_dice"] = weapon.versatile_dice
+		profile["two_handed_grip"] = true
+
+	var dexterity: int = stats.get_dex_modifier()
+	if weapon.is_ranged or (_weapon_has_property(weapon, "finesse") and dexterity > strength):
+		profile["ability"] = "dex"
+		profile["ability_modifier"] = dexterity
+
+	profile["proficient"] = stats.is_proficient_with_weapon(weapon)
+	var attack_bonus: int = int(profile["ability_modifier"])
+	if profile["proficient"]:
+		attack_bonus += stats.proficiency_bonus
+	if weapon.magic_modifier > 0:
+		attack_bonus += weapon.magic_modifier
+	profile["attack_bonus"] = attack_bonus
+
+	if weapon.is_ranged:
+		profile["usable"] = false
+		profile["reason"] = "%s is a ranged weapon - ranged attacks cannot be made yet" % weapon.item_name
+	elif weapon.is_two_handed and not off_hand_free:
+		profile["usable"] = false
+		profile["reason"] = "%s needs both hands - empty the off hand" % weapon.item_name
+	return profile
 
 # === ATTACK SYSTEM ===
 
-func roll_attack(attacker_stats: CharacterStats, target_stats: CharacterStats,
-				 weapon: ItemData = null, advantage: bool = false,
-				 disadvantage: bool = false, attacker_node: Node = null,
-				 target_node: Node = null, ally_positions: Array = []) -> Dictionary:
-	"""
-	Roll an attack using D&D 5e rules.
-	Backward compatible: existing callers pass (stats, stats, weapon[, adv, disadv]).
-	Optional trailing params unlock the combat-expansion integrations:
-	- attacker_node / target_node (combat Nodes exposing .stats and .grid_position):
-	  * status-effect advantage/disadvantage merged in (StatusEffectManager),
-	  * incapacitated attacker auto-fails (result has auto_fail = true),
-	  * target AC gains StatusEffectManager.get_ac_modifier + CombatGrid cover bonus
-	    (dungeon grid resolved from GameManager - gracefully skipped when missing),
-	  * blessed/cursed flat attack modifiers,
-	  * melee hits on paralyzed/frozen targets within 1 tile are automatic crits.
-	- ally_positions: Array of Vector2i for the ATTACKER's allies; an ally on the exact
-	  opposite side of the target (flanking) grants advantage. Integration decides who
-	  counts as an ally and passes positions in.
-	Finesse weapons ("finesse" in special_properties) use the better of STR/DEX.
-	Returns: {hit, roll, total, target_ac, is_crit, is_fumble, damage, attack_bonus,
-	          advantage, disadvantage, cover_bonus, flanking, auto_fail}
-	"""
-
-	if not attacker_stats or not target_stats:
-		push_error("CombatManager.roll_attack: Missing attacker or target stats!")
+func make_attack(attacker: Combatant, target: Combatant, profile: Dictionary = {}) -> Dictionary:
+	"""One melee attack, start to finish: the weapon in the attacker's hand (or
+	the profile given), the d20, the damage, and the damage applied to the
+	target with the weapon's damage type. Every weapon attack in the game comes
+	through here - the Attack action and opportunity attacks, by the player,
+	companions and enemies alike.
+	Returns the roll_attack result, or {} when the attack could not be made."""
+	if profile.is_empty():
+		profile = get_attack_profile(attacker)
+	if not profile.get("usable", false):
+		print("CombatManager: %s cannot attack (%s)" % [attacker.name, str(profile.get("reason", ""))])
 		return {}
+	var result: Dictionary = roll_attack(attacker, target, profile)
+	if result.is_empty():
+		return result
+	if result.hit:
+		apply_damage(target, result.damage, damage_type_from_string(result.damage_type), attacker, result.is_crit)
+	return result
 
-	var attacker_valid = attacker_node != null and is_instance_valid(attacker_node)
-	var target_valid = target_node != null and is_instance_valid(target_node)
+func roll_attack(attacker: Combatant, target: Combatant, profile: Dictionary = {},
+				 advantage: bool = false, disadvantage: bool = false) -> Dictionary:
+	"""Roll one attack by attacker against target, without applying anything.
+	profile is what the attacker attacks with (default: get_attack_profile).
+	On top of the d20 and the profile's attack bonus:
+	- an incapacitated attacker (stunned, paralyzed, frozen) cannot attack at
+	  all (the result has auto_fail = true),
+	- status effects on either side give advantage or disadvantage, and blessed
+	  or cursed change the roll,
+	- a target that is dodging gives the attacker disadvantage,
+	- a heavily laden party member attacks at disadvantage,
+	- an ally of the attacker on the far side of the target (flanking) gives
+	  advantage; the attacker says who its flank partners are,
+	- the target's AC takes status-effect modifiers and cover,
+	- a melee hit on a paralyzed or frozen target next to the attacker is a
+	  critical hit.
+	Returns {hit, roll, total, target_ac, is_crit, is_fumble, damage,
+	damage_type, damage_dice, weapon_name, attack_bonus, advantage,
+	disadvantage, cover_bonus, flanking, auto_fail}."""
+	if attacker == null or target == null or not is_instance_valid(attacker) or not is_instance_valid(target) \
+			or attacker.stats == null or target.stats == null:
+		push_error("CombatManager.roll_attack: missing attacker or target")
+		return {}
+	if profile.is_empty():
+		profile = get_attack_profile(attacker)
+
+	var attacker_stats: CharacterStats = attacker.stats
+	var target_stats: CharacterStats = target.stats
+	var result: Dictionary = {
+		"hit": false, "roll": 0, "total": 0,
+		"target_ac": target_stats.armor_class,
+		"is_crit": false, "is_fumble": false,
+		"damage": 0,
+		"damage_type": str(profile.get("damage_type", "physical")),
+		"damage_dice": str(profile.get("damage_dice", "")),
+		"weapon_name": str(profile.get("weapon_name", UNARMED_NAME)),
+		"attack_bonus": 0,
+		"advantage": false, "disadvantage": false,
+		"cover_bonus": 0, "flanking": false,
+		"auto_fail": false
+	}
 
 	# Incapacitated combatants (stunned/paralyzed/frozen) cannot attack at all
-	if attacker_valid and StatusEffectManager.is_incapacitated(attacker_node):
-		print("CombatManager: %s is incapacitated and cannot attack!" % attacker_node.name)
-		return {
-			"hit": false, "roll": 0, "total": 0,
-			"target_ac": target_stats.armor_class,
-			"is_crit": false, "is_fumble": false,
-			"damage": 0, "attack_bonus": 0,
-			"advantage": false, "disadvantage": false,
-			"cover_bonus": 0, "flanking": false,
-			"auto_fail": true
-		}
+	if StatusEffectManager.is_incapacitated(attacker):
+		print("CombatManager: %s is incapacitated and cannot attack!" % attacker.name)
+		result["auto_fail"] = true
+		return result
 
 	# Encumbrance disadvantage - only for whoever is carrying the party's load
-	# (it used to apply to every attacker, enemies included)
 	if InventoryManager.is_party_member(attacker_stats) and InventoryManager.has_disadvantage_on_physical_rolls():
 		disadvantage = true
 		print("⚠️ Heavily encumbered! Disadvantage on attack roll")
 
-	# Merge status-effect advantage state from both sides
-	if attacker_valid or target_valid:
-		var adv_state = StatusEffectManager.get_attack_advantage_state(
-			attacker_node if attacker_valid else null,
-			target_node if target_valid else null)
-		advantage = advantage or adv_state.get("advantage", false)
-		disadvantage = disadvantage or adv_state.get("disadvantage", false)
+	# Status effects on both sides
+	var adv_state = StatusEffectManager.get_attack_advantage_state(attacker, target)
+	advantage = advantage or adv_state.get("advantage", false)
+	disadvantage = disadvantage or adv_state.get("disadvantage", false)
 
-	# Positional context (null when nodes/grid positions are unavailable)
-	var attacker_pos = _get_node_grid_position(attacker_node)
-	var target_pos = _get_node_grid_position(target_node)
-	var has_positions = attacker_pos != null and target_pos != null
+	# The Dodge action: attack rolls against the dodger have disadvantage
+	if target.is_dodging():
+		disadvantage = true
+
+	var attacker_pos: Vector2i = attacker.get_grid_position()
+	var target_pos: Vector2i = target.get_grid_position()
 
 	# Flanking: an ally mirrored on the far side of the target grants advantage
+	var flank_partners: Array = attacker.get_flank_partners()
 	var flanking = false
-	if has_positions and not ally_positions.is_empty():
-		flanking = CombatGrid.is_flanking(attacker_pos, target_pos, ally_positions)
+	if not flank_partners.is_empty():
+		flanking = CombatGrid.is_flanking(attacker_pos, target_pos, flank_partners)
 		if flanking:
 			advantage = true
 			print("CombatManager: flanking! Advantage on the attack")
@@ -142,36 +241,19 @@ func roll_attack(attacker_stats: CharacterStats, target_stats: CharacterStats,
 	var is_crit = (roll == CRIT_THRESHOLD)
 	var is_fumble = (roll == FUMBLE_THRESHOLD)
 
-	# Calculate attack bonus (STR melee, DEX ranged, best of both for finesse)
-	var attack_bonus = attacker_stats.get_str_modifier() + attacker_stats.proficiency_bonus
-
-	if weapon and weapon.is_weapon:
-		if _weapon_has_property(weapon, "finesse"):
-			attack_bonus = max(attacker_stats.get_str_modifier(), attacker_stats.get_dex_modifier()) + attacker_stats.proficiency_bonus
-		elif weapon.is_ranged:
-			attack_bonus = attacker_stats.get_dex_modifier() + attacker_stats.proficiency_bonus
-		if weapon.magic_modifier > 0:
-			attack_bonus += weapon.magic_modifier
-
-	# Flat attack-roll modifiers from status effects (blessed +2 / cursed -2)
-	if attacker_valid:
-		attack_bonus += StatusEffectManager.get_attack_roll_modifier(attacker_node)
-
-	# Total attack roll
+	# Ability modifier, proficiency and the weapon's own bonus come from the
+	# profile; blessed and cursed add to the roll
+	var attack_bonus: int = int(profile.get("attack_bonus", 0)) + StatusEffectManager.get_attack_roll_modifier(attacker)
 	var total = roll + attack_bonus
 
 	# Target AC: base + status-effect AC modifiers + positional cover
-	var target_ac = target_stats.armor_class
-	if target_valid:
-		target_ac += StatusEffectManager.get_ac_modifier(target_node)
-
+	var target_ac = target_stats.armor_class + StatusEffectManager.get_ac_modifier(target)
 	var cover_bonus = 0
-	if has_positions:
-		var dungeon_grid = _get_dungeon_grid()
-		if not dungeon_grid.is_empty():
-			cover_bonus = CombatGrid.get_cover_ac_bonus(attacker_pos, target_pos, dungeon_grid)
-			if cover_bonus > 0:
-				print("CombatManager: target has cover (+%d AC)" % cover_bonus)
+	var dungeon_grid = _get_dungeon_grid()
+	if not dungeon_grid.is_empty():
+		cover_bonus = CombatGrid.get_cover_ac_bonus(attacker_pos, target_pos, dungeon_grid)
+		if cover_bonus > 0:
+			print("CombatManager: target has cover (+%d AC)" % cover_bonus)
 	target_ac += cover_bonus
 
 	# Check if hit
@@ -184,56 +266,37 @@ func roll_attack(attacker_stats: CharacterStats, target_stats: CharacterStats,
 		hit = (total >= target_ac)
 
 	# Melee hits on helpless (paralyzed/frozen) targets within 1 tile auto-crit
-	if hit and not is_crit and target_valid and has_positions:
-		var is_melee = weapon == null or not weapon.is_ranged
-		if is_melee and CombatGrid.get_distance_tiles(attacker_pos, target_pos) <= 1:
-			if StatusEffectManager.has_effect(target_node, "paralyzed") or StatusEffectManager.has_effect(target_node, "frozen"):
+	if hit and not is_crit and not profile.get("is_ranged", false):
+		if CombatGrid.get_distance_tiles(attacker_pos, target_pos) <= 1:
+			if StatusEffectManager.has_effect(target, "paralyzed") or StatusEffectManager.has_effect(target, "frozen"):
 				is_crit = true
 				print("CombatManager: melee hit on a helpless target - automatic critical!")
 
-	# Roll damage if hit
-	var damage = 0
-	if hit:
-		damage = roll_damage(weapon, attacker_stats, is_crit)
+	result["hit"] = hit
+	result["roll"] = roll
+	result["total"] = total
+	result["target_ac"] = target_ac
+	result["is_crit"] = is_crit
+	result["is_fumble"] = is_fumble
+	result["damage"] = roll_damage(profile, is_crit) if hit else 0
+	result["attack_bonus"] = attack_bonus
+	result["advantage"] = advantage
+	result["disadvantage"] = disadvantage
+	result["cover_bonus"] = cover_bonus
+	result["flanking"] = flanking
+	return result
 
-	return {
-		"hit": hit,
-		"roll": roll,
-		"total": total,
-		"target_ac": target_ac,
-		"is_crit": is_crit,
-		"is_fumble": is_fumble,
-		"damage": damage,
-		"attack_bonus": attack_bonus,
-		"advantage": advantage,
-		"disadvantage": disadvantage,
-		"cover_bonus": cover_bonus,
-		"flanking": flanking,
-		"auto_fail": false
-	}
-
-func roll_damage(weapon: ItemData, attacker_stats: CharacterStats, is_crit: bool = false) -> int:
-	"""Roll damage for a weapon attack (crits double the dice).
-	Stat bonus: STR by default, DEX for ranged weapons, best of STR/DEX for finesse."""
-	var damage = 0
-
-	if weapon and weapon.is_weapon and weapon.damage_dice != "":
-		damage = roll_dice(weapon.damage_dice)
+func roll_damage(profile: Dictionary, is_crit: bool = false) -> int:
+	"""Roll the damage of one hit with an attack profile: its dice (rolled
+	twice on a critical hit), any flat damage, and the same ability modifier
+	the attack roll used. Never less than 1."""
+	var damage: int = int(profile.get("flat_damage", 0))
+	var dice: String = str(profile.get("damage_dice", ""))
+	if dice != "":
+		damage += roll_dice(dice)
 		if is_crit:
-			damage += roll_dice(weapon.damage_dice)
-	else:
-		# Unarmed strike fallback
-		damage = randi_range(1, 4)
-		if is_crit:
-			damage += randi_range(1, 4)
-
-	var stat_bonus = attacker_stats.get_str_modifier()
-	if weapon and _weapon_has_property(weapon, "finesse"):
-		stat_bonus = max(attacker_stats.get_str_modifier(), attacker_stats.get_dex_modifier())
-	elif weapon and weapon.is_ranged:
-		stat_bonus = attacker_stats.get_dex_modifier()
-
-	damage += stat_bonus
+			damage += roll_dice(dice)
+	damage += int(profile.get("ability_modifier", 0))
 	return max(1, damage)
 
 func roll_dice(dice_string: String) -> int:
@@ -273,7 +336,9 @@ func damage_type_from_string(type_name: String) -> int:
 	return DAMAGE_TYPE_FROM_STRING.get(type_name.to_lower().strip_edges(), DamageType.PHYSICAL)
 
 func apply_damage(target: Node, amount: int, damage_type: int = DamageType.PHYSICAL, attacker: Node = null, is_critical: bool = false) -> bool:
-	"""Apply damage to target, returns true if still alive"""
+	"""Apply damage to target, returns true if still alive. damage_type (a
+	DamageType) travels with the damage and is announced with it; it changes
+	nothing yet (resistances come with the damage pipeline)."""
 	if not target:
 		push_error("CombatManager.apply_damage: No target provided!")
 		return false
@@ -286,7 +351,7 @@ func apply_damage(target: Node, amount: int, damage_type: int = DamageType.PHYSI
 	var still_alive = target.stats.take_damage(amount)
 
 	if attacker:
-		EventBus.damage_dealt.emit(attacker, target, amount, is_critical)
+		EventBus.damage_dealt.emit(attacker, target, amount, is_critical, damage_type)
 
 	if not still_alive:
 		handle_death(target)
@@ -325,8 +390,10 @@ func make_saving_throw(character_stats: CharacterStats, stat: String, dc: int,
 	Optional target_node (the combat Node the stats belong to) unlocks status effects:
 	- incapacitated (stunned/paralyzed/frozen) auto-fails DEX saves (auto_fail = true),
 	- restrained imposes disadvantage on DEX saves,
+	- a combatant that is dodging makes DEX saves with advantage,
 	- blessed/cursed add +2/-2 to the save total (reported as status_modifier).
-	Returns: {success, roll, total, dc, modifier, status_modifier, auto_fail}
+	Returns: {success, roll, total, dc, modifier, status_modifier, advantage,
+	disadvantage, auto_fail}
 	"""
 
 	if not character_stats:
@@ -340,11 +407,16 @@ func make_saving_throw(character_stats: CharacterStats, stat: String, dc: int,
 	# Incapacitated creatures can't dodge - DEX saves auto-fail
 	if node_valid and is_dex_save and StatusEffectManager.is_incapacitated(target_node):
 		print("CombatManager: %s is incapacitated - DEX save automatically fails!" % target_node.name)
-		return {"success": false, "roll": 0, "total": 0, "dc": dc, "modifier": 0, "status_modifier": 0, "auto_fail": true}
+		return {"success": false, "roll": 0, "total": 0, "dc": dc, "modifier": 0, "status_modifier": 0,
+			"advantage": false, "disadvantage": false, "auto_fail": true}
 
 	# Restrained creatures dodge poorly
 	if node_valid and is_dex_save and StatusEffectManager.has_effect(target_node, "restrained"):
 		disadvantage = true
+
+	# The Dodge action: Dexterity saves with advantage
+	if node_valid and is_dex_save and target_node is Combatant and target_node.is_dodging():
+		advantage = true
 
 	# Check for encumbrance disadvantage on physical saves (STR, DEX, CON)
 	if stat_key in ["str", "strength", "dex", "dexterity", "con", "constitution"]:
@@ -391,6 +463,8 @@ func make_saving_throw(character_stats: CharacterStats, stat: String, dc: int,
 		"dc": dc,
 		"modifier": modifier,
 		"status_modifier": status_modifier,
+		"advantage": advantage,
+		"disadvantage": disadvantage,
 		"auto_fail": false
 	}
 
@@ -401,65 +475,48 @@ func trigger_opportunity_attack(reactor: Node, mover: Node) -> Dictionary:
 	Attempt an opportunity attack from `reactor` against `mover` (who is about to leave
 	the reactor's melee reach). Combatant._check_opportunity_attacks calls this when a
 	combatant steps from a tile adjacent to a hostile to a tile that is not.
-	Checks performed here: both nodes valid + alive, reactor's reaction not yet used
-	this round, reactor can take reactions (status effects), mover currently adjacent
-	(Chebyshev distance exactly 1).
-	On success: rolls a full melee roll_attack with the reactor's equipped main-hand
-	weapon (fallback: the node's own create_temp_weapon(); ranged weapons are ignored
-	in favor of an unarmed strike), applies damage on a hit, consumes the reaction and
-	emits EventBus.reaction_triggered(reactor, "opportunity_attack", mover).
-	A missed opportunity attack still consumes the reaction.
+	Checks performed here: both are living combatants, the reactor still has its
+	reaction (Combatant.reaction_used - it comes back at the start of the reactor's
+	own turn) and can take reactions (status effects), and the mover stands next to
+	it (Chebyshev distance exactly 1).
+	On success: spends the reaction and makes one melee attack through make_attack
+	with the weapon in the reactor's hand; a weapon that cannot make a melee attack
+	(a ranged one) gives way to an unarmed strike. Emits
+	EventBus.reaction_triggered(reactor, "opportunity_attack", mover).
+	A missed opportunity attack still spends the reaction.
 	Returns {triggered: bool, reason: String, result: Dictionary (attack result if rolled)}.
 	"""
-	if reactor == null or not is_instance_valid(reactor) or not reactor.get("stats"):
+	if reactor == null or not is_instance_valid(reactor) or not (reactor is Combatant) or reactor.stats == null:
 		return {"triggered": false, "reason": "invalid_reactor", "result": {}}
-	if mover == null or not is_instance_valid(mover) or not mover.get("stats"):
+	if mover == null or not is_instance_valid(mover) or not (mover is Combatant) or mover.stats == null:
 		return {"triggered": false, "reason": "invalid_mover", "result": {}}
 	if not reactor.stats.is_alive() or not mover.stats.is_alive():
 		return {"triggered": false, "reason": "dead_combatant", "result": {}}
-	if reactions_used.get(reactor.get_instance_id(), false):
+	if reactor.reaction_used:
 		return {"triggered": false, "reason": "reaction_already_used", "result": {}}
 	if not StatusEffectManager.can_take_reactions(reactor):
 		return {"triggered": false, "reason": "cannot_react", "result": {}}
-
-	var reactor_pos = _get_node_grid_position(reactor)
-	var mover_pos = _get_node_grid_position(mover)
-	if reactor_pos == null or mover_pos == null:
-		return {"triggered": false, "reason": "no_grid_position", "result": {}}
-	if CombatGrid.get_distance_tiles(reactor_pos, mover_pos) != 1:
+	if CombatGrid.get_distance_tiles(reactor.get_grid_position(), mover.get_grid_position()) != 1:
 		return {"triggered": false, "reason": "not_adjacent", "result": {}}
 
-	var weapon = _resolve_reaction_weapon(reactor)
-	if weapon != null and weapon.is_ranged:
-		weapon = null  # opportunity attacks are melee - fall back to an unarmed strike
+	var profile: Dictionary = get_attack_profile(reactor)
+	if not profile.usable:
+		profile = get_unarmed_profile(reactor)
 
 	print("CombatManager: %s makes an opportunity attack against %s!" % [reactor.name, mover.name])
-	reactions_used[reactor.get_instance_id()] = true
+	reactor.reaction_used = true
 
-	var result = roll_attack(reactor.stats, mover.stats, weapon, false, false, reactor, mover)
+	var result = make_attack(reactor, mover, profile)
 	if result.is_empty():
 		return {"triggered": false, "reason": "roll_failed", "result": {}}
 
 	if result.get("hit", false):
-		var damage_type = DamageType.PHYSICAL
-		if weapon and weapon.damage_type != "":
-			damage_type = damage_type_from_string(weapon.damage_type)
 		print("CombatManager: opportunity attack hits for %d damage!" % result.damage)
-		apply_damage(mover, result.damage, damage_type, reactor, result.is_crit)
 	else:
 		print("CombatManager: opportunity attack misses (%d vs AC %d)" % [result.get("total", 0), result.get("target_ac", 0)])
 
 	EventBus.reaction_triggered.emit(reactor, "opportunity_attack", mover)
 	return {"triggered": true, "reason": "ok", "result": result}
-
-func reset_round_reactions():
-	"""Clear the once-per-round reaction tracker. The CombatController calls this
-	whenever a new initiative round begins; also runs automatically on combat_ended."""
-	reactions_used.clear()
-
-func _on_combat_ended(_victory: bool):
-	"""Reactions never persist outside combat."""
-	reset_round_reactions()
 
 # === INTERNAL HELPERS ===
 
@@ -468,15 +525,6 @@ func _weapon_has_property(weapon: ItemData, property_name: String) -> bool:
 	if weapon == null:
 		return false
 	return property_name in weapon.special_properties
-
-func _get_node_grid_position(node: Node):
-	"""Vector2i grid position of a combat node, or null when unavailable."""
-	if node == null or not is_instance_valid(node):
-		return null
-	var pos = node.get("grid_position")
-	if pos is Vector2i:
-		return pos
-	return null
 
 func _get_dungeon_grid() -> Array:
 	"""Resolve the active dungeon's [y][x] tile grid for cover/LoS checks.
@@ -493,20 +541,3 @@ func _get_dungeon_grid() -> Array:
 		if grid is Array:
 			return grid
 	return []
-
-func _resolve_reaction_weapon(reactor: Node) -> ItemData:
-	"""Best weapon for a reaction: the equipped main-hand weapon when available,
-	otherwise the node's own create_temp_weapon() fallback (the player variant takes
-	an attack-type argument; enemy/companion variants take none). Returns null for an
-	unarmed strike when nothing else is available."""
-	if reactor.get("stats"):
-		var equipped = InventoryManager.get_equipped_item(reactor.stats, "main_hand")
-		if equipped is Dictionary and not equipped.is_empty():
-			var item_data = equipped.get("item_data", null)
-			if item_data is ItemData and item_data.is_weapon:
-				return item_data
-	if reactor is GridCharacter:
-		return reactor.create_temp_weapon("medium")
-	if reactor.has_method("create_temp_weapon"):
-		return reactor.create_temp_weapon()
-	return null

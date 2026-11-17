@@ -123,13 +123,30 @@ and "the boot has no script errors" is no longer what done means.
 - **Alive is `combatant.is_alive()`**, not `is_instance_valid`: the player's body stays
   in the scene after death.
 - **What the base owns:** grid conversion (`grid_to_world`, `world_to_grid`,
-  `spawn_at`), `is_walkable` (a floor or door tile no other combatant stands on),
-  `find_path` (the only A* in the project), `take_damage`, `flash_damage`,
-  `draw_hp_bar`, `animate_attack`, opportunity-attack checks on leaving a hostile's
-  reach, and the turn interface the combat controller calls: `is_player_controlled()`,
-  `take_turn()`, `on_combat_started()`, `on_combat_ended()`. A subclass that overrides
-  `_ready()` calls `super._ready()` first. What a combatant does on its turn stays in
-  the subclass.
+  `spawn_at`, `teleport_to_grid`), `is_walkable` (a floor or door tile no other
+  combatant stands on), `find_path` (the only A* in the project), `take_damage`,
+  `flash_damage`, `draw_hp_bar`, `animate_attack`, opportunity-attack checks on
+  leaving a hostile's reach, and the turn interface the combat controller calls:
+  `is_player_controlled()`, `take_turn()`, `on_combat_started()`,
+  `on_combat_ended()`, `follow_path(tiles)`. A subclass that overrides `_ready()`
+  calls `super._ready()` first. What a combatant does on its turn stays in the
+  subclass, and it does it by asking: `combatant.request_action(action_id, params)`
+  (section 4).
+- **Turn resources live on the base** (5e): `movement_left` and `movement_granted`
+  (tiles), `action_used`, `bonus_action_used`, `reaction_used`, and the two states a
+  turn can leave behind, `disengaged` and `dodging` (ask `is_dodging()`). The
+  controller hands them out with `refresh_turn_resources()` when the combatant's turn
+  starts - movement from `get_turn_speed()`, the action, the bonus action and the
+  reaction back, a Dodge over - and `expire_turn_resources()` when it ends (unused
+  movement gone, a Disengage over). Only the controller and CombatManager spend them.
+  Walking spends a tile of movement per tile reached while `is_taking_turns()` (a
+  fight; for the player also the turn mode outside one). The action economy exists
+  only in a fight.
+- **The weapon in hand** is `get_wielded_weapon()`: the main-hand item; with that
+  hand empty, the item in the `ranged` slot; with neither, null, an unarmed strike.
+  Enemies answer with a stand-in 1d6 weapon until the bestiary. `is_off_hand_free()`
+  and `get_flank_partners()` complete what an attack needs to know (enemies have no
+  flank partners yet).
 - The world lists the combatants in the scene: `World.get_combatants()`,
   `get_combatant_at(tile)`, `is_tile_occupied(tile, exclude)`.
 
@@ -137,6 +154,8 @@ and "the boot has no script errors" is no longer what done means.
 `head, neck, shoulder, back, chest, wrist, hands, waist, legs, feet, main_hand, off_hand, ranged`
 plus multi-slots `rings`, `trinkets` (InventoryManager stores Arrays for those two).
 `ItemData.equip_slot` uses exactly these strings (`rings` and `trinkets` are plural).
+`InventoryManager.equip_item()` refuses a two-handed weapon in the main hand while the
+off hand holds something, and anything in the off hand beside a two-handed weapon.
 
 ### 2.3 Item id scheme
 - Material variants: `"{material_id}_{base_id}"`, for example `iron_longsword`,
@@ -144,8 +163,14 @@ plus multi-slots `rings`, `trinkets` (InventoryManager stores Arrays for those t
 - Plain-base aliases: `"{base_id}"` (`longsword`, `chain_mail`) registered as the
   default-material version, because class starting kits use plain ids.
 - Weapon bases: dagger, shortsword, longsword, greatsword, handaxe, battleaxe,
-  greataxe, mace, warhammer, spear, quarterstaff, club, shortbow, longbow,
-  light_crossbow, heavy_crossbow.
+  greataxe, mace, warhammer, spear, rapier, quarterstaff, club, shortbow, longbow,
+  light_crossbow, heavy_crossbow. They follow the 5e SRD weapon table
+  (`ItemDatabase.WEAPON_BASES`). A weapon item carries `weapon_type` (its base id),
+  `weapon_category` (`simple` or `martial`), `damage_dice`, `damage_type`,
+  `is_two_handed`, `is_ranged`, and `special_properties` (`finesse`, `versatile`,
+  `thrown`); a versatile weapon also has `versatile_dice`, its dice in both hands.
+  `CharacterStats.is_proficient_with_weapon(weapon)` reads proficiency from the class
+  data and the character's own list, by category or by base id.
 - Armour bases (slot): helmet (head), chain_mail (chest), chestplate (chest),
   gauntlets (hands), greaves (legs), plate_boots (feet), shield (off_hand); leather:
   leather_cap (head), jerkin (chest), gloves (hands), leggings (legs), boots (feet);
@@ -163,7 +188,11 @@ plus multi-slots `rings`, `trinkets` (InventoryManager stores Arrays for those t
 Data uses strings: `physical, slashing, piercing, bludgeoning, fire, cold, lightning,
 acid, poison, necrotic, radiant, force, psychic`.
 `CombatManager.damage_type_from_string(name)` maps to the `DamageType` enum (unknown
-becomes PHYSICAL). The type is not yet used when damage is applied (Phase 2).
+becomes PHYSICAL). Damage is applied with its type: a weapon attack with the
+weapon's, an unarmed strike as bludgeoning, a spell or a status tick with its own.
+`EventBus.damage_dealt(attacker, target, amount, is_critical, damage_type)` carries
+it. Nothing reads the type yet: resistance and vulnerability come with the damage
+pipeline (Phase 2 step 4).
 
 ### 2.5 Skills (canonical ids)
 `athletics; acrobatics, sleight_of_hand, stealth; arcana, history, investigation,
@@ -212,17 +241,48 @@ crisis `{crisis_id, display_name, phases: [{phase: int, name, description}]}`.
 ## 4. Cross-system calls
 
 - **CombatController** (`scripts/combat_controller.gd`, a Node under World, reached as
-  `world.combat`) is the one authority for whose turn it is. It is not an autoload: it
-  lives and dies with the World scene, so it needs no `reset()`.
+  `world.combat`) is the one authority for whose turn it is and what may be done
+  with it. It is not an autoload: it lives and dies with the World scene, so it needs
+  no `reset()`.
   - It owns the initiative order (Combatants, highest roll first, companions rolling
-    like everyone else), the turn-holder, the round count, the per-round
-    `CombatManager.reset_round_reactions()`, and starting and ending a fight.
+    like everyone else), the turn-holder, the round count, handing out each turn's
+    resources (section 2.1), and starting and ending a fight.
   - Read it with `active`, `current_combatant()`, `is_turn_of(combatant)`,
     `get_order()`, `get_initiative(combatant)`, `round_number`.
+  - **Everything done with a turn is a request.**
+    `request_action(combatant, action_id, params) -> Dictionary` is the one entry
+    point; `combatant.request_action(action_id, params)` is the same call from the
+    combatant's side. The controller checks that it is the combatant's turn, that the
+    action, bonus action or movement it costs is still there and that the action is
+    legal; then it applies it and returns `{ok, action, reason, ...}`. A refusal
+    changes nothing and says why in `reason` (`final: true` when asking again with
+    another target would not help). Player input, enemy AI and companion AI all act
+    this way; input and UI code never change game state, roll a die or spend a
+    resource themselves. `check_action(combatant, action_id, params)` answers
+    `{ok, reason}` without applying anything; the action bar uses it.
+
+    | `action_id` | `params` | Costs | Adds to the result |
+    |---|---|---|---|
+    | `attack` | `{target: Combatant}` | action | the `CombatManager.make_attack` result (`hit`, `damage`, `damage_type`, `is_crit`, `weapon_name`, ...), `target` |
+    | `dash` | | action | `movement_added` |
+    | `disengage` | | action | |
+    | `dodge` | | action | |
+    | `cast` | `{spell_id, target: Combatant or Vector2i}` | the spell's `casting_time` (`action` or `bonus_action`) | `cast`: the SpellManager result |
+    | `use_item` | `{item: instance}` | action | `cast` for a scroll or wand |
+    | `move` | `{path: Array[Vector2i]}` from the combatant's tile | a tile of movement per tile | `steps` |
+    | `end_turn` | | | |
+
+    In a fight a request is approved only on the combatant's own turn. Outside a
+    fight nothing is spent and there is no turn to wait for: items, moves and spells
+    on oneself are free, and `attack`, `dash`, `disengage` and `dodge` are refused
+    ("Not in combat"). A `reaction` spell cannot be cast yet. An attack is one melee
+    attack on an adjacent hostile; a ranged weapon in hand, or a two-handed weapon
+    beside a full off hand, is refused with the reason. An attack is resolved at
+    once: the roll, the damage and the floating number happen inside the request.
   - **Anything that acts in a fight asks first.** `Combatant.can_act()` is true outside
-    a fight and, inside one, only for the turn-holder. The player's attack, spell
-    cast, move and End Turn all go through it. Never keep a second idea of whose turn
-    it is (a flag, an index in a UI widget).
+    a fight and, inside one, only for the turn-holder. Never keep a second idea of
+    whose turn it is (a flag, an index in a UI widget).
+  - `ACTION_BAR` lists the seven actions of the action bar in button and key order.
   - A fight starts by itself when a living hostile is within `detection_range` of the
     player; hostiles within `activation_range` join, with the whole party.
     `start_combat(participants)` starts one explicitly. `add_combatant()` brings a
@@ -231,23 +291,44 @@ crisis `{crisis_id, display_name, phases: [{phase: int, name, description}]}`.
     one its turn. `end_combat()` stops the fight; it ends by itself, after a short
     delay, when the order no longer holds two living combatants hostile to each other.
   - Turns: a player-controlled combatant gets `start_new_turn()` and keeps the turn
-    until it calls `end_turn()`, which asks the controller. Everyone else gets
-    `take_turn()`; the controller waits for the move to finish, pauses, and passes the
-    turn on. Status-effect turn hooks are still called by the combatant itself.
+    until it requests `end_turn`. Everyone else gets `take_turn()`; the controller
+    waits for the move to finish, pauses, and passes the turn on. Status-effect turn
+    hooks are still called by the combatant itself; an enemy runs its end-of-turn
+    hooks after its attack, whether or not it moved first.
   - Signals: `combat_started(combatants)`, `combat_ended(victory)`,
     `turn_started(combatant)`, `turn_ended(combatant)`, `round_started(number)`,
-    `order_changed()`. It also emits `EventBus.combat_started(hostiles)`,
+    `order_changed()`, `action_taken(combatant, action_id, result)` for every
+    approved request. It also emits `EventBus.combat_started(hostiles)`,
     `combat_ended(victory)`, `turn_started(combatant)` and `turn_ended(combatant)` for
     every combatant. `victory` means the party outlived every hostile in that fight.
     Outside combat (manual turn mode, T) the player emits the two turn signals itself.
-  - `scripts/initiativetracker.gd` and `scripts/turn_ui.gd` only draw what the
-    controller says.
-- **CombatManager** owns `roll_attack`, `roll_damage`, `apply_damage`,
-  `make_saving_throw`, `roll_initiative`, `trigger_opportunity_attack`. It reads
-  StatusEffectManager for advantage, AC modifiers and incapacitation, and
-  `scripts/combat_grid.gd` for `has_line_of_sight`, `get_cover_ac_bonus`, `is_flanking`
-  and `get_distance_tiles` (Chebyshev). It rolls and applies; it does not know whose
-  turn it is.
+  - `scripts/initiativetracker.gd`, `scripts/turn_ui.gd` and the action bar only
+    draw what the controller says.
+- **CombatManager** rolls every die of a fight. It owns `get_attack_profile`,
+  `make_attack`, `roll_attack`, `roll_damage`, `apply_damage`, `make_saving_throw`,
+  `roll_initiative`, `trigger_opportunity_attack`. It reads StatusEffectManager for
+  advantage, AC modifiers and incapacitation, and `scripts/combat_grid.gd` for
+  `has_line_of_sight`, `get_cover_ac_bonus`, `is_flanking` and `get_distance_tiles`
+  (Chebyshev). It rolls and applies; it does not know whose turn it is.
+  - `get_attack_profile(combatant)` is how the combatant attacks right now, by 5e
+    rules, as numbers: `{weapon, weapon_name, damage_dice, flat_damage, damage_type,
+    ability, ability_modifier, proficient, attack_bonus, two_handed_grip, is_ranged,
+    usable, reason}`. Strength, or Dexterity for a finesse weapon when it is the
+    higher; the proficiency bonus only with proficiency; the larger dice of a
+    versatile weapon when the off hand is empty; an unarmed strike (1 + Strength
+    modifier, bludgeoning, proficient) with no weapon. `usable` is false, with the
+    reason, for a ranged weapon (until ranged attacks are built) and for a two-handed
+    weapon beside a full off hand.
+  - `make_attack(attacker, target)` is the one weapon attack: profile, d20, damage
+    (dice doubled on a critical hit, plus the same ability modifier), applied with
+    the weapon's damage type. The Attack action and opportunity attacks of the
+    player, companions and enemies all come through it. `roll_attack(attacker,
+    target, profile)` rolls without applying.
+  - A dodging target gives the attacker disadvantage and makes Dexterity saves with
+    advantage.
+  - Reactions: an opportunity attack spends the reactor's `reaction_used`, which
+    comes back at the start of the reactor's own turn. A combatant that has
+    disengaged provokes none.
 - **SpellManager** resolves casts through CombatManager and StatusEffectManager, reads
   slot tables from `ClassDatabase.get_class_data(class_id).get_spell_slots(character_level, spell_level)`,
   restores slots on `rest_taken("long")`, and grants class spells when a caster is first
@@ -286,6 +367,16 @@ crisis `{crisis_id, display_name, phases: [{phase: int, name, description}]}`.
   sizes from `get_viewport_rect()`, not from the window.
 - New UI should be built as scenes with a shared Theme. The existing panels are built
   in code and will be rebuilt as scenes (Phase 6); do not extend that pattern.
+- **The action bar** (`scenes/ui/action_bar.tscn`, `ui/action_bar.gd`; one
+  `scenes/ui/action_button.tscn` per action) sits in the middle of the bottom bar
+  (`scripts/bottomui.gd`). Its buttons follow `CombatController.ACTION_BAR`: Attack,
+  Cast, Use Item, Dash, Disengage, Dodge, End Turn, keys 1 to 7. Every frame it asks
+  `check_action()` for each and shows the answer: a button that cannot be used is
+  disabled and carries the reason. A press, or the number key, goes to
+  `combatant.choose_action(action_id)`, which asks the controller. Above the buttons
+  it shows the turn resources of whoever holds the turn. A new action needs an id in
+  the controller, a button in the scene and a title in the bar; the bar holds no
+  rules of its own. A click on the bottom bar is not a click on the map.
 - After any UI change, run the screenshot tour and look at the pictures.
 
 ## 6. Art

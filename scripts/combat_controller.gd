@@ -1,9 +1,14 @@
 # combat_controller.gd
-# The one authority for whose turn it is. A Node owned by the World scene.
+# The one authority for whose turn it is and what may be done with it. A Node
+# owned by the World scene.
 # It notices when a fight should start, rolls initiative for every combatant in
-# it, hands out the turns in order, counts rounds, and ends the fight. Combatants
-# ask it before they act; the HUD (turn banner, initiative bar) only shows what
-# it says. What a combatant does with its turn is the combatant's own business.
+# it, hands out the turns in order with their resources (movement, action, bonus
+# action, reaction), counts rounds, and ends the fight. Whatever a combatant
+# wants to do - attack, move, dash, cast, use an item, end its turn - it asks
+# for through request_action(); the controller checks the turn and the
+# resources, applies the action and reports the result. Player input, enemy AI
+# and companion AI all come in that way. The HUD (turn banner, initiative bar,
+# action bar) only shows what the controller says.
 extends Node
 class_name CombatController
 
@@ -13,6 +18,22 @@ signal turn_started(combatant: Combatant)
 signal turn_ended(combatant: Combatant)
 signal round_started(round_number: int)
 signal order_changed()                     # someone joined or left the running fight
+signal action_taken(combatant: Combatant, action_id: String, result: Dictionary)  # a request was approved and applied
+
+# What a combatant can ask for (request_action)
+const ACTION_ATTACK := "attack"
+const ACTION_CAST := "cast"
+const ACTION_USE_ITEM := "use_item"
+const ACTION_DASH := "dash"
+const ACTION_DISENGAGE := "disengage"
+const ACTION_DODGE := "dodge"
+const ACTION_END_TURN := "end_turn"
+const ACTION_MOVE := "move"
+
+# The action bar, in the order of its buttons and number keys (1 to 7)
+const ACTION_BAR: Array[String] = [
+	ACTION_ATTACK, ACTION_CAST, ACTION_USE_ITEM, ACTION_DASH, ACTION_DISENGAGE, ACTION_DODGE, ACTION_END_TURN,
+]
 
 # Tiles, straight line. A fight starts when a hostile is within detection_range
 # of the player; hostiles within activation_range are pulled into it.
@@ -80,13 +101,6 @@ func get_initiative(combatant) -> int:
 	var index = _order.find(combatant)
 	return _rolls[index] if index >= 0 else 0
 
-func end_turn(combatant) -> bool:
-	"""The turn-holder says it is done. Refused for anyone else."""
-	if not is_turn_of(combatant):
-		return false
-	_finish_turn()
-	return true
-
 # ============================================================================
 # STARTING AND ENDING A FIGHT
 # ============================================================================
@@ -131,9 +145,7 @@ func start_combat(participants: Array) -> bool:
 	for i in range(_order.size()):
 		print("%d. %s (Initiative: %d)" % [i + 1, _order[i].name, _rolls[i]])
 
-	# Fresh round: everyone's reaction (opportunity attack) is available
-	CombatManager.reset_round_reactions()
-
+	# Everyone starts the fight with nothing spent, reaction included
 	for combatant in _order:
 		combatant.on_combat_started()
 
@@ -243,9 +255,10 @@ func _end_when_settled():
 # ============================================================================
 
 func _begin_turn():
-	"""Hand the turn to the combatant under the cursor. A player-controlled
-	combatant keeps it until it calls end_turn(); anyone else acts through
-	take_turn() and the turn winds up by itself."""
+	"""Hand the turn to the combatant under the cursor, with a fresh set of
+	turn resources. A player-controlled combatant keeps the turn until it asks
+	to end it; anyone else acts through take_turn() and the turn winds up by
+	itself."""
 	if not active:
 		return
 	if not _fight_is_live():
@@ -257,6 +270,7 @@ func _begin_turn():
 	var serial = _turn_serial
 	var combatant = _order[_cursor]
 	_current = combatant
+	combatant.refresh_turn_resources()
 
 	turn_started.emit(combatant)
 	EventBus.turn_started.emit(combatant)
@@ -292,6 +306,7 @@ func _finish_turn():
 	var ended = _current
 	_current = null
 	if is_instance_valid(ended):
+		ended.expire_turn_resources()
 		turn_ended.emit(ended)
 		EventBus.turn_ended.emit(ended)
 	if not active:
@@ -301,7 +316,7 @@ func _finish_turn():
 
 func _advance():
 	"""Move the cursor to the next living combatant. Passing the end of the
-	order starts a new round: once-per-round reactions come back."""
+	order starts a new round."""
 	for i in range(_order.size() - 1, -1, -1):
 		if not _is_fit(_order[i]):
 			_remove_at(i)
@@ -312,7 +327,6 @@ func _advance():
 	if _cursor >= _order.size():
 		_cursor = 0
 		round_number += 1
-		CombatManager.reset_round_reactions()
 		round_started.emit(round_number)
 
 func _remove_at(index: int):
@@ -325,6 +339,396 @@ func _remove_at(index: int):
 		_cursor -= 1
 	if removed == _current:
 		_current = null
+
+# ============================================================================
+# ACTIONS (what a combatant asks for; see ACTION_* above)
+# ============================================================================
+#
+# request_action(combatant, action_id, params) -> {ok, action, reason, ...}
+#
+#   attack     {target: Combatant}      one melee attack with the weapon in hand
+#                                       on an adjacent hostile. Costs the action.
+#   dash       {}                       adds the combatant's speed to this turn's
+#                                       movement. Costs the action.
+#   disengage  {}                       its movement provokes no opportunity
+#                                       attack for the rest of the turn. Action.
+#   dodge      {}                       until its next turn starts, attacks on it
+#                                       have disadvantage and it makes Dexterity
+#                                       saves with advantage. Action.
+#   cast       {spell_id, target}       target is a Combatant or a tile, as the
+#                                       spell wants. Costs what the spell's
+#                                       casting_time says.
+#   use_item   {item: instance}         a potion, scroll or wand from the pack.
+#                                       Costs the action.
+#   move       {path: Array[Vector2i]}  walk the tiles, from the combatant's own.
+#                                       Costs a tile of movement for each.
+#   end_turn   {}
+#
+# In a fight a request is approved only on the combatant's own turn, and the
+# action, bonus action and movement it costs must still be there. Outside a
+# fight nothing is spent and there is no turn to wait for; Attack, Dash,
+# Disengage and Dodge are then refused, as there is no turn to take them in.
+
+func check_action(combatant, action_id: String, params: Dictionary = {}) -> Dictionary:
+	"""Would request_action() be approved right now? Returns {ok, reason} and
+	changes nothing. Without a target, spell or item in params it answers the
+	action bar's question: is this action available at all?"""
+	if not _is_fit(combatant):
+		return _refuse("Cannot act")
+	if active and not is_turn_of(combatant):
+		return _refuse("Not your turn")
+	match action_id:
+		ACTION_ATTACK:
+			return _check_attack(combatant, params)
+		ACTION_DASH, ACTION_DISENGAGE, ACTION_DODGE:
+			return _check_fight_action(combatant)
+		ACTION_CAST:
+			return _check_cast(combatant, params)
+		ACTION_USE_ITEM:
+			return _check_use_item(combatant, params)
+		ACTION_MOVE:
+			return _check_move(combatant, params)
+		ACTION_END_TURN:
+			return _check_end_turn(combatant)
+	return _refuse("Unknown action '%s'" % action_id)
+
+func request_action(combatant, action_id: String, params: Dictionary = {}) -> Dictionary:
+	"""The one way anything is done with a turn. Checks that it is the
+	combatant's turn, that it still has what the action costs and that the
+	action is legal; then applies it and returns what happened:
+	{ok, action, reason} plus what the action adds (an attack's roll and
+	damage, a cast's result, the movement a Dash gave). A refused request
+	changes nothing and says why in reason."""
+	var result: Dictionary = check_action(combatant, action_id, params)
+	result["action"] = action_id
+	if not result.ok:
+		return result
+
+	match action_id:
+		ACTION_ATTACK:
+			_apply_attack(combatant, params, result)
+		ACTION_DASH:
+			combatant.action_used = true
+			var extra: int = combatant.get_turn_speed()
+			combatant.add_movement(extra)
+			result["movement_added"] = extra
+			print("%s dashes: %d more tiles of movement" % [combatant.name, extra])
+		ACTION_DISENGAGE:
+			combatant.action_used = true
+			combatant.disengaged = true
+			print("%s disengages" % combatant.name)
+		ACTION_DODGE:
+			combatant.action_used = true
+			combatant.dodging = true
+			print("%s dodges" % combatant.name)
+		ACTION_CAST:
+			_apply_cast(combatant, params, result)
+		ACTION_USE_ITEM:
+			_apply_use_item(combatant, params, result)
+		ACTION_MOVE:
+			result["steps"] = params["path"].size() - 1
+			combatant.follow_path(params["path"])
+		ACTION_END_TURN:
+			# Announced first: ending the turn starts the next one
+			action_taken.emit(combatant, action_id, result)
+			if active:
+				_finish_turn()
+			return result
+
+	if result.ok:
+		action_taken.emit(combatant, action_id, result)
+	return result
+
+# --- checks ---
+
+func _approve() -> Dictionary:
+	return {"ok": true, "reason": ""}
+
+func _refuse(reason: String, final: bool = false) -> Dictionary:
+	"""final: asking again with another target would not help either"""
+	var refusal: Dictionary = {"ok": false, "reason": reason}
+	if final:
+		refusal["final"] = true
+	return refusal
+
+func _check_fight_action(combatant) -> Dictionary:
+	"""What Attack, Dash, Disengage and Dodge share: taken in a fight, by a
+	combatant that is able and standing still, with its action"""
+	if not active:
+		return _refuse("Not in combat")
+	if StatusEffectManager.is_incapacitated(combatant):
+		return _refuse("Incapacitated")
+	if combatant.is_moving:
+		return _refuse("Still moving")
+	if combatant.action_used:
+		return _refuse("Action spent")
+	return _approve()
+
+func _check_attack(combatant, params: Dictionary) -> Dictionary:
+	var check: Dictionary = _check_fight_action(combatant)
+	if not check.ok:
+		return check
+	var profile: Dictionary = CombatManager.get_attack_profile(combatant)
+	if not profile.usable:
+		return _refuse(str(profile.reason))
+	if not params.has("target"):
+		return _approve() if not _hostiles_in_reach(combatant).is_empty() else _refuse("No enemy in reach")
+	var target = params["target"]
+	if not _is_fit(target) or not combatant.is_hostile_to(target):
+		return _refuse("Not an enemy")
+	if CombatGrid.get_distance_tiles(combatant.get_grid_position(), target.get_grid_position()) != 1:
+		return _refuse("Out of reach - a melee attack needs an adjacent enemy")
+	return _approve()
+
+func _check_cast(combatant, params: Dictionary) -> Dictionary:
+	if combatant.is_moving:
+		return _refuse("Still moving")
+	var spell_id: String = str(params.get("spell_id", ""))
+	if spell_id == "":
+		if not SpellManager.is_caster(combatant.stats):
+			return _refuse("No spells known")
+		if active and combatant.action_used and combatant.bonus_action_used:
+			return _refuse("Action and bonus action spent")
+		return _approve()
+
+	var spell: Dictionary = SpellDatabase.get_spell(spell_id)
+	if spell.is_empty():
+		return _refuse("Unknown spell", true)
+	var casting_time: String = str(spell.get("casting_time", "action"))
+	if casting_time == "reaction":
+		return _refuse("%s is a reaction: it cannot be cast on your own turn yet" % str(spell.get("display_name", spell_id)), true)
+	if active:
+		if casting_time == "bonus_action":
+			if combatant.bonus_action_used:
+				return _refuse("Bonus action spent")
+		elif combatant.action_used:
+			return _refuse("Action spent")
+	var castable: Dictionary = SpellManager.can_cast(combatant, spell_id)
+	if not castable.get("ok", false):
+		return _refuse(str(castable.get("reason", "Cannot cast")), true)
+	if params.has("target"):
+		return _check_cast_target(combatant, spell, params["target"])
+	return _approve()
+
+func _check_cast_target(caster, spell: Dictionary, target) -> Dictionary:
+	"""Is the target the kind the spell wants, in range and in sight?"""
+	var target_type: String = str(spell.get("target_type", "enemy"))
+	var target_tile: Vector2i
+	match target_type:
+		"enemy":
+			if not _is_fit(target) or not caster.is_hostile_to(target):
+				return _refuse("No enemy there")
+			target_tile = target.get_grid_position()
+		"ally", "self":
+			if not is_instance_valid(target) or not (target is Combatant) or caster.is_hostile_to(target):
+				return _refuse("Not an ally")
+			target_tile = target.get_grid_position()
+		_:
+			if not (target is Vector2i):
+				return _refuse("That spell is aimed at a place")
+			target_tile = target
+
+	# Outside a fight only spells on oneself or an ally (heals, buffs) are cast
+	if not active and target_type in ["enemy", "point"]:
+		return _refuse("That spell needs a combat target.")
+
+	# Range and line of sight (range_tiles 0 = the caster's own tile only)
+	var from: Vector2i = caster.get_grid_position()
+	if target_tile != from:
+		if CombatGrid.get_distance_tiles(from, target_tile) > int(spell.get("range_tiles", 0)):
+			return _refuse("Out of range!")
+		var grid: Array = _dungeon_grid()
+		if not grid.is_empty() and not CombatGrid.has_line_of_sight(from, target_tile, grid):
+			return _refuse("No line of sight!")
+	return _approve()
+
+func _check_use_item(combatant, params: Dictionary) -> Dictionary:
+	if active and combatant.action_used:
+		return _refuse("Action spent")
+	if StatusEffectManager.is_incapacitated(combatant):
+		return _refuse("Incapacitated")
+	if not params.has("item"):
+		return _approve()
+
+	var item = params["item"]
+	if not (item is Dictionary) or InventoryManager.get_item(str(item.get("instance_id", ""))).is_empty():
+		return _refuse("That is not in the pack")
+	var item_data = item.get("item_data")
+	if not (item_data is ItemData):
+		return _refuse("That cannot be used")
+	var prefix: String = _spell_item_prefix(item_data)
+	if prefix != "":
+		# A scroll or a wand casts the spell it holds
+		var spell: Dictionary = SpellDatabase.get_spell(str(item_data.item_id).substr(prefix.length()))
+		if spell.is_empty():
+			return _refuse("Nothing happens...")
+		if str(spell.get("target_type", "enemy")) in ["enemy", "point"]:
+			return _refuse("That must be aimed at a target, which cannot be done from the pack yet.")
+		return _approve()
+	if item_data.is_consumable:
+		return _approve()
+	return _refuse("%s cannot be used" % item_data.item_name)
+
+func _check_move(combatant, params: Dictionary) -> Dictionary:
+	var path = params.get("path")
+	if not (path is Array) or path.size() < 2:
+		return _refuse("Nowhere to go")
+	if combatant.is_moving:
+		return _refuse("Already moving")
+	if StatusEffectManager.is_incapacitated(combatant):
+		return _refuse("Incapacitated")
+	if path[0] != combatant.get_grid_position():
+		return _refuse("That path starts somewhere else")
+	for i in range(1, path.size()):
+		if not (path[i] is Vector2i) or CombatGrid.get_distance_tiles(path[i - 1], path[i]) != 1 or not combatant.is_walkable(path[i]):
+			return _refuse("The way is blocked")
+	var steps: int = path.size() - 1
+	if combatant.is_taking_turns() and steps > combatant.movement_left:
+		return _refuse("Not enough movement: %d tiles needed, %d left" % [steps, combatant.movement_left])
+	return _approve()
+
+func _check_end_turn(combatant) -> Dictionary:
+	if not combatant.is_taking_turns():
+		return _refuse("Not in combat")
+	if combatant.is_moving:
+		return _refuse("Still moving")
+	return _approve()
+
+# --- applying an approved request ---
+
+func _apply_attack(combatant, params: Dictionary, result: Dictionary):
+	"""Spend the action and resolve the attack at once: the roll, the damage
+	and the number over the target's head"""
+	if not params.has("target"):
+		result["ok"] = false
+		result["reason"] = "No target given"
+		return
+	var target = params["target"]
+	combatant.action_used = true
+	var attack: Dictionary = CombatManager.make_attack(combatant, target)
+	if attack.is_empty():
+		result["ok"] = false
+		result["reason"] = "The attack could not be made"
+		return
+	result.merge(attack)
+	result["target"] = target
+	_present_attack(combatant, target, attack)
+
+func _apply_cast(combatant, params: Dictionary, result: Dictionary):
+	"""Cast the spell through SpellManager and spend what its casting time costs"""
+	var spell_id: String = str(params.get("spell_id", ""))
+	if spell_id == "" or not params.has("target"):
+		result["ok"] = false
+		result["reason"] = "No spell or target given"
+		return
+	var was_fighting: bool = active
+	var cast: Dictionary = SpellManager.cast_spell(combatant, spell_id, params["target"])
+	if not cast.get("ok", false):
+		result["ok"] = false
+		result["reason"] = str(cast.get("reason", "The spell fizzles."))
+		result["final"] = true
+		return
+	if was_fighting:
+		if str(SpellDatabase.get_spell(spell_id).get("casting_time", "action")) == "bonus_action":
+			combatant.bonus_action_used = true
+		else:
+			combatant.action_used = true
+	result["cast"] = cast
+
+	# A teleport (misty step) moves the caster to the tile it named
+	var teleport_to = cast.get("teleport_to")
+	if teleport_to is Vector2i and is_instance_valid(combatant) and combatant.teleport_to_grid(teleport_to):
+		combatant.on_tile_entered()
+	_present_cast(cast)
+
+func _apply_use_item(combatant, params: Dictionary, result: Dictionary):
+	"""Use a potion, scroll or wand from the pack; in a fight that is the action"""
+	if not params.has("item"):
+		result["ok"] = false
+		result["reason"] = "No item given"
+		return
+	var item: Dictionary = params["item"]
+	var item_data: ItemData = item.get("item_data")
+	var was_fighting: bool = active
+	var used: bool = false
+	var reason: String = ""
+	# Scrolls are flagged consumable too: the spell items are sorted out first
+	match _spell_item_prefix(item_data):
+		"scroll_":
+			var cast: Dictionary = SpellManager.use_scroll(item, combatant, null)
+			used = cast.get("ok", false)
+			reason = str(cast.get("reason", ""))
+			result["cast"] = cast
+		"wand_":
+			var cast: Dictionary = SpellManager.use_wand(item, combatant, null)
+			used = cast.get("ok", false)
+			reason = str(cast.get("reason", ""))
+			result["cast"] = cast
+		_:
+			used = ItemDatabase.use_consumable(item, combatant)
+	if not used:
+		result["ok"] = false
+		result["reason"] = reason if reason != "" else "Nothing happens..."
+		return
+	if was_fighting and is_instance_valid(combatant):
+		combatant.action_used = true
+	print("%s uses %s" % [combatant.name, item_data.item_name])
+
+func _present_attack(attacker, target, attack: Dictionary):
+	"""Show an attack that has been resolved: the lunge, and the damage or the
+	miss over the target"""
+	if world == null or not is_instance_valid(attacker) or not is_instance_valid(target):
+		return
+	attacker.animate_attack(target.global_position)
+	var popup_pos: Vector2 = target.global_position + Vector2(0, -attacker.tile_size * 0.8)
+	if attack.hit:
+		DamagePopup.spawn_damage_popup_at(world, popup_pos, attack.damage, attack.is_crit)
+		print("%s %s %s with %s for %d %s damage" % [attacker.name, "CRITS" if attack.is_crit else "hits",
+			target.name, attack.weapon_name, attack.damage, attack.damage_type])
+	else:
+		DamagePopup.spawn_miss_popup_at(world, popup_pos)
+		print("%s misses %s with %s (rolled %d vs AC %d)" % [attacker.name, target.name, attack.weapon_name,
+			attack.total, attack.target_ac])
+
+func _present_cast(cast: Dictionary):
+	"""Floating numbers for what a spell did to each of its targets"""
+	if world == null:
+		return
+	for entry in cast.get("hits", []):
+		var target = entry.get("target", null)
+		if target == null or not (target is Node2D) or not is_instance_valid(target):
+			continue
+		var popup_pos: Vector2 = target.global_position + Vector2(0, -ArtLibrary.TILE_SIZE * 0.8)
+		var damage: int = int(entry.get("damage", 0))
+		var healed: int = int(entry.get("healed", 0))
+		if damage > 0:
+			DamagePopup.spawn_damage_popup_at(world, popup_pos, damage, bool(entry.get("is_crit", false)))
+		elif healed > 0:
+			DamagePopup.spawn_heal_popup_at(world, popup_pos, healed)
+		elif not entry.get("hit", true):
+			DamagePopup.spawn_miss_popup_at(world, popup_pos)
+
+func _hostiles_in_reach(combatant) -> Array[Combatant]:
+	"""The living hostiles next to the combatant: who a melee attack can reach"""
+	var in_reach: Array[Combatant] = []
+	for hostile in combatant.get_hostiles():
+		if CombatGrid.get_distance_tiles(combatant.get_grid_position(), hostile.get_grid_position()) == 1:
+			in_reach.append(hostile)
+	return in_reach
+
+func _spell_item_prefix(item_data: ItemData) -> String:
+	"""'scroll_' or 'wand_' for an item that casts a spell, '' for anything else"""
+	var item_id: String = str(item_data.item_id)
+	for prefix in ["scroll_", "wand_"]:
+		if item_id.begins_with(prefix):
+			return prefix
+	return ""
+
+func _dungeon_grid() -> Array:
+	"""The dungeon's [y][x] tile grid, or [] when there is none to look at"""
+	if world != null and is_instance_valid(world.current_dungeon):
+		return world.current_dungeon.dungeon_grid
+	return []
 
 # ============================================================================
 # HELPERS

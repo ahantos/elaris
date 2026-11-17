@@ -503,8 +503,7 @@ func regenerate_dungeon(new_biome: String = ""):
 			# Reset player state
 			player.turn_based_mode = false
 			player.attack_mode = false
-			player.selected_attack_type = ""
-			player.has_attacked_this_turn = false
+			player.reset_turn_resources()
 
 		# Update grid overlay reference (in case it was recreated)
 		grid_overlay = current_dungeon.get_node_or_null("GridOverlay")
@@ -648,7 +647,7 @@ func create_bottom_ui():
 	
 	bottom_ui = BottomUI.new()
 	canvas_layer.add_child(bottom_ui)
-	bottom_ui.setup(player)
+	bottom_ui.setup(player, combat)
 
 func create_save_load_menu():
 	"""Create save/load menu"""

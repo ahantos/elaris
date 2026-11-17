@@ -431,6 +431,23 @@ func add_weapon_proficiency(weapon_type: String):
 	if weapon_type != "" and not weapon_proficiencies.has(weapon_type):
 		weapon_proficiencies.append(weapon_type)
 
+func is_proficient_with_weapon(weapon: ItemData) -> bool:
+	"""Does this character add its proficiency bonus when attacking with the
+	weapon? Proficiency comes from the class data and from what the character
+	has picked up besides (race), either for the weapon's group ("simple",
+	"martial") or for the weapon by name ("longsword"). Everyone is proficient
+	with an unarmed strike (null). A creature with no class fights with what
+	its own stat block gives it, and is proficient with that."""
+	if weapon == null or class_id == "":
+		return true
+	var class_data = ClassDatabase.get_class_data(class_id)
+	for key in [weapon.weapon_category, weapon.weapon_type]:
+		if key == "":
+			continue
+		if weapon_proficiencies.has(key) or (class_data != null and class_data.is_proficient_with_weapon(key)):
+			return true
+	return false
+
 func add_armor_proficiency(armor_type: String):
 	"""Add an armor proficiency (deduplicated)"""
 	if armor_type != "" and not armor_proficiencies.has(armor_type):

@@ -62,7 +62,9 @@ enum ItemType {
 
 # Weapon properties
 @export var is_weapon: bool = false
-@export var weapon_type: String = ""  # "longsword", "bow", "dagger"
+@export var weapon_type: String = ""  # The base weapon: "longsword", "dagger", "shortbow"
+@export var weapon_category: String = ""  # "simple" or "martial": the group a class is proficient with
+@export var versatile_dice: String = ""  # Damage dice in both hands, for a weapon with the "versatile" property ("1d10")
 @export var is_two_handed: bool = false
 @export var is_ranged: bool = false
 @export var range_normal: int = 0

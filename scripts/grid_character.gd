@@ -1,6 +1,9 @@
 # grid_character.gd
 # The player: a Combatant driven by input. Click-to-move with a path preview,
-# WASD in exploration, the attack keys, spell targeting and the player's turn.
+# WASD in exploration, the action keys, attack and spell targeting and the
+# player's turn. What the input asks for in a fight - an attack, a move, a
+# cast, a dash - goes to the CombatController as a request; nothing here rolls
+# a die or spends a turn resource.
 extends Combatant
 class_name GridCharacter
 
@@ -16,11 +19,6 @@ class_name GridCharacter
 var wasd_movement_enabled: bool = true
 var wasd_exploration_speed: float = 300.0  # Pixels per second for WASD movement (about 9 tiles)
 
-# Attack damage (will be replaced by weapon system in Phase 2)
-@export var light_attack_damage: int = 1
-@export var medium_attack_damage: int = 5
-@export var heavy_attack_damage: int = 10
-
 # Pathfinding
 var path: Array[Vector2i] = []
 var path_index: int = 0
@@ -34,15 +32,10 @@ var is_path_selected: bool = false
 var waypoints: Array[Vector2i] = []
 var full_preview_path: Array[Vector2i] = []
 
-# Turn-based movement tracking
-var moves_remaining: int = 0
-var moves_granted_this_turn: int = 0
 var turn_number: int = 0
 
-# Attack mode
+# True while the player is picking a target for the Attack action
 var attack_mode: bool = false
-var selected_attack_type: String = ""
-var has_attacked_this_turn: bool = false
 
 # Class id the sprite was last chosen for (see _refresh_sprite)
 var _sprite_class_id: String = ""
@@ -53,6 +46,13 @@ func _init():
 
 func is_player_controlled() -> bool:
 	return true
+
+func is_taking_turns() -> bool:
+	"""In a fight, and in the turn mode the player can switch on outside one"""
+	return turn_based_mode
+
+func is_aiming_attack() -> bool:
+	return attack_mode
 
 func _ready():
 	super._ready()
@@ -190,6 +190,9 @@ func _input(event):
 	if is_dying:
 		return  # the dead take no input
 	if event is InputEventMouseButton:
+		# A click on the bottom bar is for the bar, not for the map behind it
+		if _is_over_hud(event.position):
+			return
 		if event.button_index == MOUSE_BUTTON_LEFT and event.pressed:
 			var click_pos = get_global_mouse_position()
 			var click_grid = world_to_grid(click_pos)
@@ -200,24 +203,19 @@ func _input(event):
 				_handle_pending_spell_click(click_grid)
 				return
 
-			# Check if in attack mode
+			# Aiming the Attack action: the click names the target
 			if attack_mode:
-				var clicked_enemy = _hostile_at(click_grid)
-				if clicked_enemy:
-					# Check if adjacent
-					var dx = abs(grid_position.x - click_grid.x)
-					var dy = abs(grid_position.y - click_grid.y)
-					if dx <= 1 and dy <= 1 and (dx + dy) > 0:
-						attack_enemy(clicked_enemy, selected_attack_type)
-					else:
-						print("Enemy is too far away! Must be adjacent.")
-				else:
-					print("No enemy at that location.")
 				attack_mode = false
-				selected_attack_type = ""
+				var target = _hostile_at(click_grid)
+				if target == null:
+					EventBus.ui_notification.emit("No enemy there.", "warning")
+				else:
+					var result: Dictionary = request_action(CombatController.ACTION_ATTACK, {"target": target})
+					if not result.ok:
+						EventBus.ui_notification.emit(str(result.reason), "warning")
 				queue_redraw()
 				return
-			
+
 			if ctrl_held:
 				add_waypoint(click_grid)
 			else:
@@ -248,52 +246,11 @@ func _input(event):
 		elif event.keycode == KEY_SPACE and event.pressed and not event.echo:
 			if turn_based_mode:
 				end_turn()
-		
-		elif event.keycode == KEY_1 and event.pressed and not event.echo:
-			if turn_based_mode and not is_moving and can_act():
-				if has_attacked_this_turn:
-					print("You've already attacked this turn!")
-				else:
-					if attack_mode and selected_attack_type == "light":
-						attack_mode = false
-						selected_attack_type = ""
-						print("Attack cancelled.")
-					else:
-						attack_mode = true
-						selected_attack_type = "light"
-						print("💛 Light attack selected (1 damage)! Click on an adjacent enemy.")
-					queue_redraw()
-		
-		elif event.keycode == KEY_2 and event.pressed and not event.echo:
-			if turn_based_mode and not is_moving and can_act():
-				if has_attacked_this_turn:
-					print("You've already attacked this turn!")
-				else:
-					if attack_mode and selected_attack_type == "medium":
-						attack_mode = false
-						selected_attack_type = ""
-						print("Attack cancelled.")
-					else:
-						attack_mode = true
-						selected_attack_type = "medium"
-						print("🧡 Medium attack selected (5 damage)! Click on an adjacent enemy.")
-					queue_redraw()
-		
-		elif event.keycode == KEY_3 and event.pressed and not event.echo:
-			if turn_based_mode and not is_moving and can_act():
-				if has_attacked_this_turn:
-					print("You've already attacked this turn!")
-				else:
-					if attack_mode and selected_attack_type == "heavy":
-						attack_mode = false
-						selected_attack_type = ""
-						print("Attack cancelled.")
-					else:
-						attack_mode = true
-						selected_attack_type = "heavy"
-						print("❤️ Heavy attack selected (10 damage)! Click on an adjacent enemy.")
-					queue_redraw()
-		
+
+		elif event.keycode >= KEY_1 and event.keycode < KEY_1 + CombatController.ACTION_BAR.size() and event.pressed and not event.echo:
+			# The number keys are the action bar's buttons, in order
+			choose_action(CombatController.ACTION_BAR[event.keycode - KEY_1])
+
 		elif event.keycode == KEY_ESCAPE and event.pressed and not event.echo:
 			# Cancelling something uses the key up: mark it handled so ESC does
 			# not also open the pause menu on the same press
@@ -304,10 +261,75 @@ func _input(event):
 				get_viewport().set_input_as_handled()
 			elif attack_mode:
 				attack_mode = false
-				selected_attack_type = ""
 				print("Attack cancelled.")
 				queue_redraw()
 				get_viewport().set_input_as_handled()
+
+func _is_over_hud(screen_pos: Vector2) -> bool:
+	"""True when a point of the screen is on the bottom bar"""
+	var world = _get_world()
+	var hud = world.get("bottom_ui") if world != null else null
+	return hud != null and is_instance_valid(hud) and hud.get_global_rect().has_point(screen_pos)
+
+func choose_action(action_id: String):
+	"""The player picked an action, on the action bar or with its number key.
+	Attack starts aiming (the next click names the target), Cast opens the
+	spellbook and Use Item the character sheet; Dash, Disengage, Dodge and End
+	Turn are asked of the CombatController at once. A refusal is shown with
+	its reason."""
+	if is_dying:
+		return
+	var combat = _get_combat()
+	if combat == null:
+		return
+
+	match action_id:
+		CombatController.ACTION_ATTACK:
+			if attack_mode:
+				attack_mode = false
+				print("Attack cancelled.")
+			else:
+				var check: Dictionary = combat.check_action(self, action_id)
+				if check.ok:
+					attack_mode = true
+				else:
+					EventBus.ui_notification.emit("Attack: %s" % str(check.reason), "warning")
+			queue_redraw()
+
+		CombatController.ACTION_CAST:
+			var check: Dictionary = combat.check_action(self, action_id)
+			if check.ok:
+				UIManager.toggle_panel("spellbook")
+			else:
+				EventBus.ui_notification.emit("Cast: %s" % str(check.reason), "warning")
+
+		CombatController.ACTION_USE_ITEM:
+			var check: Dictionary = combat.check_action(self, action_id)
+			var world = _get_world()
+			if not check.ok:
+				EventBus.ui_notification.emit("Use Item: %s" % str(check.reason), "warning")
+			elif world != null and world.get("character_screen") != null:
+				world.character_screen.show_character(stats)
+
+		CombatController.ACTION_END_TURN:
+			var check: Dictionary = combat.check_action(self, action_id)
+			if check.ok:
+				end_turn()
+			else:
+				EventBus.ui_notification.emit("End Turn: %s" % str(check.reason), "warning")
+
+		CombatController.ACTION_DASH, CombatController.ACTION_DISENGAGE, CombatController.ACTION_DODGE:
+			var result: Dictionary = combat.request_action(self, action_id)
+			var label: String = action_id.capitalize()
+			if not result.ok:
+				EventBus.ui_notification.emit("%s: %s" % [label, str(result.reason)], "warning")
+			elif action_id == CombatController.ACTION_DASH:
+				EventBus.ui_notification.emit("Dash: %d tiles of movement this turn." % movement_left, "info")
+			elif action_id == CombatController.ACTION_DISENGAGE:
+				EventBus.ui_notification.emit("Disengage: your movement provokes no attacks this turn.", "info")
+			else:
+				EventBus.ui_notification.emit("Dodge: attacks against you have disadvantage until your next turn.", "info")
+			queue_redraw()
 
 func add_waypoint(destination: Vector2i):
 	"""Add a waypoint to the queue (Ctrl+Click)"""
@@ -373,8 +395,8 @@ func show_path_preview(destination: Vector2i):
 		
 		if turn_based_mode:
 			var path_length = preview_path.size() - 1
-			if path_length > moves_remaining:
-				print("Path requires ", path_length, " moves, but only ", moves_remaining, " remaining this turn")
+			if path_length > movement_left:
+				print("Path requires ", path_length, " moves, but only ", movement_left, " remaining this turn")
 	else:
 		preview_path.clear()
 		full_preview_path.clear()
@@ -383,46 +405,43 @@ func show_path_preview(destination: Vector2i):
 		queue_redraw()
 
 func execute_move():
-	"""Execute the previewed path"""
-	if not can_act():
-		print("Cannot move: it is not your turn.")
-		return
-
+	"""Ask to walk the previewed path. The CombatController checks the turn and
+	the movement left; when it agrees it calls follow_path()."""
 	var path_to_execute: Array[Vector2i]
-	
 	if waypoints.size() > 0:
 		path_to_execute = full_preview_path.duplicate()
 	else:
 		path_to_execute = preview_path.duplicate()
-	
-	if turn_based_mode:
-		var path_length = path_to_execute.size() - 1
-		if path_length > moves_remaining:
-			print("Not enough moves! Need ", path_length, " but only have ", moves_remaining)
-			return
-	
-	path = path_to_execute
-	
+
+	var result: Dictionary = request_action(CombatController.ACTION_MOVE, {"path": path_to_execute})
+	if not result.ok:
+		print("Cannot move: ", result.reason)
+		if turn_based_mode:
+			EventBus.ui_notification.emit(str(result.reason), "warning")
+		return
+
 	preview_path.clear()
 	full_preview_path.clear()
 	preview_destination = Vector2i(-1, -1)
 	waypoints.clear()
 	is_path_selected = false
-	
-	if path.size() > 1:
-		path_index = 1
+	queue_redraw()
 
-		# Leaving an enemy's melee reach provokes opportunity attacks (combat only)
-		_check_opportunity_attacks(grid_position, path[path_index])
-		if is_dying or not stats or not stats.is_alive():
-			path.clear()
-			path_index = 0
-			queue_redraw()
-			return
+func follow_path(tiles: Array):
+	"""Start walking an approved path (see Combatant.follow_path)"""
+	path.assign(tiles)
+	path_index = 1
 
-		target_position = grid_to_world(path[path_index])
-		is_moving = true
+	# Leaving an enemy's melee reach provokes opportunity attacks (combat only)
+	_check_opportunity_attacks(grid_position, path[path_index])
+	if not is_alive():
+		path.clear()
+		path_index = 0
+		queue_redraw()
+		return
 
+	target_position = grid_to_world(path[path_index])
+	is_moving = true
 	queue_redraw()
 
 func cancel_preview():
@@ -441,32 +460,21 @@ func _draw():
 	if turn_based_mode:
 		draw_hp_bar()
 	
-	# Draw attack mode indicator
+	# Aiming an attack: crosshairs, and the tiles a melee attack reaches
 	if attack_mode:
-		var attack_color = Color.RED
-		
-		match selected_attack_type:
-			"light":
-				attack_color = Color(1.0, 1.0, 0.0)
-			"medium":
-				attack_color = Color(1.0, 0.5, 0.0)
-			"heavy":
-				attack_color = Color(1.0, 0.0, 0.0)
-		
-		# Draw crosshairs
+		var attack_color = Color(1.0, 0.6, 0.1)
 		var crosshair_size = tile_size * 1.5
 		draw_line(Vector2(-crosshair_size, 0), Vector2(crosshair_size, 0), attack_color, 3.0)
 		draw_line(Vector2(0, -crosshair_size), Vector2(0, crosshair_size), attack_color, 3.0)
-		
-		# Draw attack range indicator (adjacent tiles)
+
 		for dx in range(-1, 2):
 			for dy in range(-1, 2):
 				if dx == 0 and dy == 0:
 					continue
 				var offset = Vector2(dx * tile_size, dy * tile_size)
-				draw_rect(Rect2(offset - Vector2(tile_size/2, tile_size/2), Vector2(tile_size, tile_size)), 
+				draw_rect(Rect2(offset - Vector2(tile_size/2, tile_size/2), Vector2(tile_size, tile_size)),
 					Color(attack_color.r, attack_color.g, attack_color.b, 0.3), false, 2.0)
-	
+
 	# Draw preview path
 	if not is_moving and (is_path_selected or waypoints.size() > 0) and full_preview_path.size() > 1:
 		for i in range(full_preview_path.size() - 1):
@@ -475,7 +483,7 @@ func _draw():
 			
 			var segment_color = path_preview_color
 			if turn_based_mode:
-				if i >= moves_remaining:
+				if i >= movement_left:
 					segment_color = out_of_moves_color
 			
 			draw_line(start_world, end_world, segment_color, 3.0)
@@ -485,7 +493,7 @@ func _draw():
 			
 			var circle_color = path_preview_color
 			if turn_based_mode:
-				if i > moves_remaining:
+				if i > movement_left:
 					circle_color = out_of_moves_color
 			
 			draw_circle(point_world, tile_size * 0.2, circle_color)
@@ -528,15 +536,16 @@ func _physics_process(delta):
 			grid_position = path[path_index]
 			path_index += 1
 
-			# Deduct movement per completed tile so stopping
-			# mid-path still counts the moves already used
-			if turn_based_mode:
-				moves_remaining -= 1
+			# Movement is spent tile by tile, so stopping mid-path still
+			# counts the tiles already walked
+			var counted: bool = is_taking_turns()
+			if counted:
+				spend_movement()
 
 			# Step-on pickup of ground loot
 			_check_ground_pickup()
 
-			if path_index < path.size():
+			if path_index < path.size() and (not counted or movement_left > 0):
 				# Leaving an enemy's melee reach provokes opportunity attacks
 				_check_opportunity_attacks(grid_position, path[path_index])
 				if is_dying or not stats or not stats.is_alive():
@@ -550,24 +559,25 @@ func _physics_process(delta):
 				is_moving = false
 
 				if turn_based_mode:
-					print("Moves remaining: ", moves_remaining)
+					print("Moves remaining: ", movement_left)
 
-					if moves_remaining <= 0:
+					if movement_left <= 0:
 						print("Out of moves! Press SPACE to end turn.")
 
 				path.clear()
 				path_index = 0
 				queue_redraw()
 
-func teleport_to_grid(grid_pos: Vector2i):
+func teleport_to_grid(grid_pos: Vector2i) -> bool:
 	"""Instantly teleport to a grid position"""
-	if is_walkable(grid_pos):
-		grid_position = grid_pos
-		position = grid_to_world(grid_position)
-		target_position = position
-		is_moving = false
-		path.clear()
-		cancel_preview()
+	if not super.teleport_to_grid(grid_pos):
+		return false
+	path.clear()
+	cancel_preview()
+	return true
+
+func on_tile_entered():
+	_check_ground_pickup()
 
 func stop_moving():
 	"""Stop current movement"""
@@ -576,23 +586,6 @@ func stop_moving():
 	path_index = 0
 	position = grid_to_world(grid_position)
 	target_position = position
-
-func create_temp_weapon(attack_type: String) -> ItemData:
-	"""Create temporary weapon for current attack system (TEMPORARY - Phase 2 will use real weapons)"""
-	var weapon = ItemData.new()
-	weapon.item_name = "Temporary Weapon"
-	weapon.is_weapon = true
-	weapon.weapon_type = "simple"
-	
-	match attack_type:
-		"light":
-			weapon.damage_dice = "1d4"  # Light attack
-		"medium":
-			weapon.damage_dice = "1d8"  # Medium attack
-		"heavy":
-			weapon.damage_dice = "1d12"  # Heavy attack
-	
-	return weapon
 
 func _hostile_at(grid_pos: Vector2i) -> Combatant:
 	"""The living hostile combatant on a tile, or null"""
@@ -604,188 +597,47 @@ func _hostile_at(grid_pos: Vector2i) -> Combatant:
 		return target
 	return null
 
-func attack_enemy(enemy: Combatant, attack_type: String):
-	"""Attack an adjacent hostile combatant with animation"""
-	if not enemy or not turn_based_mode or not is_hostile_to(enemy):
-		return
-
-	if not can_act():
-		print("Cannot attack: it is not your turn.")
-		return
-
-	if has_attacked_this_turn:
-		print("You've already attacked this turn!")
-		return
-
-	# Enforce melee adjacency (Chebyshev distance 1)
-	var enemy_pos = enemy.get_grid_position()
-	var dx = abs(grid_position.x - enemy_pos.x)
-	var dy = abs(grid_position.y - enemy_pos.y)
-	if dx > 1 or dy > 1 or (dx + dy) == 0:
-		print("Enemy is too far away! Must be adjacent.")
-		return
-
-	# Mark the attack as used immediately so input during the
-	# animation delay can't trigger a second attack this turn
-	has_attacked_this_turn = true
-	attack_mode = false
-	selected_attack_type = ""
-
-	# Get weapon (TODO: get from InventoryManager in Phase 2)
-	var weapon = create_temp_weapon(attack_type)
-
-	# Attack animation
-	animate_attack(enemy.global_position)
-
-	# Wait for animation (pauses with the tree so damage can't resolve
-	# while a pause menu is open)
-	await get_tree().create_timer(0.15, false).timeout
-
-	# Target may have been freed during the animation delay
-	if not is_instance_valid(enemy) or not enemy.stats:
-		queue_redraw()
-		return
-
-	# Roll attack using CombatManager (nodes unlock status effects, cover and
-	# AC mods; allies' positions enable flanking advantage)
-	var result = CombatManager.roll_attack(stats, enemy.stats, weapon, false, false, self, enemy, get_ally_positions())
-	if result.is_empty():
-		queue_redraw()
-		return
-
-	if result.get("auto_fail", false):
-		print("You are incapacitated and cannot attack!")
-		queue_redraw()
-		return
-
-	var popup_pos = enemy.global_position + Vector2(0, -tile_size * 0.8)
-
-	if result.is_fumble:
-		print("💀 FUMBLE! Attack missed completely!")
-		DamagePopup.spawn_miss_popup_at(get_parent(), popup_pos)
-	elif result.hit:
-		if result.is_crit:
-			print("💥 CRITICAL HIT! ", result.damage, " damage!")
-			DamagePopup.spawn_damage_popup_at(get_parent(), popup_pos, result.damage, true)
-		else:
-			print("⚔️ Hit! ", result.damage, " damage!")
-			DamagePopup.spawn_damage_popup_at(get_parent(), popup_pos, result.damage, false)
-
-		# Apply damage using CombatManager
-		CombatManager.apply_damage(enemy, result.damage, CombatManager.DamageType.PHYSICAL, self, result.is_crit)
-	else:
-		print("❌ Miss! (Rolled ", result.total, " vs AC ", result.target_ac, ")")
-		DamagePopup.spawn_miss_popup_at(get_parent(), popup_pos)
-
-	queue_redraw()
-
 # ============================================================================
 # SPELLCASTING (pending casts readied via the spellbook panel)
 # ============================================================================
 
 func _handle_pending_spell_click(click_grid: Vector2i):
-	"""Resolve a readied spell against the clicked tile.
-	Validation failures (bad target / range / line of sight) keep the cast
-	pending so the player can re-aim; ESC cancels it. In combat a successful
-	cast consumes the attack action; out of combat only self/ally (heal & buff)
-	casts are allowed and no action is consumed."""
-	if is_moving:
-		return
-
+	"""Aim a readied spell at the clicked tile and ask the CombatController to
+	cast it. The click only decides what the spell is aimed at; the turn, the
+	action or bonus action it costs, range and line of sight are the
+	controller's to check. A refusal that another target could cure keeps the
+	spell readied so the player can aim again; ESC cancels it."""
 	var pending = SpellManager.get_pending_cast(self)
 	var spell = SpellDatabase.get_spell(pending)
 	if spell.is_empty():
 		SpellManager.clear_pending_cast(self)
 		return
 
-	var in_world_combat = in_combat()
-
-	if in_world_combat and not can_act():
-		EventBus.ui_notification.emit("It is not your turn!", "warning")
-		return
-
-	if in_world_combat and has_attacked_this_turn:
-		EventBus.ui_notification.emit("You have already acted this turn!", "warning")
-		return
-
-	# Resolve the target from the spell's targeting mode
-	var target_type = str(spell.get("target_type", "enemy"))
-	var cast_target = null          # argument handed to SpellManager.cast_spell
-	var target_tile = click_grid    # tile used for range / line-of-sight checks
-
-	match target_type:
+	# What the click means depends on the spell's targeting mode
+	var cast_target = null
+	match str(spell.get("target_type", "enemy")):
 		"enemy":
-			var clicked_enemy = _hostile_at(click_grid)
-			if clicked_enemy == null:
+			cast_target = _hostile_at(click_grid)
+			if cast_target == null:
 				EventBus.ui_notification.emit("No enemy there - click a target for %s." % str(spell.get("display_name", pending)), "warning")
 				return
-			cast_target = clicked_enemy
 		"ally", "self":
-			# Simplification: ally-targeted casts resolve on the player
+			# Simplification: ally-targeted casts resolve on the caster
 			cast_target = self
-			target_tile = grid_position
 		_:
 			# "point" / area spells target the clicked tile itself
 			cast_target = click_grid
 
-	# Out of combat, only self/ally casting is allowed
-	if not in_world_combat and target_type in ["enemy", "point"]:
-		EventBus.ui_notification.emit("That spell needs a combat target.", "warning")
-		return
-
-	# Range and line-of-sight validation (range_tiles 0 = self only)
-	if target_tile != grid_position:
-		var range_tiles = int(spell.get("range_tiles", 0))
-		if CombatGrid.get_distance_tiles(grid_position, target_tile) > range_tiles:
-			EventBus.ui_notification.emit("Out of range!", "warning")
-			return
-		if dungeon_generator and not CombatGrid.has_line_of_sight(grid_position, target_tile, dungeon_generator.dungeon_grid):
-			EventBus.ui_notification.emit("No line of sight!", "warning")
-			return
-
-	var result = SpellManager.cast_spell(self, pending, cast_target)
-	if not result.get("ok", false):
-		# Hard failure (no slots / not castable) - drop the pending cast
+	var result: Dictionary = request_action(CombatController.ACTION_CAST, {"spell_id": pending, "target": cast_target})
+	if not result.ok:
 		EventBus.ui_notification.emit(str(result.get("reason", "The spell fizzles.")), "warning")
-		SpellManager.clear_pending_cast(self)
-		queue_redraw()
+		if result.get("final", false):
+			SpellManager.clear_pending_cast(self)
+			queue_redraw()
 		return
 
 	SpellManager.clear_pending_cast(self)
-	if in_world_combat:
-		has_attacked_this_turn = true
-
-	# Teleport results (misty step) move the player to the destination
-	var teleport_to = result.get("teleport_to", null)
-	if teleport_to is Vector2i and is_walkable(teleport_to):
-		stop_moving()
-		cancel_preview()
-		grid_position = teleport_to
-		position = grid_to_world(teleport_to)
-		target_position = position
-		_check_ground_pickup()
-
-	_spawn_spell_popups(result)
 	queue_redraw()
-
-func _spawn_spell_popups(result: Dictionary):
-	"""Floating combat text for a spell result's per-target hit entries"""
-	var parent = get_parent()
-	if not parent:
-		return
-	for entry in result.get("hits", []):
-		var target = entry.get("target", null)
-		if target == null or not (target is Node2D) or not is_instance_valid(target):
-			continue
-		var popup_pos = target.global_position + Vector2(0, -tile_size * 0.8)
-		var damage = int(entry.get("damage", 0))
-		var healed = int(entry.get("healed", 0))
-		if damage > 0:
-			DamagePopup.spawn_damage_popup_at(parent, popup_pos, damage, bool(entry.get("is_crit", false)))
-		elif healed > 0:
-			DamagePopup.spawn_heal_popup_at(parent, popup_pos, healed)
-		elif not entry.get("hit", true):
-			DamagePopup.spawn_miss_popup_at(parent, popup_pos)
 
 # ============================================================================
 # MOVEMENT HOOKS (loot pickup)
@@ -825,7 +677,7 @@ func toggle_turn_based_mode():
 		cancel_preview()
 		start_new_turn()
 		print("Turn-based mode ENABLED - Press T to toggle, SPACE to end turn")
-		print("Turn ", turn_number, " - Moves remaining: ", moves_remaining)
+		print("Turn ", turn_number, " - Moves remaining: ", movement_left)
 	else:
 		print("Turn-based mode DISABLED - Free movement with WASD or click")
 
@@ -833,24 +685,26 @@ func on_combat_started():
 	"""A fight has begun: stop where we stand and wait for a turn"""
 	stop_moving()
 	cancel_preview()
+	attack_mode = false
 	turn_based_mode = true
 	# No movement until initiative grants the player a turn
-	# (start_new_turn restores it)
-	moves_remaining = 0
-	queue_redraw()
+	super.on_combat_started()
 
 func on_combat_ended():
 	"""Back to free movement"""
 	turn_based_mode = false
 	wasd_movement_enabled = true
-	queue_redraw()
+	attack_mode = false
+	super.on_combat_ended()
 
 func start_new_turn():
-	"""Start a new turn with full movement. In combat the CombatController
-	calls this when the player's turn comes up."""
+	"""Start a new turn. In a fight the CombatController calls this when the
+	player's turn comes up, having handed out the turn's resources; in the turn
+	mode outside a fight the player cycles its own turns and takes them here."""
 	turn_number += 1
-	moves_remaining = stats.get_modified_movement_speed()  # UPDATED - Uses encumbrance
-	has_attacked_this_turn = false
+	attack_mode = false
+	if not in_combat():
+		refresh_turn_resources()
 
 	# Status-effect ticks at the start of the turn (burning, regenerating, ...)
 	StatusEffectManager.process_turn_start(self)
@@ -859,12 +713,8 @@ func start_new_turn():
 	if is_dying or not stats or not stats.is_alive():
 		return
 
-	# Speed modifiers from status effects (slowed/hasted/restrained)
-	moves_remaining = max(0, moves_remaining + StatusEffectManager.get_speed_modifier_tiles(self))
-	moves_granted_this_turn = moves_remaining
-
 	print("=== Turn ", turn_number, " started ===")
-	print("Movement available: ", moves_remaining, " tiles")
+	print("Movement available: ", movement_left, " tiles")
 
 	# In combat the CombatController announces every turn itself
 	if not in_combat():
@@ -873,7 +723,7 @@ func start_new_turn():
 	# Incapacitated (stunned/paralyzed/frozen): lose the turn. Deferred so the
 	# turn loop is never advanced re-entrantly from inside this call.
 	if StatusEffectManager.is_incapacitated(self):
-		moves_remaining = 0
+		movement_left = 0
 		EventBus.ui_notification.emit("You are incapacitated and lose your turn!", "warning")
 		print("Player is incapacitated - turn skipped")
 		call_deferred("_auto_end_incapacitated_turn")
@@ -894,34 +744,29 @@ func end_turn():
 		return
 
 	var combat = _get_combat()
-	var in_world_combat = combat != null and combat.active
-	if in_world_combat and not combat.is_turn_of(self):
+	if combat == null:
 		return
-
-	if is_moving:
-		print("Cannot end turn while moving!")
+	var check: Dictionary = combat.check_action(self, CombatController.ACTION_END_TURN)
+	if not check.ok:
+		print("Cannot end the turn: ", check.reason)
 		return
+	var in_world_combat: bool = combat.active
 
-	print("Turn ", turn_number, " ended. Moves used: ", max(0, moves_granted_this_turn - moves_remaining))
-
-	if in_world_combat:
-		# No leftover movement while the others take their turns
-		moves_remaining = 0
+	print("Turn ", turn_number, " ended. Moves used: ", max(0, movement_granted - movement_left))
+	attack_mode = false
+	queue_redraw()
 
 	# End-of-turn status bookkeeping (ticks, end saves, duration countdown)
 	StatusEffectManager.process_turn_end(self)
 
 	if in_world_combat:
 		# The controller announces the end of the turn and starts the next one
-		combat.end_turn(self)
+		combat.request_action(self, CombatController.ACTION_END_TURN)
 	else:
 		# Outside combat (manual T mode) we cycle our own turns
+		expire_turn_resources()
 		EventBus.turn_ended.emit(self)
 		start_new_turn()
-
-func get_moves_remaining() -> int:
-	"""Get remaining moves this turn"""
-	return moves_remaining
 
 func get_turn_number() -> int:
 	"""Get current turn number"""
@@ -945,9 +790,9 @@ func take_damage(amount: int):
 	super.take_damage(amount)
 	EventBus.player_hp_changed.emit(stats.current_hp, stats.max_hp)
 
-func _on_damage_dealt_event(attacker, target, amount, is_critical):
+func _on_damage_dealt_event(attacker, target, amount, is_critical, damage_type):
 	"""Keep the HP signal in sync when CombatManager applies damage to stats"""
-	super._on_damage_dealt_event(attacker, target, amount, is_critical)
+	super._on_damage_dealt_event(attacker, target, amount, is_critical, damage_type)
 	if target == self and stats:
 		EventBus.player_hp_changed.emit(stats.current_hp, stats.max_hp)
 
@@ -991,7 +836,6 @@ func die():
 	path.clear()
 	path_index = 0
 	attack_mode = false
-	selected_attack_type = ""
 	cancel_preview()
 	SpellManager.clear_pending_cast(self)
 	modulate = Color(1, 1, 1, 0.35)

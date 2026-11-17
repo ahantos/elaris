@@ -137,111 +137,113 @@ func get_materials_by_category(category: MaterialData.Category) -> Array:
 # ITEM CATALOG
 # =====================================================================
 
-# Weapon base definitions:
-# { base_id, display_name, damage_dice, damage_type, two_handed, is_ranged,
-#   range_normal, range_max, weight_base, value_base, special_props, valid_materials }
+# Weapon base definitions, following the 5e SRD weapon table:
+# { id, name, cat ("simple" | "martial"), dice, dtype, 2h, ranged, rn, rm,
+#   weight, value, props, mats }
+# A weapon with the "versatile" property also gives "vdice": its damage dice
+# when it is held in both hands.
 const WEAPON_BASES := [
 	# ── MELEE ────────────────────────────────────────────────────────
 	{
-		"id": "dagger",        "name": "Dagger",        "dice": "1d4",  "dtype": "piercing",
+		"id": "dagger",        "name": "Dagger",        "cat": "simple",  "dice": "1d4",  "dtype": "piercing",
 		"2h": false, "ranged": false, "rn": 0, "rm": 0,
 		"weight": 1.0, "value": 20,
 		"props": ["finesse", "thrown"], "mats": ["bronze","iron","steel","mithril","adamantine"]
 	},
 	{
-		"id": "shortsword",    "name": "Shortsword",    "dice": "1d6",  "dtype": "piercing",
+		"id": "shortsword",    "name": "Shortsword",    "cat": "martial", "dice": "1d6",  "dtype": "piercing",
 		"2h": false, "ranged": false, "rn": 0, "rm": 0,
 		"weight": 2.0, "value": 40,
 		"props": ["finesse"], "mats": ["bronze","iron","steel","mithril","adamantine"]
 	},
 	{
-		"id": "longsword",     "name": "Longsword",     "dice": "1d8",  "dtype": "slashing",
+		"id": "longsword",     "name": "Longsword",     "cat": "martial", "dice": "1d8",  "dtype": "slashing",
 		"2h": false, "ranged": false, "rn": 0, "rm": 0,
 		"weight": 3.0, "value": 60,
-		"props": [], "mats": ["bronze","iron","steel","mithril","adamantine"]
+		"props": ["versatile"], "vdice": "1d10", "mats": ["bronze","iron","steel","mithril","adamantine"]
 	},
 	{
-		"id": "greatsword",    "name": "Greatsword",    "dice": "2d6",  "dtype": "slashing",
+		"id": "greatsword",    "name": "Greatsword",    "cat": "martial", "dice": "2d6",  "dtype": "slashing",
 		"2h": true,  "ranged": false, "rn": 0, "rm": 0,
 		"weight": 6.0, "value": 80,
 		"props": [], "mats": ["bronze","iron","steel","mithril","adamantine"]
 	},
 	{
-		"id": "handaxe",       "name": "Handaxe",       "dice": "1d6",  "dtype": "slashing",
+		"id": "handaxe",       "name": "Handaxe",       "cat": "simple",  "dice": "1d6",  "dtype": "slashing",
 		"2h": false, "ranged": false, "rn": 0, "rm": 0,
 		"weight": 2.0, "value": 30,
 		"props": ["thrown"], "mats": ["bronze","iron","steel","mithril","adamantine"]
 	},
 	{
-		"id": "battleaxe",     "name": "Battleaxe",     "dice": "1d8",  "dtype": "slashing",
+		"id": "battleaxe",     "name": "Battleaxe",     "cat": "martial", "dice": "1d8",  "dtype": "slashing",
 		"2h": false, "ranged": false, "rn": 0, "rm": 0,
 		"weight": 4.0, "value": 60,
-		"props": [], "mats": ["bronze","iron","steel","mithril","adamantine"]
+		"props": ["versatile"], "vdice": "1d10", "mats": ["bronze","iron","steel","mithril","adamantine"]
 	},
 	{
-		"id": "greataxe",      "name": "Greataxe",      "dice": "1d12", "dtype": "slashing",
+		"id": "greataxe",      "name": "Greataxe",      "cat": "martial", "dice": "1d12", "dtype": "slashing",
 		"2h": true,  "ranged": false, "rn": 0, "rm": 0,
 		"weight": 7.0, "value": 90,
 		"props": [], "mats": ["bronze","iron","steel","mithril","adamantine"]
 	},
 	{
-		"id": "mace",          "name": "Mace",          "dice": "1d6",  "dtype": "bludgeoning",
+		"id": "mace",          "name": "Mace",          "cat": "simple",  "dice": "1d6",  "dtype": "bludgeoning",
 		"2h": false, "ranged": false, "rn": 0, "rm": 0,
 		"weight": 4.0, "value": 50,
 		"props": [], "mats": ["bronze","iron","steel","mithril","adamantine"]
 	},
 	{
-		"id": "warhammer",     "name": "Warhammer",     "dice": "1d8",  "dtype": "bludgeoning",
+		"id": "warhammer",     "name": "Warhammer",     "cat": "martial", "dice": "1d8",  "dtype": "bludgeoning",
 		"2h": false, "ranged": false, "rn": 0, "rm": 0,
 		"weight": 5.0, "value": 70,
-		"props": [], "mats": ["bronze","iron","steel","mithril","adamantine"]
+		"props": ["versatile"], "vdice": "1d10", "mats": ["bronze","iron","steel","mithril","adamantine"]
 	},
 	{
-		"id": "spear",         "name": "Spear",         "dice": "1d6",  "dtype": "piercing",
+		"id": "spear",         "name": "Spear",         "cat": "simple",  "dice": "1d6",  "dtype": "piercing",
 		"2h": false, "ranged": false, "rn": 0, "rm": 0,
 		"weight": 3.0, "value": 30,
-		"props": ["thrown"], "mats": ["bronze","iron","steel","mithril","adamantine"]
+		"props": ["thrown", "versatile"], "vdice": "1d8", "mats": ["bronze","iron","steel","mithril","adamantine"]
 	},
 	{
-		"id": "rapier",        "name": "Rapier",        "dice": "1d8",  "dtype": "piercing",
+		"id": "rapier",        "name": "Rapier",        "cat": "martial", "dice": "1d8",  "dtype": "piercing",
 		"2h": false, "ranged": false, "rn": 0, "rm": 0,
 		"weight": 2.0, "value": 55,
 		"props": ["finesse"], "mats": ["bronze","iron","steel","mithril","adamantine"]
 	},
 	# ── WOOD MELEE ───────────────────────────────────────────────────
 	{
-		"id": "quarterstaff",  "name": "Quarterstaff",  "dice": "1d6",  "dtype": "bludgeoning",
-		"2h": true,  "ranged": false, "rn": 0, "rm": 0,
+		"id": "quarterstaff",  "name": "Quarterstaff",  "cat": "simple",  "dice": "1d6",  "dtype": "bludgeoning",
+		"2h": false, "ranged": false, "rn": 0, "rm": 0,
 		"weight": 4.0, "value": 20,
-		"props": [], "mats": ["oak","ash","yew","ebony","starwood"]
+		"props": ["versatile"], "vdice": "1d8", "mats": ["oak","ash","yew","ebony","starwood"]
 	},
 	{
-		"id": "club",          "name": "Club",          "dice": "1d4",  "dtype": "bludgeoning",
+		"id": "club",          "name": "Club",          "cat": "simple",  "dice": "1d4",  "dtype": "bludgeoning",
 		"2h": false, "ranged": false, "rn": 0, "rm": 0,
 		"weight": 2.0, "value": 10,
 		"props": [], "mats": ["oak","ash","yew","ebony","starwood"]
 	},
 	# ── RANGED ───────────────────────────────────────────────────────
 	{
-		"id": "shortbow",      "name": "Shortbow",      "dice": "1d6",  "dtype": "piercing",
+		"id": "shortbow",      "name": "Shortbow",      "cat": "simple",  "dice": "1d6",  "dtype": "piercing",
 		"2h": true,  "ranged": true,  "rn": 16, "rm": 64,
 		"weight": 2.0, "value": 40,
 		"props": [], "mats": ["oak","ash","yew","ebony","starwood"]
 	},
 	{
-		"id": "longbow",       "name": "Longbow",       "dice": "1d8",  "dtype": "piercing",
+		"id": "longbow",       "name": "Longbow",       "cat": "martial", "dice": "1d8",  "dtype": "piercing",
 		"2h": true,  "ranged": true,  "rn": 24, "rm": 96,
 		"weight": 2.0, "value": 70,
 		"props": [], "mats": ["oak","ash","yew","ebony","starwood"]
 	},
 	{
-		"id": "light_crossbow","name": "Light Crossbow","dice": "1d8",  "dtype": "piercing",
+		"id": "light_crossbow","name": "Light Crossbow","cat": "simple",  "dice": "1d8",  "dtype": "piercing",
 		"2h": true,  "ranged": true,  "rn": 16, "rm": 64,
 		"weight": 5.0, "value": 60,
 		"props": [], "mats": ["oak","ash","yew","ebony","starwood"]
 	},
 	{
-		"id": "heavy_crossbow","name": "Heavy Crossbow","dice": "1d10", "dtype": "piercing",
+		"id": "heavy_crossbow","name": "Heavy Crossbow","cat": "martial", "dice": "1d10", "dtype": "piercing",
 		"2h": true,  "ranged": true,  "rn": 20, "rm": 80,
 		"weight": 8.0, "value": 100,
 		"props": [], "mats": ["oak","ash","yew","ebony","starwood"]
@@ -380,29 +382,7 @@ func load_items():
 			var mat: MaterialData = get_material(str(mat_id))
 			if not mat:
 				continue
-			var tier_idx: int = int(mat.tier)
-			var item_id: String = str(mat_id) + "_" + str(wb["id"])
-			var item: ItemData = ItemData.new()
-			item.item_id = item_id
-			item.item_name = mat.material_name + " " + str(wb["name"])
-			item.item_type = ItemData.ItemType.WEAPON
-			item.material = mat
-			item.damage_dice = str(wb["dice"])
-			item.damage_type = str(wb["dtype"])
-			item.is_weapon = true
-			item.is_two_handed = bool(wb["2h"])
-			item.is_ranged = bool(wb["ranged"])
-			item.range_normal = int(wb["rn"])
-			item.range_max = int(wb["rm"])
-			item.equip_slot = "ranged" if bool(wb["ranged"]) else "main_hand"
-			item.has_durability = true
-			item.max_durability = mat.base_durability
-			for prop in (wb["props"] as Array):
-				item.special_properties.append(str(prop))
-			item.weight = float(wb["weight"]) * TIER_WEIGHT_MULT[tier_idx]
-			item.base_value = int(float(wb["value"]) * TIER_VALUE_MULT[tier_idx])
-			item.description = mat.material_name + " " + str(wb["name"]) + " (" + mat.get_tier_name() + ")"
-			register_item(item)
+			register_item(_build_weapon_item(wb, mat))
 
 	# ── 2. ARMOR ─────────────────────────────────────────────────────
 	for ab in ARMOR_BASES:
@@ -524,6 +504,35 @@ func load_items():
 
 # ── Build helpers ─────────────────────────────────────────────────────
 
+func _build_weapon_item(wb: Dictionary, mat: MaterialData) -> ItemData:
+	"""One weapon of the catalogue: a row of WEAPON_BASES made from a material"""
+	var tier_idx: int = int(mat.tier)
+	var item := ItemData.new()
+	item.item_id = mat.material_id + "_" + str(wb["id"])
+	item.item_name = mat.material_name + " " + str(wb["name"])
+	item.item_type = ItemData.ItemType.WEAPON
+	item.material = mat
+	item.damage_dice = str(wb["dice"])
+	item.versatile_dice = str(wb.get("vdice", ""))
+	item.damage_type = str(wb["dtype"])
+	item.is_weapon = true
+	item.weapon_type = str(wb["id"])
+	item.weapon_category = str(wb["cat"])
+	item.is_two_handed = bool(wb["2h"])
+	item.is_ranged = bool(wb["ranged"])
+	item.range_normal = int(wb["rn"])
+	item.range_max = int(wb["rm"])
+	item.equip_slot = "ranged" if bool(wb["ranged"]) else "main_hand"
+	item.has_durability = true
+	item.max_durability = mat.base_durability
+	for prop in (wb["props"] as Array):
+		item.special_properties.append(str(prop))
+	item.weight = float(wb["weight"]) * TIER_WEIGHT_MULT[tier_idx]
+	item.base_value = int(float(wb["value"]) * TIER_VALUE_MULT[tier_idx])
+	item.description = mat.material_name + " " + str(wb["name"]) + " (" + mat.get_tier_name() + ")"
+	return item
+
+
 func _build_armor_item(item_id: String, item_name: String, mat: MaterialData,
 		slot: String, ac: int, armor_type: String, dex_limit: int,
 		str_req: int, stealth_dis: bool) -> ItemData:
@@ -566,8 +575,11 @@ func _register_alias_weapon(base_id: String, default_mat: String):
 	alias.item_type = src.item_type
 	alias.material = src.material
 	alias.damage_dice = src.damage_dice
+	alias.versatile_dice = src.versatile_dice
 	alias.damage_type = src.damage_type
 	alias.is_weapon = src.is_weapon
+	alias.weapon_type = src.weapon_type
+	alias.weapon_category = src.weapon_category
 	alias.is_two_handed = src.is_two_handed
 	alias.is_ranged = src.is_ranged
 	alias.range_normal = src.range_normal
@@ -711,33 +723,13 @@ func _try_regenerate(item_id: String) -> ItemData:
 	# <mat_id>_<base_id>  (weapon or armor)
 	for wb in WEAPON_BASES:
 		for mat_id in wb["mats"]:
-			var try_id: String = str(mat_id) + "_" + str(wb["id"])
-			if try_id == item_id:
-				# rebuild this one weapon
-				var mat: MaterialData = get_material(str(mat_id))
-				if mat:
-					var tier_idx: int = int(mat.tier)
-					var item := ItemData.new()
-					item.item_id = item_id
-					item.item_name = mat.material_name + " " + str(wb["name"])
-					item.item_type = ItemData.ItemType.WEAPON
-					item.material = mat
-					item.damage_dice = str(wb["dice"])
-					item.damage_type = str(wb["dtype"])
-					item.is_weapon = true
-					item.is_two_handed = bool(wb["2h"])
-					item.is_ranged = bool(wb["ranged"])
-					item.range_normal = int(wb["rn"])
-					item.range_max = int(wb["rm"])
-					item.equip_slot = "ranged" if bool(wb["ranged"]) else "main_hand"
-					item.has_durability = true
-					item.max_durability = mat.base_durability
-					for prop in (wb["props"] as Array):
-						item.special_properties.append(str(prop))
-					item.weight = float(wb["weight"]) * TIER_WEIGHT_MULT[tier_idx]
-					item.base_value = int(float(wb["value"]) * TIER_VALUE_MULT[tier_idx])
-					register_item(item)
-					return item
+			if str(mat_id) + "_" + str(wb["id"]) != item_id:
+				continue
+			var mat: MaterialData = get_material(str(mat_id))
+			if mat:
+				var item := _build_weapon_item(wb, mat)
+				register_item(item)
+				return item
 
 	for ab in ARMOR_BASES:
 		for mat_id in ab["mats"]:
