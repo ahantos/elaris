@@ -527,11 +527,31 @@ should matter what it is made of.
 - Repair cost: repairing a piece with more notches should cost more, but he expects
   a system like this to "eat all the gold all the time". A better material must
   give an advantage, and whether being more durable is advantage enough is open.
-- Ageing, if it exists: his idea is a counter separate from the durability notches
-  that rises the more a piece is repaired, with the maximum notches falling over
-  time until a full repair is no longer possible. A full reforge would clear it,
-  but the piece becomes a new item. He sees the appeal of weapons being retired
-  and expects players to find it frustrating; not decided.
+- Ageing: his idea, accepted in this shape. An age counter, separate from the
+  durability notches, rises by one for each notch repaired, wherever and whenever
+  the repair happens. Every so many points the piece loses one maximum notch;
+  better materials take more points. A reforge clears the age, but the piece comes
+  back as a new item without its history. (He saw the appeal of weapons being
+  retired and worried players would find it frustrating; watch for that in play.)
+- Field repair is paid in kits and scrap salvaged from loot, not gold. Accepted
+  ("an amazing idea"). The smith is the gold route and charges a set fraction of
+  the item's value; the numbers belong to Phase 4.
+- Wear marks, for the fixed loss he asked for: every piece used in a fight gains
+  marks by the length of the fight, and enough marks cost a notch. This replaces
+  the d6 roll for long fights. How marks scale with length is being settled: one
+  mark, or two past round 3 (my first version), or one per two rounds (his).
+- Hardness: he wants it and left the design to me. Proposed: hardness is the break
+  threshold number from his tables, rescaled so the categories share one scale
+  (as written, some leathers and cloths come out harder than steel).
+  - A piece loses a notch when its wear marks reach its hardness (copper 3,
+    steel 5, adamantite 10).
+  - When two pieces meet (a crit against armour or a shield, a sunder, a natural 1
+    measured against the target's armour or hide): striker harder by 2 or more,
+    one extra notch; within 1, the normal notch; struck piece harder by 2 or more,
+    a mark instead of a notch.
+  - Acid and rust ignore hardness; they go by material traits.
+  - Creatures get a hardness for natural weapons and hide in the bestiary.
+- Still open: damage states (names only, or states with their own rules).
 - Resting rules are needed, as a separate discussion.
 
 #### Provisional sketch (to be replaced by the homebrew system)
