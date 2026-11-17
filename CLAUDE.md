@@ -108,8 +108,11 @@ the length of fights, hardness, debuffs and buffs, repair by kit or smith, agein
 The numbers are dials for the Phase 2 simulator. Two rules of his to keep: a state
 never touches wear marks, and durability adds no chore beyond repair. Levels 1-5 first. Art is
 32x32, own art later, DCSS CC0 tiles as placeholders. Co-op multiplayer is wanted
-(decided 2026-11-17, not designed yet): new code must not deepen the assumption of
-one local player. Names and lore are deferred. Details in section 8 of the plan.
+(decided 2026-11-17): online, up to four players, one per party member, after the
+first playable. Until then, follow the three co-op rules in section 8 of the plan:
+every party member has a controller, every action is a request the turn authority
+approves, and dice are rolled by the authority. Names and lore are deferred.
+Details in section 8 of the plan.
 
 ## Working agreement
 - A branch per phase, committed as the work proceeds (agreed 2026-11-16), with

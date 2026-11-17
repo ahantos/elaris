@@ -39,13 +39,10 @@ called `CURRENT_WORK.md` until Phase 1. The plan it tracks is in section 7 of
    band the simulator should aim for at levels 1 to 3 (needed at step 10).
 3a. **Resting rules.** He wants them; a separate discussion, not started. His
    homebrew resting system has been read (see the table below).
-3b. **Co-op.** On 2026-11-17 he said he wants co-op multiplayer, reversing the
-   decision to shelve it. Open, and his to answer: online or on the same screen,
-   how many players, and whether it is needed for the first playable or later.
-   Proposed to him: no networking in Phase 2, but build the combat core so that
-   each party member has a controller (a player or the AI) and every action is a
-   request the turn authority approves; then a small two-player test right after
-   Phase 2, before more systems are built on top.
+3b. **Co-op.** Decided 2026-11-17: online with friends, four players at most, one
+   per party member, not needed for the first playable. The rules that keep new
+   code ready for it are in section 8 of the plan under "Co-op". Still his to
+   answer: whether to do a small two-player test right after Phase 2.
 4. **Merge:** whether Phases 0 and 1 go into `main`. (Both branches are on origin.)
 5. `tilesets/TX Tileset Stone Ground.png` is unused and its licence is not recorded.
    Delete it?

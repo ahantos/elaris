@@ -467,7 +467,28 @@ Made by Ákos on 2026-11-16.
 | 5 | Level range | 1–5 for now, with expansion planned (below). Nothing may hard-code 5 |
 | 6 | Art | Own art eventually, drawn at 32×32. Until then the Dungeon Crawl Stone Soup CC0 tiles as placeholders, wired so own art drops in by replacing files (below) |
 | 7 | Names and lore | Deferred. The code's names stay until decided: Brackenford / Dawnwatch / Mournstead and Merchants' Guild / Order of the Dawn / Gravewardens. The design doc says Ironhold / Silverwood / Blackstone Keep and Royal Guard / Thieves Guild / Order of Light, and refers to a campaign setting that is not written down in the repo |
-| 8 | Multiplayer | Co-op is wanted. Ákos, 2026-11-17: "multiplayer does come in here. i want coop", reversing the decision of the day before to shelve it. It grew out of his doubt that one player wants to control four characters: in co-op each player runs one party member. Not designed. Open: online or same screen, how many players, and when it is built. Every system today assumes one local player; new code must not deepen that assumption |
+| 8 | Multiplayer | Co-op is wanted. Ákos, 2026-11-17: "multiplayer does come in here. i want coop", reversing the decision of the day before to shelve it. It grew out of his doubt that one player wants to control four characters: in co-op each player runs one party member. Online with friends, four players at most, one per party member. The first playable does not need it. Details below |
+
+### Co-op
+
+Decided by Ákos on 2026-11-17. Not designed beyond this.
+
+- Online, with friends. Four players at most, one per party member. A seat with no
+  player is filled by a companion.
+- The first playable (Milestone 1) does not need it. It is built after that.
+- Every system today assumes one local player: one player object, one place that
+  reads input, panels that pause the whole game, saves owned by one person. Four
+  things already help: combat is turn-based, dungeons come from a seed, the pack is
+  shared by the party, and dice are rolled in one place.
+- Rules for all code from Phase 2 on, so co-op does not need a rewrite later:
+  1. Every party member has a controller: a player or the AI. Code asks who
+     controls a combatant, never whether it is "the player".
+  2. Every action is a request that the turn authority approves and applies. Input
+     code never changes game state directly.
+  3. Dice are rolled by the authority, never in interface or input code.
+- Proposed and not yet confirmed: a small two-player test right after Phase 2 (two
+  copies of the game fighting one encounter together), to prove the approach before
+  more systems are built on top of it.
 
 ### Durability
 
