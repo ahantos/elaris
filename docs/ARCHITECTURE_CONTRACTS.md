@@ -117,7 +117,9 @@ and "the boot has no script errors" is no longer what done means.
 - **Hostility is by team.** Ask `a.is_hostile_to(b)`, `combatant.get_hostiles()` or
   `get_ally_positions()`. Do not test membership of `world.enemies` or compare with
   the player; `world.enemies` and `world.companion_nodes` remain as the world's own
-  bookkeeping (spawning, saving). Enemy AI still picks only the player as its target.
+  bookkeeping (spawning, saving). Enemy AI still picks only the player as its target,
+  and a companion's move provokes no opportunity attack: nothing may hurt a companion
+  until companions have death rules.
 - **Alive is `combatant.is_alive()`**, not `is_instance_valid`: the player's body stays
   in the scene after death.
 - **What the base owns:** grid conversion (`grid_to_world`, `world_to_grid`,

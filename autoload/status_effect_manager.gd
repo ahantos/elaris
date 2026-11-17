@@ -116,11 +116,10 @@ func clear_effects(target: Node):
 		remove_effect(target, effect_id)
 
 
-# === TURN HOOKS (called by combat flow integration) ===
+# === TURN HOOKS (each combatant calls these for itself, from its own turn code) ===
 
 func process_turn_start(target: Node):
-	"""Tick all turn_start damage/heal effects on the combatant whose turn is beginning.
-	The combat orchestrator calls this when a combatant's turn starts."""
+	"""Tick all turn_start damage/heal effects on the combatant whose turn is beginning."""
 	_purge_freed_targets()
 	if not _is_valid_target(target) or not target.stats.is_alive():
 		return  # dead-but-not-yet-freed nodes must not tick (would re-trigger death handling)
@@ -129,8 +128,7 @@ func process_turn_start(target: Node):
 
 func process_turn_end(target: Node):
 	"""End-of-turn bookkeeping for the combatant whose turn is ending:
-	tick turn_end effects, roll save_to_end saves, decrement durations and expire.
-	The combat orchestrator calls this when a combatant's turn ends."""
+	tick turn_end effects, roll save_to_end saves, decrement durations and expire."""
 	_purge_freed_targets()
 	if not _is_valid_target(target) or not active_effects.has(target):
 		return
