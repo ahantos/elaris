@@ -7,7 +7,7 @@ signal combat_started(enemies: Array)
 signal combat_ended(victory: bool)
 signal turn_started(character)
 signal turn_ended(character)
-signal damage_dealt(attacker, target, amount, is_critical)
+signal damage_dealt(attacker, target, amount, is_critical, damage_type)  # damage_type: CombatManager.DamageType
 signal character_died(character)
 signal enemy_died(enemy)
 

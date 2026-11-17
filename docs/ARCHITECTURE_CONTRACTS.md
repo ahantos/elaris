@@ -190,7 +190,8 @@ acid, poison, necrotic, radiant, force, psychic`.
 `CombatManager.damage_type_from_string(name)` maps to the `DamageType` enum (unknown
 becomes PHYSICAL). Damage is applied with its type: a weapon attack with the
 weapon's, an unarmed strike as bludgeoning, a spell or a status tick with its own.
-Nothing reads the type yet: resistance and vulnerability come with the damage
+`EventBus.damage_dealt(attacker, target, amount, is_critical, damage_type)` carries
+it. Nothing reads the type yet: resistance and vulnerability come with the damage
 pipeline (Phase 2 step 4).
 
 ### 2.5 Skills (canonical ids)

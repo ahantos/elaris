@@ -989,6 +989,9 @@ func _check_actions(world):
 	var taken: Array = []  # [combatant, action id, result] for every approved request
 	var on_action = func(combatant, action_id, result): taken.append([combatant, action_id, result])
 	controller.action_taken.connect(on_action)
+	var blows: Array = []  # [attacker, target, amount, damage type]
+	var on_damage = func(attacker, target, amount, _is_crit, damage_type): blows.append([attacker, target, amount, damage_type])
+	bus.damage_dealt.connect(on_damage)
 	var reactions: Array = []
 	var on_reaction = func(reactor, _reaction_id, _source): reactions.append(reactor)
 	bus.reaction_triggered.connect(on_reaction)
@@ -1041,6 +1044,7 @@ func _check_actions(world):
 	var hp_lost := 0
 	for attempt in range(40):
 		player.action_used = false
+		blows.clear()
 		var hp_before: int = goblin.stats.current_hp
 		var swing: Dictionary = controller.request_action(player, "attack", {"target": goblin})
 		if swing.ok and swing.hit:
@@ -1050,6 +1054,9 @@ func _check_actions(world):
 	check(not hit.is_empty() and hit.weapon_name == "Iron Longsword" and hit.damage_dice == "1d8" and hit.damage_type == "slashing"
 		and hit.damage >= (4 if hit.is_crit else 3) and hit.damage <= (18 if hit.is_crit else 10) and hp_lost == hit.damage,
 		"the Attack action hits with the equipped weapon's die and damage type", str(hit.get("damage", "no hit")))
+	check(blows.size() == 1 and blows[0][0] == player and blows[0][1] == goblin and blows[0][2] == hp_lost
+		and blows[0][3] == combat_mgr.DamageType.SLASHING,
+		"the weapon's damage type travels with the damage to where it is applied", str(blows))
 	var hp_after_first: int = goblin.stats.current_hp
 	var second: Dictionary = controller.request_action(player, "attack", {"target": goblin})
 	check(player.action_used and not second.ok and second.reason == "Action spent" and goblin.stats.current_hp == hp_after_first,
@@ -1077,11 +1084,13 @@ func _check_actions(world):
 	var punch: Dictionary = {}
 	for attempt in range(40):
 		player.action_used = false
+		blows.clear()
 		var swing: Dictionary = controller.request_action(player, "attack", {"target": goblin})
 		if swing.ok and swing.hit:
 			punch = swing
 			break
-	check(not punch.is_empty() and punch.weapon_name == "Unarmed strike" and punch.damage == 3 and punch.damage_type == "bludgeoning",
+	check(not punch.is_empty() and punch.weapon_name == "Unarmed strike" and punch.damage == 3 and punch.damage_type == "bludgeoning"
+		and blows.size() == 1 and blows[0][3] == combat_mgr.DamageType.BLUDGEONING,
 		"with nothing in hand the Attack action is an unarmed strike for 1 + Strength modifier", str(punch.get("damage", "no hit")))
 	inv.equip_item(sword, stats, "main_hand")
 	inv.equip_item(bow, stats, "ranged")
@@ -1267,6 +1276,7 @@ func _check_actions(world):
 		"outside a fight the bar offers what can still be done: no action economy, items still usable")
 
 	controller.action_taken.disconnect(on_action)
+	bus.damage_dealt.disconnect(on_damage)
 	bus.reaction_triggered.disconnect(on_reaction)
 	controller.turn_started.disconnect(on_turn)
 	bus.ui_notification.disconnect(on_note)

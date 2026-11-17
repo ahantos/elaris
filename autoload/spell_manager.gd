@@ -624,7 +624,7 @@ func _deal_damage(target: Node, amount: int, damage_type_string: String, caster:
 		if target.get("stats") == null:
 			return
 		var still_alive = target.stats.take_damage(amount)
-		EventBus.damage_dealt.emit(caster, target, amount, is_crit)
+		EventBus.damage_dealt.emit(caster, target, amount, is_crit, damage_type)
 		if not still_alive and target.has_method("die"):
 			target.die()
 	if is_instance_valid(target):
@@ -687,7 +687,7 @@ func break_concentration(caster: Node):
 	EventBus.concentration_broken.emit(caster, spell_id)
 
 
-func _on_damage_dealt(_attacker, target, amount, _is_critical):
+func _on_damage_dealt(_attacker, target, amount, _is_critical, _damage_type):
 	"""Concentration check on damage: CON save DC max(10, damage/2), fail = broken."""
 	if target == null or not (target is Node) or not is_instance_valid(target):
 		return

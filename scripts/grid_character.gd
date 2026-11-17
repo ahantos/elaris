@@ -780,9 +780,9 @@ func take_damage(amount: int):
 	super.take_damage(amount)
 	EventBus.player_hp_changed.emit(stats.current_hp, stats.max_hp)
 
-func _on_damage_dealt_event(attacker, target, amount, is_critical):
+func _on_damage_dealt_event(attacker, target, amount, is_critical, damage_type):
 	"""Keep the HP signal in sync when CombatManager applies damage to stats"""
-	super._on_damage_dealt_event(attacker, target, amount, is_critical)
+	super._on_damage_dealt_event(attacker, target, amount, is_critical, damage_type)
 	if target == self and stats:
 		EventBus.player_hp_changed.emit(stats.current_hp, stats.max_hp)
 

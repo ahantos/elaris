@@ -104,7 +104,7 @@ func _on_turn_ended(character: Node):
 	var char_name = _escape_bbcode(character.name) if character else "Unknown"
 	add_message("[color=gray]◀ %s ended turn[/color]" % char_name)
 
-func _on_damage_dealt(attacker: Node, target: Node, damage: int, is_crit: bool):
+func _on_damage_dealt(attacker: Node, target: Node, damage: int, is_crit: bool, _damage_type: int):
 	var attacker_name = _escape_bbcode(attacker.name) if attacker else "Unknown"
 	var target_name = _escape_bbcode(target.name) if target else "Unknown"
 

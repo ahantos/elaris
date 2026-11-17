@@ -461,7 +461,7 @@ func take_damage(amount: int):
 		# Route through CombatManager so death events stay consistent
 		CombatManager.handle_death(self)
 
-func _on_damage_dealt_event(_attacker, target, _amount, _is_critical):
+func _on_damage_dealt_event(_attacker, target, _amount, _is_critical, _damage_type):
 	"""Flash when CombatManager applies damage to this combatant"""
 	if target == self:
 		flash_damage()

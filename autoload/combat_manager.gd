@@ -337,8 +337,8 @@ func damage_type_from_string(type_name: String) -> int:
 
 func apply_damage(target: Node, amount: int, damage_type: int = DamageType.PHYSICAL, attacker: Node = null, is_critical: bool = false) -> bool:
 	"""Apply damage to target, returns true if still alive. damage_type (a
-	DamageType) travels with the damage; it changes nothing yet (resistances
-	come with the damage pipeline)."""
+	DamageType) travels with the damage and is announced with it; it changes
+	nothing yet (resistances come with the damage pipeline)."""
 	if not target:
 		push_error("CombatManager.apply_damage: No target provided!")
 		return false
@@ -351,7 +351,7 @@ func apply_damage(target: Node, amount: int, damage_type: int = DamageType.PHYSI
 	var still_alive = target.stats.take_damage(amount)
 
 	if attacker:
-		EventBus.damage_dealt.emit(attacker, target, amount, is_critical)
+		EventBus.damage_dealt.emit(attacker, target, amount, is_critical, damage_type)
 
 	if not still_alive:
 		handle_death(target)
