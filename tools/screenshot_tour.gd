@@ -143,8 +143,9 @@ func _add_art_sheet(world, art, manifest) -> Node2D:
 func _aim_ranged_shot(world, target):
 	"""The player's first turn of the fight: a few tiles from the enemy and in
 	its sight, the shield off so that the ranged weapon can be fired, Attack
-	picked, the pointer resting on the enemy. Nothing is fired, and the shield
-	goes back on."""
+	picked, the pointer resting on the enemy; then one shot, for the arrow on
+	its way. The enemy is made to survive the shot, the action is handed back
+	and the shield goes back on: the rest of the tour is the fight it was."""
 	var inventory = root.get_node("InventoryManager")
 	var grid_script = load("res://scripts/combat_grid.gd")
 	var player = world.player
@@ -176,6 +177,18 @@ func _aim_ranged_shot(world, target):
 	player.set_process(true)
 	player.attack_mode = false
 	player.queue_redraw()
+
+	var hp_before: int = target.stats.current_hp
+	target.stats.max_hp += 100
+	target.stats.current_hp += 100
+	world.combat.request_action(player, "attack", {"target": target})
+	await _shot("combat_ranged_shot")
+	await _wait(1.5)  # the arrow has landed and its number has gone
+	target.stats.max_hp -= 100
+	target.stats.current_hp = hp_before
+	target.queue_redraw()
+	player.action_used = false
+
 	if not shield.is_empty():
 		inventory.equip_item(shield, player.stats, "off_hand")
 	await _wait(0.2)
