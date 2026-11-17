@@ -754,6 +754,7 @@ func end_turn():
 
 	print("Turn ", turn_number, " ended. Moves used: ", max(0, movement_granted - movement_left))
 	attack_mode = false
+	queue_redraw()
 
 	# End-of-turn status bookkeeping (ticks, end saves, duration countdown)
 	StatusEffectManager.process_turn_end(self)
