@@ -4,6 +4,45 @@ All notable changes and session notes documented here.
 
 ---
 
+## [Session - November 17, 2026] - Phase 2, step 2: Turn Resources and the Action Bar
+
+### Added
+- An action bar replaces the light, medium and heavy attack buttons: Attack, Cast,
+  Use Item, Dash, Disengage, Dodge, End Turn. Keys 1 to 7 in that order; Space still
+  ends the turn. A button that cannot be used is disabled and says why.
+- A turn has resources: movement, one action, one bonus action, and one reaction
+  that returns at the start of the combatant's own turn. A strip above the bar shows
+  them for whoever holds the turn.
+- Dash adds the combatant's speed to its movement. Disengage stops its movement
+  provoking opportunity attacks for the turn. Dodge gives attackers disadvantage and
+  the dodger advantage on Dexterity saves until its next turn.
+
+### Changed
+- Attacks use the equipped weapon: its damage die and type, Strength (or the better
+  of Strength and Dexterity for a finesse weapon), and the proficiency bonus only
+  when the class is proficient. A versatile weapon uses its larger die with an empty
+  off hand. With no weapon the attack is an unarmed strike.
+- Every action is a request to the turn authority,
+  `CombatController.request_action(combatant, action_id, params)`, which checks it
+  and applies it. The player, enemies and companions all go through it.
+- A spell costs the action or bonus action its data says. Reaction spells are
+  refused for now.
+- Using a potion, scroll or wand in a fight costs the action and is refused when it
+  is not your turn. Outside a fight it stays free.
+- A two-handed weapon cannot be equipped with something in the off hand, or the
+  reverse. The quarterstaff is versatile, not two-handed.
+- Companions move at most their speed in a turn.
+- A blow lands with the lunge instead of a moment after it.
+
+### Fixed
+- An enemy that moves and then attacks runs its end-of-turn effects after the blow.
+- Clicks on the bottom bar no longer also click the map behind it.
+
+### Checks
+- 283 smoke checks, up from 193, and 29 screenshots.
+
+---
+
 ## [Session - November 17, 2026] - Phase 2, step 1: Combatant Base and Turn Authority
 
 Phase 2 (combat core) started on branch `phase-2-combat-core`. This is the first of
