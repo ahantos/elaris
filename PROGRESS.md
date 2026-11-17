@@ -11,12 +11,13 @@ called `CURRENT_WORK.md` until Phase 1. The plan it tracks is in section 7 of
 | Phase | Status |
 |---|---|
 | 0. Truthful baseline | Done. Committed on `phase-0-truthful-baseline` |
-| 1. Game shell and state | Done. Committed on `phase-1-game-shell`, which builds on Phase 0. Not yet played by Ákos |
-| 2. Combat core | Next. Waiting for Ákos's go. The durability design is settled |
+| 1. Game shell and state | Done. Committed on `phase-1-game-shell`, which builds on Phase 0. Ákos has played it a little; no complaints given yet |
+| 2. Combat core | In progress on `phase-2-combat-core`. Go given 2026-11-17. Steps below |
 
-- Both phase branches were pushed to origin on 2026-11-17. Nothing is merged into
-  `main`; `main` is still the June commit. The documentation commits made after
-  that push (the durability design) are local only.
+- Phases 0 and 1 were pushed to origin on 2026-11-17. Nothing is merged into
+  `main`; `main` is still the June commit. The durability design commits on
+  `phase-1-game-shell` after that push, and all of `phase-2-combat-core`, are
+  local only.
 - `tools\run_checks.bat` passes at the Phase 1 commit: 154 smoke checks, no engine
   errors, 27 screenshots.
 - Standing agreement since 2026-11-16: commit as work proceeds, on the phase branch.
@@ -34,13 +35,31 @@ called `CURRENT_WORK.md` until Phase 1. The plan it tracks is in section 7 of
    from his homebrew system and is written up in section 8 of the plan, small items
    included. Left for later, by his choice: material traits. Left for their phases:
    climate (Phase 3) and what worn gear does socially (Phase 4).
-3. **Go for Phase 2.** All of it can now be built, durability included. The numbers
-   are tuned in the simulator once it exists.
+3. **During Phase 2:** play each step's build when it lands, and give the win-rate
+   band the simulator should aim for at levels 1 to 3 (needed at step 10).
 3a. **Resting rules.** He wants them; a separate discussion, not started. His
    homebrew resting system has been read (see the table below).
 4. **Merge:** whether Phases 0 and 1 go into `main`. (Both branches are on origin.)
 5. `tilesets/TX Tileset Stone Ground.png` is unused and its licence is not recorded.
    Delete it?
+
+## Phase 2 steps
+
+Each step is committed with the checks passing and the game still playable. Scope and
+exit test are in section 7 of the plan; the durability rules are in section 8.
+
+| # | Step | Status |
+|---|---|---|
+| 1 | One combatant base with teams for the player, enemies and companions; one authority for whose turn it is; the combat loop out of `world.gd` | Started |
+| 2 | Turn resources (movement, action, bonus action, reaction) and the action bar: Attack with the equipped weapon, Dash, Disengage, Dodge, End Turn | |
+| 3 | Ranged attacks: range, line of sight, targeting, hit chance shown before committing | |
+| 4 | One damage pipeline with types, resistance, vulnerability and hooks; 5e armour class; armour and material data reworked so materials add no stats | |
+| 5 | Durability as designed: notches, marks, blows, hardness, debuffs, buffs, field kits and scrap, ageing, the segmented bar | |
+| 6 | Bestiary as data (goblin, skeleton, bandit, wolf, one boss); behaviours (rusher, archer, caster, pack); perception by line of sight; encounters by budget | |
+| 7 | Companions as party combatants that enemies target, driven by the same behaviours | |
+| 8 | Readability: movement range, valid targets, status icons, a working turn-order bar, faster enemy turns | |
+| 9 | `AStarGrid2D` pathfinding; an input map with rebindable actions | |
+| 10 | Headless combat simulator; tune the durability dials and encounter budgets against the run target | |
 
 ## Homebrew source document
 
