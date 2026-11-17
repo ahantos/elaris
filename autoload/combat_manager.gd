@@ -85,7 +85,7 @@ const REASON_UNTRAINED_ARMOR: String = "armour without proficiency"
 const REASON_TARGET_DODGING: String = "target dodging"
 const REASON_FLANKING: String = "flanking"
 const REASON_HALF_COVER: String = "half cover"
-const REASON_FULL_COVER: String = "full cover"
+const REASON_THREE_QUARTERS_COVER: String = "three-quarters cover"
 const REASON_INCAPACITATED: String = "incapacitated"
 
 # What a target's nature did to damage of a type (the damage event's response)
@@ -399,8 +399,9 @@ func get_attack_modifiers(attacker: Combatant, target: Combatant, profile: Dicti
 	  gives advantage; the attacker says who its flank partners are.
 	- Ranged: beyond the weapon's normal range, disadvantage; a hostile next to
 	  the attacker that is not incapacitated, disadvantage.
-	- Cover (CombatGrid.get_cover_ac_bonus) adds to the target's AC. Only an
-	  attack from beyond reach can meet any.
+	- Cover (CombatGrid.get_cover: the 5e corner rule) adds to the target's AC:
+	  half cover +2, three-quarters cover +5. Only an attack from beyond reach
+	  can meet any.
 	Returns {advantage, disadvantage, advantage_reasons, disadvantage_reasons,
 	reasons (both lists and the cover, as words to show: "long range", "enemy
 	adjacent", "half cover"), attack_bonus, target_ac, cover_bonus, flanking,
@@ -454,8 +455,8 @@ func get_attack_modifiers(attacker: Combatant, target: Combatant, profile: Dicti
 	var reasons: Array[String] = []
 	reasons.append_array(disadvantage_reasons)
 	reasons.append_array(advantage_reasons)
-	if cover_bonus >= CombatGrid.COVER_FULL:
-		reasons.append(REASON_FULL_COVER)
+	if cover_bonus >= CombatGrid.COVER_THREE_QUARTERS:
+		reasons.append(REASON_THREE_QUARTERS_COVER)
 	elif cover_bonus > 0:
 		reasons.append(REASON_HALF_COVER)
 

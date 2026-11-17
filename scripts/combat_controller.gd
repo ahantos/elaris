@@ -253,7 +253,7 @@ func _end_when_settled():
 	_settling = true
 	print("Combat: only one side is left standing")
 	var serial = _combat_serial
-	await get_tree().create_timer(SETTLE_DELAY, false).timeout
+	await _timer(SETTLE_DELAY).timeout
 	if active and serial == _combat_serial:
 		end_combat()
 
@@ -290,11 +290,11 @@ func _begin_turn():
 
 	combatant.take_turn()
 
-	# Timers are pause-bound, so the fight freezes while a menu is open. The
+	# The waits are pause-bound, so the fight freezes while a menu is open. The
 	# body may be freed mid-turn (dungeon regenerated, companion dismissed).
 	var polls = 0
 	while _turn_is_live(serial) and is_instance_valid(combatant) and combatant.is_moving and polls < MAX_MOVE_POLLS:
-		await get_tree().create_timer(MOVE_POLL, false).timeout
+		await _timer(MOVE_POLL).timeout
 		polls += 1
 	if not _turn_is_live(serial):
 		return
@@ -302,7 +302,7 @@ func _begin_turn():
 	var pause = HOSTILE_TURN_PAUSE
 	if is_instance_valid(combatant) and combatant.team == Combatant.Team.PARTY:
 		pause = PARTY_TURN_PAUSE
-	await get_tree().create_timer(pause, false).timeout
+	await _timer(pause).timeout
 	if not _turn_is_live(serial):
 		return
 
@@ -586,8 +586,10 @@ func _check_attack_with(combatant, target, profile: Dictionary) -> Dictionary:
 		return _approve()
 	if distance > int(profile.range_max):
 		return _refuse("Out of range - %s reaches %d tiles" % [str(profile.weapon_name), int(profile.range_max)])
+	# Out of sight: a wall on the straight line between the two, or every line
+	# from the attacker's tile to the corners of the target's blocked
 	var grid: Array = _dungeon_grid()
-	if not grid.is_empty() and not CombatGrid.has_line_of_sight(from, to, grid):
+	if not grid.is_empty() and (not CombatGrid.has_line_of_sight(from, to, grid) or not CombatGrid.get_cover(from, to, grid).line_of_sight):
 		return _refuse("No line of sight")
 	return _approve()
 
@@ -927,6 +929,21 @@ func _dungeon_grid() -> Array:
 # ============================================================================
 # HELPERS
 # ============================================================================
+
+func _timer(seconds: float) -> Timer:
+	"""A one-shot timer to await (`await _timer(1.0).timeout`): game time, which
+	stands still while the game is paused. It is a child node on purpose: it
+	goes when the controller goes, and the wait with it. A wait on
+	get_tree().create_timer(), or on a coroutine of the controller's own, is
+	never released when the controller is freed in the middle of it - the
+	engine reports the timer or the suspended function as leaked at exit."""
+	var timer := Timer.new()
+	timer.one_shot = true
+	timer.wait_time = maxf(seconds, 0.001)
+	timer.autostart = true
+	timer.timeout.connect(timer.queue_free)
+	add_child(timer)
+	return timer
 
 func _turn_is_live(serial: int) -> bool:
 	"""False once the fight has ended or another turn has begun"""

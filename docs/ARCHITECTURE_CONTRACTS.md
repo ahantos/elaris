@@ -16,7 +16,8 @@ and "the boot has no script errors" is no longer what done means.
    not a feature.
 2. **Checks.** `tools\run_checks.bat` before every commit: headless smoke test plus a
    windowed screenshot tour. A headless boot proves only that scripts parse. Do not use
-   per-script `--check-only`; it false-positives on autoload names.
+   per-script `--check-only`; it false-positives on autoload names. The run fails on
+   any engine error line and on objects left behind when the smoke test exits.
 3. **Style.** GDScript 4.5, tab indentation, snake_case, `"""docstrings"""`, `print()`
    logging with a system prefix, `push_error()` for programmer errors. No `class_name`
    on autoload scripts. Prefix intentionally unused parameters with `_`.
@@ -63,7 +64,12 @@ and "the boot has no script errors" is no longer what done means.
   type `info`, `success`, `warning` or `error`. `ui/notification_toasts.gd` draws them.
 - **Party-only rules** check `InventoryManager.is_party_member(stats)`. Encumbrance
   applies to the party, not to every creature that rolls a die.
-- **Pause-bound timers** in the combat path: `create_timer(t, false)`. After every
+- **Waits in the combat path** stand still while the game is paused and go when
+  their node goes: `await _timer(t).timeout` in the CombatController, a one-shot
+  child `Timer`. Do not await `get_tree().create_timer()` there, nor a coroutine of
+  the node's own: when the node is freed in the middle of such a wait (a load, the
+  way back to the menu), the timer or the suspended function is never released and
+  the engine reports it as leaked at exit, which fails the checks. After every
   await, check `is_instance_valid` and that combat is still running.
 
 ## 1a. Game flow and saves
@@ -441,9 +447,11 @@ crisis `{crisis_id, display_name, phases: [{phase: int, name, description}]}`.
   - **An attack is one weapon attack on a hostile, made with the weapon set in
     hand and nothing else.** A melee weapon, or an unarmed strike, reaches an
     adjacent target. A ranged weapon shoots a target within its maximum range and in
-    line of sight (`CombatGrid.has_line_of_sight`), an adjacent one included, at
-    disadvantage. Refused, with the reason: a target beyond reach; beyond the
-    maximum range; out of sight; a two-handed weapon beside a full off hand. When
+    line of sight, an adjacent one included, at disadvantage. In sight means: no
+    wall on the straight line between the two tiles (`CombatGrid.has_line_of_sight`)
+    and not every corner of the target's tile hidden (`CombatGrid.get_cover`).
+    Refused, with the reason: a target beyond reach; beyond the maximum range; out
+    of sight; a two-handed weapon beside a full off hand. When
     the other weapon set could make the attack the refusal says so ("Out of reach -
     swap to the Oak Light Crossbow"; for the action bar's question with no target,
     "No enemy in reach - swap to the Oak Light Crossbow"). Attack never reaches for
@@ -521,9 +529,16 @@ crisis `{crisis_id, display_name, phases: [{phase: int, name, description}]}`.
     target (disadvantage); a heavily laden party member (disadvantage); for a melee
     attack, flanking (advantage); for a ranged attack, a target beyond the weapon's
     normal range (disadvantage, "long range") and a hostile next to the attacker
-    that is not incapacitated (disadvantage, "enemy adjacent"); cover from
-    `CombatGrid.get_cover_ac_bonus` on the target's AC ("half cover"), which only an
-    attack from beyond reach can meet. Advantage and disadvantage together cancel.
+    that is not incapacitated (disadvantage, "enemy adjacent"); cover on the
+    target's AC, which only an attack from beyond reach can meet. Cover is the 5e
+    rule for a grid (`CombatGrid.get_cover`): from the corner of the attacker's
+    tile with the best view, lines go to the four corners of the target's tile;
+    one or two of them blocked is half cover (+2, "half cover"), three is
+    three-quarters cover (+5), four is no line of sight. Only walls block (there
+    is no closed door yet; `CombatGrid._blocks_sight` is where one would). A line
+    along a wall's face or touching its corner is not blocked, so a clear shot
+    down a corridor has no cover; a gap of no width between two wall corners
+    that touch is blocked. Advantage and disadvantage together cancel.
     `reasons` are words to show the player; the `REASON_*` constants name them.
   - `get_hit_chance(attacker, target, profile)` turns those modifiers into the
     chance to hit, exactly and without rolling: `{chance (0 to 1), percent, needed

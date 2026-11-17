@@ -17,8 +17,9 @@ extends SceneTree
 #     bonuses, and nothing from any other slot,
 #   - a character has two weapon sets and attacks with the one in hand;
 #     swapping them, equipping and unequipping are requests,
-#   - a ranged attack follows range, line of sight and cover, and the chance
-#     to hit that is shown is the exact one,
+#   - a ranged attack follows range, line of sight and cover (the 5e corner
+#     rule: none down an open corridor, half past a corner), and the chance to
+#     hit that is shown is the exact one,
 #   - a turn has movement, an action, a bonus action and a reaction, and every
 #     action is a request the combat controller approves,
 #   - the combat controller alone decides whose turn it is,
@@ -184,6 +185,7 @@ func _run():
 	_check_loot_safety(world)
 	_check_scroll_use(world)
 	_check_class_data()
+	_check_cover()
 	_check_content()
 	await _check_fight(world)
 	await _check_actions(world)
@@ -1752,6 +1754,104 @@ func _check_damage(world):
 		"test teardown: the staged enemies are gone, no fight started and the fighter is as it was")
 
 # ---------------------------------------------------------------------------
+#  Cover: the 5e rule for a grid, on maps drawn for the purpose
+# ---------------------------------------------------------------------------
+
+func _text_grid(rows: Array) -> Array:
+	"""A dungeon grid from rows of text: '#' a wall, '.' floor, 'D' a door,
+	'o' a decoration, anything else nothing at all"""
+	var grid: Array = []
+	for line in rows:
+		var row: Array = []
+		for symbol in str(line):
+			row.append({"#": 1, ".": 0, "D": 2, "o": 3}.get(symbol, -1))
+		grid.append(row)
+	return grid
+
+func _cover_text(grid_script, grid: Array, from: Vector2i, to: Vector2i) -> String:
+	"""'2 lines, +2' or '4 lines, +5, out of sight': what get_cover answers"""
+	var cover: Dictionary = grid_script.get_cover(from, to, grid)
+	return "%d lines, +%d%s" % [int(cover.lines_blocked), int(cover.ac_bonus), "" if cover.line_of_sight else ", out of sight"]
+
+func _check_cover():
+	var grid_script = load("res://scripts/combat_grid.gd")
+	var narrow: Array = _text_grid([
+		"###########",
+		"#.........#",
+		"###########"])
+	var wide: Array = _text_grid([
+		"############",
+		"#..........#",
+		"#..........#",
+		"#..........#",
+		"############"])
+	var open: Array = []
+	for shot in [[narrow, Vector2i(1, 1), Vector2i(9, 1)], [narrow, Vector2i(9, 1), Vector2i(3, 1)], [wide, Vector2i(1, 1), Vector2i(10, 3)],
+			[wide, Vector2i(1, 3), Vector2i(10, 3)], [wide, Vector2i(2, 1), Vector2i(9, 2)], [wide, Vector2i(10, 2), Vector2i(1, 1)]]:
+		open.append(_cover_text(grid_script, shot[0], shot[1], shot[2]))
+	check(open == ["0 lines, +0", "0 lines, +0", "0 lines, +0", "0 lines, +0", "0 lines, +0", "0 lines, +0"]
+		and grid_script.get_cover_ac_bonus(Vector2i(1, 1), Vector2i(9, 1), narrow) == grid_script.COVER_NONE,
+		"an unobstructed shot down a corridor has no cover, however near the walls are", str(open))
+
+	var corner: Array = _text_grid([
+		"#######",
+		"#.....#",
+		"#...#.#",
+		"#.....#",
+		"#######"])
+	var beside: Array = _text_grid([
+		"#######",
+		"#.....#",
+		"#....##",
+		"#.....#",
+		"#######"])
+	var pillar: Array = _text_grid([
+		"#######",
+		"#.....#",
+		"#.....#",
+		"#..#..#",
+		"#.....#",
+		"#######"])
+	var past_corner: Array = [_cover_text(grid_script, corner, Vector2i(1, 1), Vector2i(5, 3)),
+		_cover_text(grid_script, beside, Vector2i(1, 1), Vector2i(5, 3)), _cover_text(grid_script, pillar, Vector2i(1, 3), Vector2i(5, 3))]
+	check(past_corner == ["2 lines, +2", "1 lines, +2", "2 lines, +2"] and grid_script.has_line_of_sight(Vector2i(1, 1), Vector2i(5, 3), corner)
+		and grid_script.get_cover_ac_bonus(Vector2i(1, 1), Vector2i(5, 3), corner) == grid_script.COVER_HALF,
+		"a shot past a corner meets half cover: one or two of the four lines to the target's corners are blocked", str(past_corner))
+
+	var slit: Array = _text_grid([
+		"#######",
+		"#.....#",
+		"#..#..#",
+		"#.....#",
+		"#######"])
+	var three_quarters: String = _cover_text(grid_script, slit, Vector2i(1, 1), Vector2i(5, 3))
+	check(three_quarters == "3 lines, +5" and grid_script.get_cover_ac_bonus(Vector2i(1, 1), Vector2i(5, 3), slit) == grid_script.COVER_THREE_QUARTERS,
+		"three lines blocked is three-quarters cover", three_quarters)
+
+	var walled: Array = _text_grid([
+		"###########",
+		"#....#....#",
+		"###########"])
+	var pinched: Array = _text_grid([
+		"#####",
+		"#.#.#",
+		"##..#",
+		"#...#",
+		"#####"])
+	var blocked: Array = [_cover_text(grid_script, walled, Vector2i(1, 1), Vector2i(9, 1)), _cover_text(grid_script, pinched, Vector2i(1, 1), Vector2i(3, 3))]
+	check(blocked == ["4 lines, +5, out of sight", "4 lines, +5, out of sight"] and not grid_script.has_line_of_sight(Vector2i(1, 1), Vector2i(9, 1), walled),
+		"a blocked shot has no line of sight: a wall across the corridor, or a gap of no width between two wall corners", str(blocked))
+
+	var furnished: Array = _text_grid([
+		"###########",
+		"#..D.o....#",
+		"###########"])
+	var harmless: Array = [_cover_text(grid_script, furnished, Vector2i(1, 1), Vector2i(9, 1)), _cover_text(grid_script, walled, Vector2i(3, 1), Vector2i(4, 1)),
+		_cover_text(grid_script, pinched, Vector2i(1, 1), Vector2i(2, 2)), _cover_text(grid_script, [], Vector2i(0, 0), Vector2i(9, 9))]
+	check(harmless == ["0 lines, +0", "0 lines, +0", "0 lines, +0", "0 lines, +0"],
+		"only walls block: a door or a decoration on the line gives no cover, and neither does anything to an adjacent target", str(harmless))
+
+# ---------------------------------------------------------------------------
 #  Weapon sets: two, one in hand; every change of gear is a request
 # ---------------------------------------------------------------------------
 
@@ -2835,13 +2935,48 @@ func _check_ranged(world):
 		and not seen_through_wall and controller.check_action(player, "attack", {"target": far}).ok,
 		"a wall between the shooter and the target blocks the shot: the attack is refused", str(walled.get("reason", "")))
 
+	# --- a gap of no width: nothing is shot between two wall corners that touch ---
+	# The goblin stands two tiles off diagonally; the two tiles beside the
+	# shooter's corner on that side become walls, in the rules' grid only
+	var gap_tiles: Array = [here + step, here + side]
+	var beyond_gap: Vector2i = here + step * 2 + side * 2
+	var in_bounds: bool = beyond_gap.y >= 0 and beyond_gap.y < grid.size() and beyond_gap.x >= 0 and beyond_gap.x < grid[0].size()
+	var through_gap: Dictionary = {}
+	var straight_line_clear := false
+	var marked_through_gap := true
+	if in_bounds:
+		var beyond_was: int = grid[beyond_gap.y][beyond_gap.x]
+		grid[beyond_gap.y][beyond_gap.x] = world.current_dungeon.TileType.FLOOR
+		var stands: bool = far.teleport_to_grid(beyond_gap)
+		for tile in gap_tiles:
+			grid[tile.y][tile.x] = wall
+		player.action_used = false
+		if stands:
+			through_gap = controller.request_action(player, "attack", {"target": far})
+			marked_through_gap = controller.get_attack_targets(player).has(far)
+			straight_line_clear = load("res://scripts/combat_grid.gd").has_line_of_sight(here, beyond_gap, grid)
+		for tile in gap_tiles:
+			grid[tile.y][tile.x] = world.current_dungeon.TileType.FLOOR
+		far.teleport_to_grid(here + step * 4)
+		grid[beyond_gap.y][beyond_gap.x] = beyond_was
+	check(straight_line_clear and not through_gap.get("ok", true) and through_gap.get("reason", "") == "No line of sight" and not marked_through_gap
+		and not player.action_used and far.grid_position == here + step * 4,
+		"a shot through a gap of no width between two wall corners is refused, though the straight line between the two tiles is clear",
+		str(through_gap.get("reason", "not staged")))
+
 	# --- the chance to hit, before anything is rolled ---
 	# The crossbow again: +3 to hit against armour class 13 needs a 10 on the die
 	inv.equip_item(crossbow, stats, "main_hand_2")
 	inv.remove_item(test_bow.instance_id)
 	_toughen(stats)
-	var cover_tile: Vector2i = far.grid_position + side
-	var cover_was: int = grid[cover_tile.y][cover_tile.x]
+	# For cover the goblin steps one tile aside, and two walls go up in the
+	# rules' grid: one beside the shooter's line, one whose corner the shot
+	# has to pass. A wall next to the goblin, off the line, gives it none.
+	var in_line: Vector2i = far.grid_position
+	var aside: Vector2i = in_line + side
+	var corner_tiles: Array = [here + step + side, here + step * 3]
+	var corner_was: Array = [grid[corner_tiles[0].y][corner_tiles[0].x], grid[corner_tiles[1].y][corner_tiles[1].x]]
+	var aside_was: int = grid[aside.y][aside.x]
 	seed(20261117)
 	var next_roll: int = randi()
 	seed(20261117)
@@ -2853,7 +2988,12 @@ func _check_ranged(world):
 	effects.clear_effects(far)
 	var with_disadvantage: Dictionary = combat_mgr.get_hit_chance(player, far)
 	effects.clear_effects(player)
-	grid[cover_tile.y][cover_tile.x] = wall
+	grid[aside.y][aside.x] = wall
+	var beside_wall: Dictionary = combat_mgr.get_hit_chance(player, far)
+	grid[aside.y][aside.x] = aside_was
+	far.teleport_to_grid(aside)
+	for tile in corner_tiles:
+		grid[tile.y][tile.x] = wall
 	var behind_cover: Dictionary = combat_mgr.get_hit_chance(player, far)
 	var previewed: Dictionary = controller.preview_attack(player, far)
 	controller.get_attack_targets(player)
@@ -2879,7 +3019,10 @@ func _check_ranged(world):
 		"advantage and disadvantage together are a plain roll", "%f" % with_both.chance)
 	check(_close_to(behind_cover.chance, 0.45) and behind_cover.cover_bonus == 2 and behind_cover.target_ac == 15 and behind_cover.needed == 12
 		and ", ".join(behind_cover.reasons) == "half cover" and previewed.ok and previewed.hit_chance.percent == 45,
-		"cover lowers the chance by its bonus to the target's armour class, and is named", "%f %s" % [behind_cover.chance, str(behind_cover.reasons)])
+		"past a corner the target has half cover: the chance drops by its bonus to the armour class, and the cover is named",
+		"%f %s" % [behind_cover.chance, str(behind_cover.reasons)])
+	check(_close_to(beside_wall.chance, 0.55) and beside_wall.cover_bonus == 0 and beside_wall.reasons.is_empty(),
+		"a wall next to the target, off the line of the shot, gives no cover", "%f %s" % [beside_wall.chance, str(beside_wall.reasons)])
 	check(_close_to(hopeless.chance, 0.05) and _close_to(certain.chance, 0.95),
 		"a natural 20 always hits and a natural 1 always misses: the chance never leaves 5% to 95%", "%f, %f" % [hopeless.chance, certain.chance])
 	check(rolled_nothing, "working out the chance to hit rolls no dice")
@@ -2887,9 +3030,11 @@ func _check_ranged(world):
 	# --- cover, in the roll itself ---
 	player.action_used = false
 	var covered_shot: Dictionary = controller.request_action(player, "attack", {"target": far})
-	grid[cover_tile.y][cover_tile.x] = cover_was
+	for i in range(corner_tiles.size()):
+		grid[corner_tiles[i].y][corner_tiles[i].x] = corner_was[i]
 	player.action_used = false
 	var open_shot: Dictionary = controller.request_action(player, "attack", {"target": far})
+	far.teleport_to_grid(in_line)
 	check(covered_shot.ok and covered_shot.cover_bonus == 2 and covered_shot.target_ac == 15 and "half cover" in covered_shot.reasons
 		and open_shot.ok and open_shot.cover_bonus == 0 and open_shot.target_ac == 13,
 		"cover raises the target's armour class for a ranged attack", "AC %s behind cover, %s in the open"
@@ -2936,7 +3081,8 @@ func _check_ranged(world):
 		"outside a fight swapping weapon sets costs nothing", str(free_swap))
 	check(inv.get_equipped_item(stats, "main_hand") == sword and inv.get_equipped_item(stats, "off_hand") == shield
 		and inv.get_equipped_item(stats, "main_hand_2") == crossbow and inv.get_equipped_item(stats, "off_hand_2").is_empty()
-		and grid[wall_tile.y][wall_tile.x] == wall_was and grid[cover_tile.y][cover_tile.x] == cover_was,
+		and grid[wall_tile.y][wall_tile.x] == wall_was and grid[aside.y][aside.x] == aside_was
+		and grid[corner_tiles[0].y][corner_tiles[0].x] == corner_was[0] and grid[corner_tiles[1].y][corner_tiles[1].x] == corner_was[1],
 		"test teardown: the staged fight is over, the starting kit is in its two sets and the floor is floor again")
 
 	controller.action_taken.disconnect(on_action)

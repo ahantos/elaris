@@ -26,7 +26,8 @@ a system as working because its manager runs; check that a player can reach it.
 - **`tools\run_checks.bat`** - run before every commit. Import, headless smoke test,
   then a windowed screenshot tour written to `tools/out/screenshots/`. `--no-shots`
   skips the window. Look at the pictures after any change to UI or the map. The checks
-  keep their saves in scratch folders and fail on any engine error line.
+  keep their saves in scratch folders and fail on any engine error line and on
+  objects leaked at exit.
 - Running `scenes/world.tscn` on its own (F6 in the editor) still works: it starts a
   default fighter and skips the menu.
 - After adding art or a `class_name` script, the engine needs an import
@@ -72,8 +73,8 @@ a system as working because its manager runs; check that a player can reach it.
   See contracts section 4.
 - `autoload/combat_manager.gd` - every die: `get_attack_profile()` (the attack with
   the weapon set in hand by 5e rules: ability, proficiency, versatile, unarmed, the
-  piece's own bonus), `get_attack_modifiers()` (advantage, disadvantage and cover,
-  with the reasons), `get_hit_chance()` (the exact chance, nothing rolled),
+  piece's own bonus), `get_attack_modifiers()` (advantage, disadvantage and cover
+  by the 5e corner rule, with the reasons), `get_hit_chance()` (the exact chance, nothing rolled),
   `make_attack()` (the one weapon attack, for everyone), `make_spell_attack()`,
   saving throws, opportunity attacks. And the one damage pipeline, `deal_damage()`:
   immunity, resistance, vulnerability, and four hooks on `EventBus` that other
@@ -126,8 +127,10 @@ a system as working because its manager runs; check that a player can reach it.
   material (`iron_longsword`) still loads from a save, but the content validator
   fails on it, and on any item made of a material that cannot be obtained yet.
 - Save payloads are primitives only; items rebuild from ids.
-- Combat timers are pause-bound: `create_timer(t, false)`. Check `is_instance_valid`
-  after every await.
+- Waits in a fight are pause-bound and go with their node: `await _timer(t).timeout`
+  in the CombatController (a child Timer), never `get_tree().create_timer()` and
+  never a coroutine of the node's own. Freed mid-wait, those leak, and the checks
+  fail on a leak at exit. Check `is_instance_valid` after every await.
 - Nothing is done with a turn except through `CombatController.request_action()`.
   Input, UI and AI code ask; they do not roll dice (CombatManager does), spend an
   action or move a combatant themselves. Gear is the same: swapping weapon sets,

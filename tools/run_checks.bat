@@ -40,6 +40,14 @@ if not errorlevel 1 (
 	set RESULT=1
 )
 
+rem A node freed in the middle of a wait must leave nothing behind
+rem (CombatController._timer says how a wait is made to go with its node).
+findstr /C:"ObjectDB instances leaked at exit" "%OUT%\smoke.log" >nul
+if not errorlevel 1 (
+	echo [checks] FAIL: the smoke test left objects behind at exit. Run it with --verbose to see which.
+	set RESULT=1
+)
+
 if "%~1"=="--no-shots" goto finish
 
 echo [checks] screenshot tour, opens a window for about a minute...

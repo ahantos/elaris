@@ -90,7 +90,7 @@ func _fill(preview: Dictionary, target: Combatant):
 	_show_reasons(_advantage, "Advantage", hit.get("advantage_reasons", []), cancelled, can_attack)
 	_show_reasons(_disadvantage, "Disadvantage", hit.get("disadvantage_reasons", []), cancelled, can_attack)
 	var cover_bonus: int = int(hit.get("cover_bonus", 0))
-	_cover.text = "%s cover: +%d armour class" % ["Full" if cover_bonus >= CombatGrid.COVER_FULL else "Half", cover_bonus]
+	_cover.text = "%s cover: +%d armour class" % ["Three-quarters" if cover_bonus >= CombatGrid.COVER_THREE_QUARTERS else "Half", cover_bonus]
 	_cover.visible = can_attack and cover_bonus > 0
 
 	_refusal.text = "Cannot attack: %s" % str(preview.get("reason", ""))

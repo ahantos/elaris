@@ -1,18 +1,22 @@
 # combat_grid.gd
-# Static grid-combat helpers: line of sight, cover, flanking, distance, movement cost.
+# Static grid-combat helpers: line of sight, cover (the 5e corner rule), flanking,
+# distance, movement cost.
 # All functions are static and side-effect free. `dungeon_grid` is the DungeonGenerator's
 # [y][x] Array of TileType ints (EMPTY=-1, FLOOR=0, WALL=1, DOOR=2, DECORATION=3).
 # Owned by A3 (Combat Expansion) - see docs/ARCHITECTURE_CONTRACTS.md section 4.
 class_name CombatGrid
 extends RefCounted
 
-# Cover AC bonuses
+# Cover, as what it adds to the target's armour class (5e): half cover +2,
+# three-quarters cover +5
 const COVER_NONE: int = 0
 const COVER_HALF: int = 2
-const COVER_FULL: int = 5
+const COVER_THREE_QUARTERS: int = 5
 
-# How close to the target (in tiles) a wall-hugging line cell must be to count as half cover
-const COVER_NEAR_TARGET_RANGE: int = 2
+# The corners of a tile, as offsets from the tile's own coordinates: a tile at
+# (x, y) covers the square from (x, y) to (x + 1, y + 1)
+const _TILE_CORNERS: Array[Vector2i] = [Vector2i(0, 0), Vector2i(1, 0), Vector2i(0, 1), Vector2i(1, 1)]
+const _EPSILON: float = 0.000001
 
 
 static func get_distance_tiles(a: Vector2i, b: Vector2i) -> int:
@@ -71,55 +75,108 @@ static func has_line_of_sight(from: Vector2i, to: Vector2i, dungeon_grid: Array)
 	return true
 
 
+static func get_cover(from: Vector2i, to: Vector2i, dungeon_grid: Array) -> Dictionary:
+	"""The cover a target at `to` has from an attacker at `from`, by the 5e
+	rule for a grid: from the corner of the attacker's tile that gives the best
+	view, lines are drawn to the four corners of the target's tile. None of them
+	blocked: no cover. One or two: half cover (+2 armour class). Three:
+	three-quarters cover (+5). All four: no line of sight at all.
+	Only walls block (and the void beyond the map). Doors are open floor: there
+	is no closed door in the game yet; when there is, _blocks_sight is where it
+	blocks. An unobstructed shot down a corridor has no cover, however near the
+	walls are: a line that runs along a wall's face, or touches a corner, is not
+	blocked.
+	Returns {lines_blocked (0 to 4), ac_bonus (COVER_NONE, COVER_HALF or
+	COVER_THREE_QUARTERS; the last also when nothing can be seen), line_of_sight}.
+	An empty grid (no dungeon to look at) and an adjacent target give no cover."""
+	var cover: Dictionary = {"lines_blocked": 0, "ac_bonus": COVER_NONE, "line_of_sight": true}
+	if dungeon_grid.is_empty() or get_distance_tiles(from, to) <= 1:
+		return cover
+
+	var fewest: int = _TILE_CORNERS.size()
+	for corner in _TILE_CORNERS:
+		var blocked: int = 0
+		for target_corner in _TILE_CORNERS:
+			if _corner_line_blocked(from + corner, to + target_corner, from, to, dungeon_grid):
+				blocked += 1
+		fewest = mini(fewest, blocked)
+		if fewest == 0:
+			break
+
+	cover["lines_blocked"] = fewest
+	cover["line_of_sight"] = fewest < _TILE_CORNERS.size()
+	if fewest >= 3:
+		cover["ac_bonus"] = COVER_THREE_QUARTERS
+	elif fewest >= 1:
+		cover["ac_bonus"] = COVER_HALF
+	return cover
+
+
 static func get_cover_ac_bonus(from: Vector2i, to: Vector2i, dungeon_grid: Array) -> int:
-	"""Cover AC bonus for an attack from `from` against a target at `to`.
-	Returns COVER_NONE (0), COVER_HALF (+2) or COVER_FULL (+5).
+	"""What cover adds to the armour class of a target at `to` against an attack
+	from `from`: COVER_NONE (0), COVER_HALF (+2) or COVER_THREE_QUARTERS (+5).
+	See get_cover."""
+	return int(get_cover(from, to, dungeon_grid).ac_bonus)
 
-	Approximation used:
-	- An empty grid yields 0 (graceful skip when no dungeon is available).
-	- Adjacent attacks (Chebyshev distance <= 1) never have cover (point blank / melee).
-	- No line of sight at all = full cover (+5). Such attacks normally should not be
-	  rolled at all; this is the defensive edge case.
-	- Half cover (+2) when the target is effectively hugging a wall relative to the shot:
-	  (a) a WALL tile sits cardinally adjacent to the target, perpendicular to the main
-	      attack axis (mostly-horizontal shots check above/below the target and vice
-	      versa), or
-	  (b) the sight line grazes a wall near the target: any line cell within
-	      COVER_NEAR_TARGET_RANGE tiles of the target (endpoints excluded) that has a
-	      cardinally adjacent WALL.
-	  Note: this intentionally means shots down narrow corridors usually grant +2 -
-	  defenders are treated as leaning into the corridor walls."""
-	if dungeon_grid.is_empty():
-		return COVER_NONE
-	if get_distance_tiles(from, to) <= 1:
-		return COVER_NONE
-	if not has_line_of_sight(from, to, dungeon_grid):
-		return COVER_FULL
 
-	var delta = to - from
+static func _corner_line_blocked(a: Vector2i, b: Vector2i, from_tile: Vector2i, to_tile: Vector2i, dungeon_grid: Array) -> bool:
+	"""Is the straight line from grid point a (a corner of the attacker's tile)
+	to grid point b (a corner of the target's tile) blocked? It is when
+	- it passes through the inside of a blocking tile, or
+	- it runs along a grid line that has a blocking tile on either side, or
+	- it passes through a grid point between two blocking tiles that touch
+	  there only by their corners (a gap of no width).
+	Running along the face of one wall, or touching its corner, does not block."""
+	var dx: int = b.x - a.x
+	var dy: int = b.y - a.y
+	var x_low: int = mini(a.x, b.x)
+	var x_high: int = maxi(a.x, b.x)
+	var y_low: int = mini(a.y, b.y)
+	var y_high: int = maxi(a.y, b.y)
 
-	# (a) wall flanking the target perpendicular to the attack axis
-	var perpendiculars: Array = []
-	if abs(delta.x) >= abs(delta.y):
-		perpendiculars = [Vector2i(0, 1), Vector2i(0, -1)]
-	else:
-		perpendiculars = [Vector2i(1, 0), Vector2i(-1, 0)]
-	for offset in perpendiculars:
-		if _tile_at(dungeon_grid, to + offset) == DungeonGenerator.TileType.WALL:
-			return COVER_HALF
+	# Along a grid line: blocked where the tiles on both sides of it block
+	if dy == 0:
+		for x in range(x_low, x_high):
+			if _blocks_sight(_tile_at(dungeon_grid, Vector2i(x, a.y - 1))) and _blocks_sight(_tile_at(dungeon_grid, Vector2i(x, a.y))):
+				return true
+		return false
+	if dx == 0:
+		for y in range(y_low, y_high):
+			if _blocks_sight(_tile_at(dungeon_grid, Vector2i(a.x - 1, y))) and _blocks_sight(_tile_at(dungeon_grid, Vector2i(a.x, y))):
+				return true
+		return false
 
-	# (b) the sight line passes adjacent to a wall close to the target
-	var cardinals = [Vector2i(1, 0), Vector2i(-1, 0), Vector2i(0, 1), Vector2i(0, -1)]
-	var cells = get_line_cells(from, to)
-	for i in range(1, cells.size() - 1):
-		var cell: Vector2i = cells[i]
-		if get_distance_tiles(cell, to) > COVER_NEAR_TARGET_RANGE:
+	# Column by column: the tiles whose inside the line passes through
+	for column in range(x_low, x_high):
+		var y_enter: float = a.y + float(dy) * float(column - a.x) / float(dx)
+		var y_leave: float = a.y + float(dy) * float(column + 1 - a.x) / float(dx)
+		var low: float = minf(y_enter, y_leave)
+		var high: float = maxf(y_enter, y_leave)
+		for row in range(int(floor(low + _EPSILON)), int(ceil(high - _EPSILON))):
+			if _blocks_sight(_tile_at(dungeon_grid, Vector2i(column, row))):
+				return true
+
+	# Grid points the line passes exactly through: it goes from one tile to the
+	# tile diagonally across. With the other two tiles at that point both
+	# blocking, there is no gap to see through. At its own two ends the line
+	# only counts as passing through when it leaves the attacker's tile, or
+	# enters the target's, across the corner.
+	var step_x: int = 1 if dx > 0 else -1
+	var step_y: int = 1 if dy > 0 else -1
+	for x in range(x_low, x_high + 1):
+		var y: float = a.y + float(dy) * float(x - a.x) / float(dx)
+		if absf(y - roundf(y)) > _EPSILON:
 			continue
-		for offset in cardinals:
-			if _tile_at(dungeon_grid, cell + offset) == DungeonGenerator.TileType.WALL:
-				return COVER_HALF
-
-	return COVER_NONE
+		var point := Vector2i(x, int(roundf(y)))
+		var after := Vector2i(point.x + (0 if step_x > 0 else -1), point.y + (0 if step_y > 0 else -1))
+		var before := Vector2i(point.x + (-1 if step_x > 0 else 0), point.y + (-1 if step_y > 0 else 0))
+		if point == a and before != from_tile:
+			continue
+		if point == b and after != to_tile:
+			continue
+		if _blocks_sight(_tile_at(dungeon_grid, Vector2i(after.x, before.y))) and _blocks_sight(_tile_at(dungeon_grid, Vector2i(before.x, after.y))):
+			return true
+	return false
 
 
 static func is_flanking(attacker_pos: Vector2i, target_pos: Vector2i, ally_positions: Array) -> bool:
