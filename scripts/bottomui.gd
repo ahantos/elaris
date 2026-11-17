@@ -427,8 +427,9 @@ func update_button_states():
 		if end_turn_btn: end_turn_btn.disabled = true
 		return
 	
-	var can_attack = not player.has_attacked_this_turn and not player.is_moving
-	var can_end_turn = not player.is_moving
+	# In combat the buttons only work on the player's own turn
+	var can_attack = player.can_act() and not player.has_attacked_this_turn and not player.is_moving
+	var can_end_turn = player.can_act() and not player.is_moving
 	
 	if light_btn:
 		light_btn.disabled = not can_attack
@@ -456,7 +457,7 @@ func update_button_states():
 
 # Button callbacks
 func _on_light_attack_pressed():
-	if player and player.turn_based_mode and not player.has_attacked_this_turn:
+	if player and player.turn_based_mode and player.can_act() and not player.has_attacked_this_turn:
 		if player.attack_mode and player.selected_attack_type == "light":
 			player.attack_mode = false
 			player.selected_attack_type = ""
@@ -468,7 +469,7 @@ func _on_light_attack_pressed():
 		player.queue_redraw()
 
 func _on_medium_attack_pressed():
-	if player and player.turn_based_mode and not player.has_attacked_this_turn:
+	if player and player.turn_based_mode and player.can_act() and not player.has_attacked_this_turn:
 		if player.attack_mode and player.selected_attack_type == "medium":
 			player.attack_mode = false
 			player.selected_attack_type = ""
@@ -480,7 +481,7 @@ func _on_medium_attack_pressed():
 		player.queue_redraw()
 
 func _on_heavy_attack_pressed():
-	if player and player.turn_based_mode and not player.has_attacked_this_turn:
+	if player and player.turn_based_mode and player.can_act() and not player.has_attacked_this_turn:
 		if player.attack_mode and player.selected_attack_type == "heavy":
 			player.attack_mode = false
 			player.selected_attack_type = ""

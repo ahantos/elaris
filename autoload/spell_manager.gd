@@ -376,8 +376,8 @@ func _finish_cast(caster: Node, spell: Dictionary, affected: Array, result: Dict
 
 func _resolve_targets(caster: Node, spell: Dictionary, target, affected_override: Array) -> Array:
 	"""Affected combat nodes for a cast. affected_override (non-empty) wins outright;
-	point targets resolve enemies + the player within the Chebyshev area radius;
-	Node targets are taken as-is; null/self fall back to the caster."""
+	point targets resolve the caster and everyone hostile to it within the Chebyshev
+	area radius; Node targets are taken as-is; null/self fall back to the caster."""
 	if not affected_override.is_empty():
 		var filtered: Array = []
 		for node in affected_override:
@@ -388,32 +388,27 @@ func _resolve_targets(caster: Node, spell: Dictionary, target, affected_override
 	if spell.get("target_type", "enemy") == "self" or target == null:
 		return [caster]
 	if target is Vector2i:
-		return _resolve_area_targets(target, int(spell.get("area_radius_tiles", 0)))
+		return _resolve_area_targets(caster, target, int(spell.get("area_radius_tiles", 0)))
 	if target is Node:
 		return [target]
 	push_error("SpellManager: unsupported target type for '%s'" % str(spell.get("spell_id", "")))
 	return []
 
 
-func _resolve_area_targets(center: Vector2i, radius: int) -> Array:
-	"""Enemies (GameManager.world.enemies) plus the player whose grid positions lie
-	within a Chebyshev radius of the center tile."""
+func _resolve_area_targets(caster: Node, center: Vector2i, radius: int) -> Array:
+	"""Combatants in the world within a Chebyshev radius of the center tile: those
+	hostile to the caster, and the caster itself when it stands in the area. The
+	caster's own side is spared."""
 	var affected: Array = []
 	var world = GameManager.world
-	if world != null and is_instance_valid(world):
-		var enemies = world.get("enemies")
-		if enemies is Array:
-			for enemy in enemies:
-				if enemy == null or not is_instance_valid(enemy) or enemy.get("stats") == null:
-					continue
-				var pos = _get_grid_position(enemy)
-				if pos != null and _chebyshev(pos, center) <= radius:
-					affected.append(enemy)
-	var player = GameManager.player
-	if player != null and is_instance_valid(player) and player.get("stats") != null:
-		var player_pos = _get_grid_position(player)
-		if player_pos != null and _chebyshev(player_pos, center) <= radius:
-			affected.append(player)
+	if world == null or not is_instance_valid(world) or not world.has_method("get_combatants"):
+		return affected
+	for combatant in world.get_combatants():
+		if combatant.stats != null and combatant.is_hostile_to(caster) and _chebyshev(combatant.get_grid_position(), center) <= radius:
+			affected.append(combatant)
+	var caster_pos = _get_grid_position(caster)
+	if caster_pos != null and caster.get("stats") != null and _chebyshev(caster_pos, center) <= radius:
+		affected.append(caster)
 	return affected
 
 

@@ -44,7 +44,7 @@ const DAMAGE_TYPE_FROM_STRING: Dictionary = {
 }
 
 # One reaction per combatant per round, keyed by instance id (safe across node frees).
-# The combat orchestrator calls reset_round_reactions() when a new initiative round
+# The CombatController calls reset_round_reactions() when a new initiative round
 # begins; the set is also cleared automatically when combat ends.
 var reactions_used: Dictionary = {}
 
@@ -399,7 +399,7 @@ func make_saving_throw(character_stats: CharacterStats, stat: String, dc: int,
 func trigger_opportunity_attack(reactor: Node, mover: Node) -> Dictionary:
 	"""
 	Attempt an opportunity attack from `reactor` against `mover` (who is about to leave
-	the reactor's melee reach). The orchestrator calls this from combat movement when a
+	the reactor's melee reach). Combatant._check_opportunity_attacks calls this when a
 	combatant steps from a tile adjacent to a hostile to a tile that is not.
 	Checks performed here: both nodes valid + alive, reactor's reaction not yet used
 	this round, reactor can take reactions (status effects), mover currently adjacent
@@ -453,7 +453,7 @@ func trigger_opportunity_attack(reactor: Node, mover: Node) -> Dictionary:
 	return {"triggered": true, "reason": "ok", "result": result}
 
 func reset_round_reactions():
-	"""Clear the once-per-round reaction tracker. The combat orchestrator calls this
+	"""Clear the once-per-round reaction tracker. The CombatController calls this
 	whenever a new initiative round begins; also runs automatically on combat_ended."""
 	reactions_used.clear()
 

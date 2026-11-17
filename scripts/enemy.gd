@@ -1,11 +1,8 @@
-extends CharacterBody2D
+# enemy.gd
+# A hostile combatant run by a simple AI: close on the player and attack.
+extends Combatant
 class_name Enemy
 
-# Basic grid-based enemy with AI and combat effects
-
-@export var tile_size: int = 32
-@export var move_speed: float = 400.0  # Pixels per second (12.5 tiles on the 32px grid, as before)
-@export var dungeon_generator: DungeonGenerator
 @export var moves_per_turn: int = 6
 @export var enemy_color: Color = Color(1, 0, 0, 1)  # Unused: each enemy type has its own sprite now
 
@@ -18,57 +15,26 @@ class_name Enemy
 @export var current_hp: int = 10
 @export var attack_damage: int = 2
 
-var grid_position: Vector2i = Vector2i(0, 0)
-var target_position: Vector2 = Vector2.ZERO
-var is_moving: bool = false
+# The one target this AI goes for
 var player: GridCharacter = null
 
 # Pathfinding
 var path: Array[Vector2i] = []
 var path_index: int = 0
 
-# Stats system (NEW)
-var stats: CharacterStats
-
 # Effective move budget for the current turn (moves_per_turn +/- status effects)
 var moves_budget_this_turn: int = 6
 
-# Cached world reference (avoids per-call scene tree lookups in hot paths)
-var world_node = null
-
-# Death guard (prevents double death handling)
-var is_dying: bool = false
+func _init():
+	team = Team.HOSTILE
 
 func _ready():
-	z_index = 200
-
-	# Cache world reference (used in hot paths like is_walkable)
-	world_node = get_tree().root.get_node_or_null("World")
-
-	# Flash when CombatManager applies damage directly to stats
-	EventBus.damage_dealt.connect(_on_damage_dealt_event)
-
-	# Auto-detect tile size
-	if dungeon_generator and dungeon_generator.tilemap and dungeon_generator.tilemap.tile_set:
-		tile_size = int(dungeon_generator.tilemap.tile_set.tile_size.x)
+	super._ready()
 
 	# Sprite for this enemy type, drawn at one tile. No tint: types differ by art.
 	ArtLibrary.fit_sprite(get_node_or_null("Sprite2D"), ArtLibrary.enemy_sprite(enemy_type), tile_size)
 
-	# Initialize enemy stats (NEW)
 	initialize_stats()
-
-func _get_world():
-	"""Get the cached World node (re-resolves if missing/freed)"""
-	if not is_instance_valid(world_node):
-		world_node = get_tree().root.get_node_or_null("World")
-	return world_node
-
-func _on_damage_dealt_event(_attacker, target, _amount, _is_critical):
-	"""Flash feedback when CombatManager applies damage to this enemy"""
-	if target == self:
-		flash_damage()
-		queue_redraw()
 
 func initialize_stats():
 	"""Initialize enemy stats"""
@@ -91,12 +57,6 @@ func initialize_stats():
 
 	print("Enemy stats initialized: ", enemy_type, " lv", enemy_level, " HP ", stats.current_hp, "/", stats.max_hp)
 
-func spawn_at(spawn_pos: Vector2i):
-	"""Spawn enemy at specific grid position"""
-	grid_position = spawn_pos
-	position = grid_to_world(grid_position)
-	target_position = position
-
 func take_turn():
 	"""Enemy takes its turn (status-effect hooks run at start and on every exit path)"""
 	if is_moving:
@@ -110,7 +70,7 @@ func take_turn():
 	StatusEffectManager.process_turn_start(self)
 
 	# The tick may have killed this enemy - die() already notified the world,
-	# and the world's loop advances the chain on its own
+	# and the combat controller passes the turn on by itself
 	if is_dying or not stats or not stats.is_alive():
 		return
 
@@ -160,7 +120,7 @@ func take_turn():
 	# Start moving (movement is capped to moves_budget_this_turn in _physics_process)
 	path_index = 1
 
-	# Leaving the player's melee reach provokes an opportunity attack
+	# Leaving a hostile's melee reach provokes an opportunity attack
 	_check_opportunity_attacks(grid_position, path[path_index])
 	if is_dying or not stats or not stats.is_alive():
 		path.clear()
@@ -175,19 +135,6 @@ func _finish_turn_effects():
 	if is_dying or not stats or not stats.is_alive():
 		return
 	StatusEffectManager.process_turn_end(self)
-
-func _check_opportunity_attacks(from_tile: Vector2i, to_tile: Vector2i):
-	"""Stepping out of the player's melee reach (adjacent to from_tile but not
-	to_tile) provokes their opportunity attack. CombatManager self-gates the
-	reaction (once per round, status effects, exact adjacency) - just call it."""
-	var world = _get_world()
-	if not world or not world.in_combat:
-		return
-	if not is_instance_valid(player) or not player.stats or not player.stats.is_alive():
-		return
-	var player_pos = player.get_grid_position()
-	if CombatGrid.get_distance_tiles(player_pos, from_tile) == 1 and CombatGrid.get_distance_tiles(player_pos, to_tile) > 1:
-		CombatManager.trigger_opportunity_attack(player, self)
 
 func create_temp_weapon() -> ItemData:
 	"""Create temporary weapon for enemy (TEMPORARY - Phase 2 will give enemies real weapons)"""
@@ -246,16 +193,6 @@ func attack_player():
 		print("%s missed Player! (Rolled %d vs AC %d)" % [name, result.total, result.target_ac])
 		DamagePopup.spawn_miss_popup_at(get_parent(), popup_pos)
 
-func animate_attack(target_pos: Vector2):
-	"""Animate a quick lunge toward the target"""
-	var original_pos = global_position
-	var direction = (target_pos - original_pos).normalized()
-	var lunge_distance = tile_size * 0.5
-	
-	var tween = create_tween()
-	tween.tween_property(self, "global_position", original_pos + direction * lunge_distance, 0.1)
-	tween.tween_property(self, "global_position", original_pos, 0.15)
-
 func _calculate_path_to_player(player_pos: Vector2i) -> Array[Vector2i]:
 	"""Calculate path using A* to get adjacent to player"""
 	# Find all tiles adjacent to player
@@ -292,106 +229,17 @@ func _calculate_path_to_player(player_pos: Vector2i) -> Array[Vector2i]:
 	
 	# Find closest adjacent tile
 	var best_target = adjacent_tiles[0]
-	var best_path = _astar_path(grid_position, best_target)
+	var best_path = find_path(grid_position, best_target)
 	var best_dist = best_path.size()
 	
 	for tile in adjacent_tiles:
-		var test_path = _astar_path(grid_position, tile)
+		var test_path = find_path(grid_position, tile)
 		if test_path.size() < best_dist:
 			best_dist = test_path.size()
 			best_target = tile
 			best_path = test_path
 	
 	return best_path
-
-func _astar_path(from: Vector2i, to: Vector2i) -> Array[Vector2i]:
-	"""A* pathfinding implementation"""
-	if from == to:
-		return [from]
-	
-	var open_set: Array[Vector2i] = [from]
-	var closed_set: Dictionary = {}
-	var came_from: Dictionary = {}
-	var g_score: Dictionary = {from: 0}
-	var f_score: Dictionary = {from: _heuristic(from, to)}
-	
-	while not open_set.is_empty():
-		# Find node with lowest f_score
-		var current = open_set[0]
-		var lowest_f = f_score.get(current, INF)
-		var current_idx = 0
-		
-		for i in range(open_set.size()):
-			var node = open_set[i]
-			var f = f_score.get(node, INF)
-			if f < lowest_f:
-				current = node
-				lowest_f = f
-				current_idx = i
-		
-		# Reached destination
-		if current == to:
-			return _reconstruct_path(came_from, current)
-		
-		# Move to closed set
-		open_set.remove_at(current_idx)
-		closed_set[current] = true
-		
-		# Check neighbors
-		for neighbor in _get_neighbors(current):
-			if neighbor in closed_set:
-				continue
-			
-			if not is_walkable(neighbor):
-				continue
-			
-			var tentative_g = g_score.get(current, INF) + 1
-			
-			if neighbor not in open_set:
-				open_set.append(neighbor)
-			elif tentative_g >= g_score.get(neighbor, INF):
-				continue
-			
-			came_from[neighbor] = current
-			g_score[neighbor] = tentative_g
-			f_score[neighbor] = tentative_g + _heuristic(neighbor, to)
-	
-	# No path found
-	return [from]
-
-func _get_neighbors(pos: Vector2i) -> Array[Vector2i]:
-	"""Get 8 adjacent neighbors"""
-	var neighbors: Array[Vector2i] = []
-	
-	for dx in range(-1, 2):
-		for dy in range(-1, 2):
-			if dx == 0 and dy == 0:
-				continue
-			
-			var neighbor = pos + Vector2i(dx, dy)
-			
-			# For diagonals, check if both adjacent cardinals are walkable
-			if abs(dx) + abs(dy) == 2:
-				if is_walkable(Vector2i(pos.x + dx, pos.y)) and is_walkable(Vector2i(pos.x, pos.y + dy)):
-					neighbors.append(neighbor)
-			else:
-				neighbors.append(neighbor)
-	
-	return neighbors
-
-func _heuristic(a: Vector2i, b: Vector2i) -> int:
-	"""Diagonal distance heuristic"""
-	var dx = abs(a.x - b.x)
-	var dy = abs(a.y - b.y)
-	return max(dx, dy)
-
-func _reconstruct_path(came_from: Dictionary, current: Vector2i) -> Array[Vector2i]:
-	"""Reconstruct path from A*"""
-	var result: Array[Vector2i] = [current]
-	while current in came_from:
-		current = came_from[current]
-		result.insert(0, current)
-	return result
 
 func _physics_process(delta):
 	if is_moving and path.size() > 0:
@@ -404,7 +252,7 @@ func _physics_process(delta):
 			
 			# Check if should continue moving
 			if path_index < path.size() and path_index <= moves_budget_this_turn:
-				# Leaving the player's melee reach provokes an opportunity attack
+				# Leaving a hostile's melee reach provokes an opportunity attack
 				_check_opportunity_attacks(grid_position, path[path_index])
 				if is_dying or not stats or not stats.is_alive():
 					is_moving = false
@@ -442,109 +290,8 @@ func check_and_attack_player():
 
 func _draw():
 	"""Draw HP bar above enemy"""
-	# Only show HP bar when in combat
-	var world = _get_world()
-	if world and world.in_combat:
+	if in_combat():
 		draw_hp_bar()
-
-func draw_hp_bar():
-	"""Draw HP bar above the enemy"""
-	# Narrower than a tile so neighbours' bars do not run together, and on whole
-	# pixels so the edges stay sharp at 2x
-	var bar_width = round(tile_size * 0.8)
-	var bar_height = 4.0
-	var bar_offset = Vector2(-bar_width / 2, -tile_size / 2.0 - bar_height - 3.0)
-	
-	# Background (black)
-	draw_rect(Rect2(bar_offset, Vector2(bar_width, bar_height)), Color.BLACK)
-	
-	# Health (green to red gradient based on HP percentage)
-	var hp_percent = float(stats.current_hp) / float(stats.max_hp)
-	var health_width = bar_width * hp_percent
-	var health_color = Color.GREEN.lerp(Color.RED, 1.0 - hp_percent)
-	
-	if health_width > 0:
-		draw_rect(Rect2(bar_offset, Vector2(health_width, bar_height)), health_color)
-	
-	# Border (white)
-	draw_rect(Rect2(bar_offset, Vector2(bar_width, bar_height)), Color.WHITE, false, 1.0)
-
-func is_walkable(grid_pos: Vector2i) -> bool:
-	"""Check if position is walkable"""
-	if not dungeon_generator:
-		return false
-	
-	if grid_pos.x < 0 or grid_pos.x >= dungeon_generator.dungeon_width:
-		return false
-	if grid_pos.y < 0 or grid_pos.y >= dungeon_generator.dungeon_height:
-		return false
-	
-	var tile_type = dungeon_generator.dungeon_grid[grid_pos.y][grid_pos.x]
-	var is_floor = tile_type == dungeon_generator.TileType.FLOOR or tile_type == dungeon_generator.TileType.DOOR
-	
-	if not is_floor:
-		return false
-	
-	# Check if player occupies this position
-	if is_instance_valid(player) and player.get_grid_position() == grid_pos:
-		return false
-
-	# Check if any other enemy occupies this position
-	var world = _get_world()
-	if world and world.has_method("is_position_occupied_by_enemy"):
-		if world.is_position_occupied_by_enemy(grid_pos, self):
-			return false
-
-	# Check if a party companion occupies this position
-	if world and world.has_method("is_position_occupied_by_companion"):
-		if world.is_position_occupied_by_companion(grid_pos, self):
-			return false
-
-	return true
-
-func world_to_grid(world_pos: Vector2) -> Vector2i:
-	"""Convert world to grid position"""
-	return Vector2i(
-		int(world_pos.x / tile_size),
-		int(world_pos.y / tile_size)
-	)
-
-func grid_to_world(grid_pos: Vector2i) -> Vector2:
-	"""Convert grid to world position"""
-	return Vector2(
-		grid_pos.x * tile_size + tile_size / 2.0,
-		grid_pos.y * tile_size + tile_size / 2.0
-	)
-
-func get_grid_position() -> Vector2i:
-	"""Get current grid position"""
-	return grid_position
-
-func take_damage(amount: int):
-	"""Apply direct damage with visual effects (e.g. traps, hazards).
-	NOTE: attacks should go through CombatManager.apply_damage instead."""
-	if not stats:
-		return
-
-	var still_alive = stats.take_damage(amount)
-	print("%s took %d damage! HP: %d/%d" % [name, amount, stats.current_hp, stats.max_hp])
-
-	# Flash effect
-	flash_damage()
-
-	queue_redraw()
-
-	if not still_alive:
-		# Route through CombatManager so death events stay consistent
-		CombatManager.handle_death(self)
-
-func flash_damage():
-	"""Quick red flash when taking damage"""
-	var sprite = get_node_or_null("Sprite2D")
-	if sprite:
-		var tween = create_tween()
-		tween.tween_property(sprite, "modulate", Color(2.0, 0.5, 0.5), 0.1)
-		tween.tween_property(sprite, "modulate", Color.WHITE, 0.2)
 
 func die():
 	"""Handle death with effects"""
@@ -576,11 +323,3 @@ func die():
 		await tween.finished
 
 	queue_free()
-
-func get_hp() -> int:
-	"""Get current HP (REFACTORED)"""
-	return stats.current_hp if stats else 0
-
-func get_max_hp() -> int:
-	"""Get max HP (REFACTORED)"""
-	return stats.max_hp if stats else 0

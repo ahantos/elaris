@@ -10,7 +10,9 @@ extends SceneTree
 # Like every --script file it must reach autoloads with root.get_node("Name").
 
 const MENU_SCENE := "res://scenes/main_menu.tscn"
-const TOUR_SAVE_DIR := "user://saves_tour/"
+# The tour's saves go in a folder of this run's own, removed when the run ends
+# (user:// is shared by every checkout of the project)
+var _save_dir: String = "user://saves_tour_%d/" % OS.get_process_id()
 
 var _out_dir: String = ""
 var _index: int = 0
@@ -140,17 +142,18 @@ func _add_art_sheet(world, art, manifest) -> Node2D:
 				next += 1
 	return sheet
 
-func _clear_tour_saves():
-	var dir := DirAccess.open(TOUR_SAVE_DIR)
+func _remove_tour_saves():
+	"""Delete this run's scratch folder and everything in it"""
+	var dir := DirAccess.open(_save_dir)
 	if dir:
 		for file_name in dir.get_files():
 			dir.remove(file_name)
+	DirAccess.remove_absolute(ProjectSettings.globalize_path(_save_dir))
 
 func _run():
 	seed(20261116)
 	# The tour's autosave goes to a scratch folder, never the player's saves
-	root.get_node("SaveManager").use_save_directory(TOUR_SAVE_DIR)
-	_clear_tour_saves()
+	root.get_node("SaveManager").use_save_directory(_save_dir)
 
 	# Front of the game: menu, settings, character creation
 	change_scene_to_file(MENU_SCENE)
@@ -170,6 +173,7 @@ func _run():
 	var world = root.get_node_or_null("World")
 	if world == null:
 		print("[TOUR] World node missing")
+		_remove_tour_saves()
 		quit(1)
 		return
 	var ui = root.get_node("UIManager")
@@ -253,7 +257,7 @@ func _run():
 		await _shot("combat_start")
 		for round_number in range(12):
 			var waited := 0.0
-			while world.in_combat and is_instance_valid(player) and not world.initiative_tracker.is_player_turn() and waited < 12.0:
+			while world.in_combat and is_instance_valid(player) and not world.combat.is_turn_of(player) and waited < 12.0:
 				await _wait(0.2)
 				waited += 0.2
 			if not world.in_combat or not is_instance_valid(player):
@@ -288,6 +292,6 @@ func _run():
 		await _wait(0.6)
 		await _shot("game_over")
 
-	_clear_tour_saves()
+	_remove_tour_saves()
 	print("[TOUR] done: %d screenshots in %s" % [_index, _out_dir])
 	quit(0)

@@ -24,19 +24,21 @@ var bottom_ui: BottomUI
 var grid_overlay: GridOverlay
 var save_load_menu: SaveLoadMenu  # Properly typed now
 var enemies: Array[Enemy] = []
-var combat_detection_range: int = 10
-var enemy_activation_range: int = 20
-var in_combat: bool = false
 var character_screen
+
+# The turn authority: starts and ends fights and says whose turn it is
+var combat: CombatController
+
+# True while the combat controller is running a fight (read-only)
+var in_combat: bool:
+	get:
+		return combat != null and combat.active
 
 # Dropped loot container (GroundItem nodes live under this)
 var ground_items_node: Node2D = null
 
 # Active companion nodes in the scene, keyed by companion_id
 var companion_nodes: Dictionary = {}
-
-# Re-entrancy guard: SPACE pressed again while companion turns are resolving
-var _advancing_turn: bool = false
 
 # Counter behind unique enemy node names (never reused within a dungeon)
 var _enemy_serial: int = 0
@@ -78,6 +80,14 @@ func _ready():
 	ground_items_node.name = "GroundItems"
 	add_child(ground_items_node)
 
+	# The combat controller, before anyone who might fight
+	combat = CombatController.new()
+	combat.name = "CombatController"
+	add_child(combat)
+	combat.setup(self)
+	combat.combat_started.connect(_on_combat_started)
+	combat.combat_ended.connect(_on_combat_ended)
+
 	# Spawn player
 	player = CharacterScene.instantiate()
 	player.dungeon_generator = current_dungeon
@@ -88,9 +98,6 @@ func _ready():
 
 	# Make camera follow player
 	current_dungeon.set_camera_target(player)
-
-	# Connect player turn signal
-	player.turn_ended.connect(_on_player_turn_ended)
 
 	# Create UI
 	create_minimap()
@@ -214,7 +221,7 @@ func get_world_state() -> Dictionary:
 	biome give the layout back; the rest is what has changed since. Primitives only."""
 	var enemy_list: Array = []
 	for enemy in enemies:
-		if not is_instance_valid(enemy) or enemy.is_dying or enemy.stats == null or not enemy.stats.is_alive():
+		if not is_instance_valid(enemy) or not enemy.is_alive():
 			continue
 		enemy_list.append({
 			"type": enemy.enemy_type,
@@ -362,10 +369,6 @@ func position_player_at_start():
 	else:
 		push_error("No start room found! Player may be in invalid position.")
 
-func _process(_delta):
-	"""Check for enemy proximity (guards inside handle combat/player state)"""
-	check_enemy_proximity()
-
 func _input(event):
 	if event is InputEventKey and event.pressed and not event.echo:
 		# F3 switches the debug keys on and off (off by default)
@@ -464,8 +467,7 @@ func regenerate_dungeon(new_biome: String = ""):
 	print("=== REGENERATING DUNGEON ===")
 
 	# End combat if active
-	if in_combat:
-		end_combat()
+	combat.end_combat()
 
 	# Clear all enemies
 	for enemy in enemies:
@@ -528,232 +530,17 @@ func regenerate_dungeon(new_biome: String = ""):
 		# A random world event may fire on any regeneration
 		WorldEventManager.maybe_trigger_random_event({"source": "dungeon_regenerated"})
 
-func start_combat():
-	"""Initialize combat and roll initiative"""
-	print("⚔️ COMBAT INITIATED!")
+func _on_combat_started(_combatants: Array):
+	"""A fight has begun: show the grid"""
+	if grid_overlay:
+		grid_overlay.set_enabled(true)
+		print("Grid overlay: ON (combat started)")
 
-	# Clear movement
-	if player:
-		player.cancel_preview()
-
-	# Get nearby enemies
-	var active_enemies: Array[Enemy] = []
-	var player_pos = player.get_grid_position()
-
-	for enemy in enemies:
-		if not is_instance_valid(enemy):
-			continue
-		if enemy.stats and not enemy.stats.is_alive():
-			continue
-		var enemy_pos = enemy.get_grid_position()
-		var distance = player_pos.distance_to(enemy_pos)
-		if distance <= enemy_activation_range:
-			active_enemies.append(enemy)
-
-	# Setup initiative
-	initiative_tracker.setup_initiative(player, active_enemies)
-
-	# Fresh round: everyone's reaction (opportunity attack) is available
-	CombatManager.reset_round_reactions()
-
-	EventBus.combat_started.emit(active_enemies)
-
-	# Start first turn
-	process_next_turn()
-
-func process_next_turn():
-	"""Process next turn in initiative"""
-	# Combat may have ended (or never started properly)
-	if not in_combat:
-		return
-
-	# Player dead or gone - stop the combat loop safely
-	if not _player_alive():
-		print("Player is gone - stopping combat")
-		end_combat()
-		return
-
-	var current = initiative_tracker.get_current_combatant()
-
-	if current.is_empty():
-		# No valid combatants - end combat
-		end_combat()
-		return
-
-	if current.is_player:
-		# Player turn
-		player.start_new_turn()
-		if turn_ui:
-			turn_ui.set_player_turn()
-	else:
-		# Enemy turn
-		var enemy = current.entity as Enemy
-		if turn_ui:
-			turn_ui.set_enemy_turn(initiative_tracker.current_index + 1, initiative_tracker.combatants.size())
-
-		# Skip dead/dying enemies (they may still be in initiative while fading out)
-		# NOTE: timers use process_always=false so the combat loop freezes
-		# while the tree is paused (save menu / character screen open)
-		if is_instance_valid(enemy) and enemy.stats and enemy.stats.is_alive() and not enemy.is_dying:
-			enemy.take_turn()
-			# Wait for movement (enemy may get freed mid-turn, e.g. dungeon regenerated)
-			while is_instance_valid(enemy) and enemy.is_moving:
-				await get_tree().create_timer(0.1, false).timeout
-
-			# Delay before next turn
-			await get_tree().create_timer(0.3, false).timeout
-
-		# Next turn
-		await get_tree().create_timer(1.0, false).timeout
-
-		# Combat may have ended or the player may have died during the waits
-		if not in_combat:
-			return
-		if not _player_alive():
-			print("Player is gone - stopping combat")
-			end_combat()
-			return
-
-		_advance_initiative()
-		process_next_turn()
-
-func _advance_initiative():
-	"""Advance the initiative order. A wrap back to slot 0 starts a new round:
-	once-per-round reactions (opportunity attacks) reset."""
-	if not initiative_tracker:
-		return
-	initiative_tracker.next_turn()
-	if initiative_tracker.current_index == 0 and not initiative_tracker.combatants.is_empty():
-		CombatManager.reset_round_reactions()
-
-func _on_player_turn_ended():
-	"""Called when player ends turn"""
-	# Check if still in combat
-	if not in_combat:
-		return
-
-	# Ignore if it's not actually the player's turn (e.g. SPACE pressed
-	# during an enemy turn) - advancing here would run a second turn
-	# chain concurrently with the one already in progress
-	if initiative_tracker and not initiative_tracker.is_player_turn():
-		return
-
-	# Re-entrancy guard: SPACE again while companion turns are still resolving
-	if _advancing_turn:
-		return
-	_advancing_turn = true
-
-	# Party companions act right after the player (they share the player's
-	# initiative slot - see _run_companion_turns)
-	await _run_companion_turns()
-	_advancing_turn = false
-
-	# Combat may have ended / player may have died during companion turns
-	if not in_combat:
-		return
-	if not _player_alive():
-		print("Player is gone - stopping combat")
-		end_combat()
-		return
-
-	# Advance initiative
-	_advance_initiative()
-	process_next_turn()
-
-func _run_companion_turns():
-	"""Run a combat turn for every living party companion node.
-	SIMPLIFICATION: companions are NOT entries in the initiative tracker - they
-	act in the player's initiative slot, right after the player's turn ends.
-	Timers are pause-bound so companion turns freeze while a menu is open."""
-	for companion_id in companion_nodes.keys():
-		if not in_combat:
-			return
-		var node = companion_nodes.get(companion_id)
-		if node == null or not is_instance_valid(node) or not node.has_method("take_turn"):
-			continue
-		if node.get("stats") == null or not node.stats.is_alive():
-			continue
-
-		node.take_turn()
-
-		# Wait for the companion's movement to finish (guard caps the wait)
-		var guard = 0
-		while is_instance_valid(node) and node.is_moving and guard < 100:
-			await get_tree().create_timer(0.1, false).timeout
-			guard += 1
-
-		# Small beat between companion actions
-		await get_tree().create_timer(0.2, false).timeout
-
-		if not in_combat:
-			return
-
-func end_combat():
-	"""End combat mode"""
-	var was_in_combat = in_combat
-	in_combat = false
-	GameManager.in_combat = false
-	_advancing_turn = false
-
-	# HIDE GRID when combat ends
+func _on_combat_ended(_victory: bool):
+	"""The fight is over: back to exploration"""
 	if grid_overlay:
 		grid_overlay.set_enabled(false)
 		print("Grid overlay: OFF (combat ended)")
-
-	# Switch back to exploration mode
-	if is_instance_valid(player):
-		player.turn_based_mode = false
-		player.wasd_movement_enabled = true
-
-	# Hide initiative tracker
-	if initiative_tracker:
-		initiative_tracker.visible = false
-
-	# Update turn UI (resets its combat state; it also auto-hides itself
-	# once turn_based_mode is off)
-	if turn_ui and turn_ui.has_method("set_exploration_mode"):
-		turn_ui.set_exploration_mode()
-
-	if was_in_combat:
-		# Victory when no living enemies remain
-		EventBus.combat_ended.emit(enemies.is_empty())
-
-	print("⚔️ COMBAT ENDED")
-
-func check_enemy_proximity():
-	"""Auto-enable turn-based mode when near enemies"""
-	if not _player_alive() or enemies.is_empty() or in_combat:
-		return
-
-	var player_pos = player.get_grid_position()
-
-	for enemy in enemies:
-		if not is_instance_valid(enemy):
-			continue
-		if enemy.stats and not enemy.stats.is_alive():
-			continue
-
-		var enemy_pos = enemy.get_grid_position()
-		var distance = player_pos.distance_to(enemy_pos)
-
-		if distance <= combat_detection_range:
-			# Enter combat
-			player.stop_moving()
-			player.cancel_preview()
-			player.turn_based_mode = true
-			# No movement until initiative grants the player a turn
-			# (start_new_turn restores it if the player goes first)
-			player.moves_remaining = 0
-			in_combat = true
-			GameManager.in_combat = true
-
-			# SHOW GRID when entering combat
-			if grid_overlay:
-				grid_overlay.set_enabled(true)
-				print("Grid overlay: ON (combat started)")
-
-			start_combat()
-			return
 
 func spawn_enemies(count: int):
 	"""Populate a fresh dungeon. Each enemy gets a random identity (type drives
@@ -818,7 +605,7 @@ func find_enemy_spawn_position(rng: RandomNumberGenerator = null) -> Vector2i:
 		var pos = Vector2i(x, y)
 
 		if current_dungeon.dungeon_grid[y][x] == current_dungeon.TileType.FLOOR:
-			if pos.distance_to(player_pos) >= min_distance and not is_position_occupied_by_enemy(pos):
+			if pos.distance_to(player_pos) >= min_distance and not is_tile_occupied(pos):
 				return pos
 
 	return Vector2i(-1, -1)
@@ -841,7 +628,7 @@ func create_turn_ui():
 	
 	turn_ui = TurnUI.new()
 	canvas_layer.add_child(turn_ui)
-	turn_ui.setup(player)
+	turn_ui.setup(player, combat)
 
 func create_initiative_tracker():
 	"""Create initiative tracker"""
@@ -851,6 +638,7 @@ func create_initiative_tracker():
 	
 	initiative_tracker = InitiativeTracker.new()
 	canvas_layer.add_child(initiative_tracker)
+	initiative_tracker.setup(combat)
 
 func create_bottom_ui():
 	"""Create bottom UI panel"""
@@ -873,23 +661,37 @@ func create_save_load_menu():
 	
 	print("SaveLoadMenu created successfully")
 
-func get_enemy_at_position(grid_pos: Vector2i) -> Enemy:
-	"""Get enemy at grid position"""
+func get_combatants() -> Array[Combatant]:
+	"""Every combatant body in the scene: the player, party companions and
+	enemies. The player's body stays after death - ask is_alive()."""
+	var combatants: Array[Combatant] = []
+	if is_instance_valid(player):
+		combatants.append(player)
+	for node in companion_nodes.values():
+		if is_instance_valid(node):
+			combatants.append(node)
 	for enemy in enemies:
-		if not is_instance_valid(enemy):
-			continue
-		if enemy.get_grid_position() == grid_pos:
-			return enemy
+		if is_instance_valid(enemy):
+			combatants.append(enemy)
+	return combatants
+
+func get_combatant_at(grid_pos: Vector2i) -> Combatant:
+	"""The combatant standing on a tile, or null"""
+	for combatant in get_combatants():
+		if combatant.get_grid_position() == grid_pos:
+			return combatant
 	return null
 
-func is_position_occupied_by_enemy(grid_pos: Vector2i, exclude_entity = null) -> bool:
-	"""Check if position is occupied by an enemy"""
+func is_tile_occupied(grid_pos: Vector2i, exclude = null) -> bool:
+	"""True when a combatant other than `exclude` stands on the tile. Called for
+	every tile a pathfinder looks at, so it walks the lists without copying them."""
+	if is_instance_valid(player) and player != exclude and player.grid_position == grid_pos:
+		return true
 	for enemy in enemies:
-		if enemy == exclude_entity:
-			continue
-		if not is_instance_valid(enemy):
-			continue
-		if enemy.get_grid_position() == grid_pos:
+		if enemy != exclude and is_instance_valid(enemy) and enemy.grid_position == grid_pos:
+			return true
+	for node in companion_nodes.values():
+		if node != exclude and is_instance_valid(node) and node.grid_position == grid_pos:
 			return true
 	return false
 
@@ -897,34 +699,11 @@ func on_enemy_died(enemy: Enemy):
 	"""Handle enemy death"""
 	enemies.erase(enemy)
 
-	# Remove from initiative
-	if initiative_tracker:
-		initiative_tracker.remove_combatant(enemy)
+	# Out of the fight at once; the controller ends it when no hostile is left
+	combat.remove_combatant(enemy)
 
 	# XP + loot drops (combat or not - opportunity kills still count)
 	_grant_death_rewards(enemy)
-
-	if not in_combat:
-		return
-
-	# Check if combat should end - no living enemies left in the initiative
-	# order (world.enemies may still hold far-away enemies that never joined)
-	var enemies_left_in_combat = false
-	if initiative_tracker:
-		for combatant in initiative_tracker.combatants:
-			if not combatant.is_player and is_instance_valid(combatant.entity):
-				enemies_left_in_combat = true
-				break
-
-	if not enemies_left_in_combat:
-		if enemies.is_empty():
-			print("All enemies defeated!")
-		else:
-			print("All nearby enemies defeated!")
-		await get_tree().create_timer(1.0, false).timeout
-		# Re-check: combat may have been ended/restarted during the wait
-		if in_combat:
-			end_combat()
 
 # ============================================================================
 # DEATH REWARDS (XP + loot drops)
@@ -968,8 +747,8 @@ func drop_items_at_player(instances: Array, gold_amount: int = 0):
 	EventBus.ui_notification.emit("Your pack is full - it was left at your feet.", "warning")
 
 # ============================================================================
-# COMPANIONS (recruit/dismiss -> scene nodes; combat turns run in
-# _run_companion_turns, occupancy via is_position_occupied_by_companion)
+# COMPANIONS (recruit/dismiss -> scene nodes; in a fight each one has its own
+# place in the initiative order)
 # ============================================================================
 
 func _on_companion_recruited(companion_id: String):
@@ -981,6 +760,7 @@ func _on_companion_dismissed(companion_id: String):
 	if companion_nodes.has(companion_id):
 		var node = companion_nodes[companion_id]
 		if is_instance_valid(node):
+			combat.remove_combatant(node)
 			node.queue_free()
 		companion_nodes.erase(companion_id)
 		print("World: companion node removed (", companion_id, ")")
@@ -996,11 +776,11 @@ func _spawn_companion_node(companion_id: String):
 
 	node.dungeon_generator = current_dungeon
 	node.player = player
-	if is_instance_valid(player):
-		node.tile_size = player.tile_size  # companion.gd has no tileset auto-detect
 	add_child(node)
 	node.spawn_at(_find_companion_spawn_tile())
 	companion_nodes[companion_id] = node
+	# Joining mid-fight: roll initiative and take a place in the order
+	combat.add_combatant(node)
 	print("World: companion node spawned (", companion_id, ") at ", node.grid_position)
 
 func _find_companion_spawn_tile() -> Vector2i:
@@ -1019,7 +799,7 @@ func _find_companion_spawn_tile() -> Vector2i:
 	return player_pos  # degenerate fallback - everything around is blocked
 
 func _is_tile_free_for_companion(tile: Vector2i) -> bool:
-	"""Floor/door tile not occupied by the player, an enemy or another companion"""
+	"""Floor/door tile no combatant stands on"""
 	if not current_dungeon:
 		return false
 	if tile.x < 0 or tile.x >= current_dungeon.dungeon_width:
@@ -1029,25 +809,7 @@ func _is_tile_free_for_companion(tile: Vector2i) -> bool:
 	var tile_type = current_dungeon.dungeon_grid[tile.y][tile.x]
 	if tile_type != current_dungeon.TileType.FLOOR and tile_type != current_dungeon.TileType.DOOR:
 		return false
-	if is_instance_valid(player) and player.get_grid_position() == tile:
-		return false
-	if is_position_occupied_by_enemy(tile):
-		return false
-	if is_position_occupied_by_companion(tile):
-		return false
-	return true
-
-func is_position_occupied_by_companion(grid_pos: Vector2i, exclude_entity = null) -> bool:
-	"""Check if position is occupied by a party companion (mirrors
-	is_position_occupied_by_enemy; used by player/enemy/companion walkability)"""
-	for node in companion_nodes.values():
-		if node == exclude_entity:
-			continue
-		if node == null or not is_instance_valid(node):
-			continue
-		if node.get_grid_position() == grid_pos:
-			return true
-	return false
+	return not is_tile_occupied(tile)
 
 func _resync_companion_nodes():
 	"""Clear all companion nodes and respawn the saved party next to the player
@@ -1086,12 +848,11 @@ func _on_crisis_phase_changed(crisis_id: String, phase: int):
 func _player_alive() -> bool:
 	"""The player exists and can still act. The node is no longer freed on
 	death, so validity alone does not mean alive."""
-	return is_instance_valid(player) and not player.is_dying and player.stats != null and player.stats.is_alive()
+	return is_instance_valid(player) and player.is_alive()
 
 func _on_game_over():
 	"""The player died: stop the fight and offer a way back"""
-	if in_combat:
-		end_combat()
+	combat.end_combat()
 	if _game_over_screen != null and is_instance_valid(_game_over_screen):
 		return
 	var layer := CanvasLayer.new()
