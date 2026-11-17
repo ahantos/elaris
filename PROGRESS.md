@@ -56,7 +56,7 @@ exit test are in section 7 of the plan; the durability rules are in section 8.
 | 4 | One damage pipeline with types, resistance, vulnerability and hooks; 5e armour class; armour and material data reworked so materials add no stats | |
 | 5 | Durability as designed: notches, marks, blows, hardness, debuffs, buffs, field kits and scrap, ageing, the segmented bar | |
 | 6 | Bestiary as data (goblin, skeleton, bandit, wolf, one boss); behaviours (rusher, archer, caster, pack); perception by line of sight; encounters by budget | |
-| 7 | Companions as party combatants that enemies target, driven by the same behaviours | |
+| 7 | Companions as party combatants that enemies target, driven by the same behaviours. Settle here, by Ákos playing both, whether companions default to player control or to acting on their own (he wondered on 2026-11-17 whether anyone wants to control four characters, then left the decision as it stands; my lean is AI by default because fights are frequent and small) | |
 | 8 | Readability: movement range, valid targets, status icons, a working turn-order bar, faster enemy turns | |
 | 9 | `AStarGrid2D` pathfinding; an input map with rebindable actions | |
 | 10 | Headless combat simulator; tune the durability dials and encounter budgets against the run target | |
