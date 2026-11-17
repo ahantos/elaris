@@ -32,8 +32,10 @@ signal item_picked_up(item_instance)
 signal item_dropped(item_instance)
 signal item_equipped(item_instance, slot: String)
 signal item_unequipped(item_instance, slot: String)
-signal item_durability_changed(item_instance, current: int, max: int)
-signal item_broken(item_instance)
+signal item_durability_changed(item_instance, notches: int, notches_max: int)  # a wearing piece lost or regained notches
+signal item_broken(item_instance)  # a wearing piece lost its last notch
+signal item_wear_event(event: Dictionary)  # something happened to a piece: {kind, instance, owner, text, level, ...} (DurabilityManager._announce)
+signal item_charges_changed(item_instance, charges: int, max_charges: int)  # a wand spent a charge
 
 # === INVENTORY EVENTS ===
 signal inventory_changed()

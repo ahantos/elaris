@@ -7,15 +7,33 @@ var CharacterScene = preload("res://scenes/character.tscn")
 var EnemyScene = preload("res://scenes/enemy.tscn")
 const GroundItemScript = preload("res://scripts/ground_item.gd")
 const AttackPreviewScene = preload("res://scenes/ui/attack_preview.tscn")
+const GearWarningScene = preload("res://scenes/ui/gear_warning.tscn")
 
 # Enemy identities assigned at spawn (loot tables exist for all four types).
 # "resistances", "vulnerabilities" and "immunities" list the damage types the
 # type takes half, double and no damage from.
+# "wear" is what the durability rules need to know about the type (Enemy.wear_data):
+#   weapon         what it strikes with: {material, damage_type} for a made
+#                  weapon, {hardness, damage_type} for claws and teeth
+#   shield, armor  a piece a critical hit can notch: {name, material, notches,
+#                  bonus, armor_type}. bonus is the part of the type's armour
+#                  class the piece accounts for; the type keeps the armour class
+#                  it had while the piece is whole and loses that part as it wears.
+#   hide_hardness  how hard its body is to a weapon that meets it (flesh is 1)
+# The bestiary (step 6) replaces all of it.
 const ENEMY_TYPE_DEFS: Dictionary = {
-	"goblin":   {"color": Color(0.35, 0.75, 0.25), "base_hp": 10},
-	"skeleton": {"color": Color(0.92, 0.92, 0.82), "base_hp": 12, "vulnerabilities": ["bludgeoning"]},
-	"bandit":   {"color": Color(0.85, 0.45, 0.15), "base_hp": 14},
-	"wolf":     {"color": Color(0.55, 0.55, 0.65), "base_hp": 8},
+	"goblin":   {"color": Color(0.35, 0.75, 0.25), "base_hp": 10, "wear": {
+		"weapon": {"material": "wrought_iron", "damage_type": "slashing"},
+		"shield": {"name": "Wooden Shield", "material": "pine", "notches": 2, "bonus": 2}}},
+	"skeleton": {"color": Color(0.92, 0.92, 0.82), "base_hp": 12, "vulnerabilities": ["bludgeoning"], "wear": {
+		"weapon": {"hardness": 2, "damage_type": "slashing"},
+		"hide_hardness": 2}},
+	"bandit":   {"color": Color(0.85, 0.45, 0.15), "base_hp": 14, "wear": {
+		"weapon": {"material": "wrought_iron", "damage_type": "slashing"},
+		"armor": {"name": "Leather Armour", "material": "cowhide", "notches": 2, "bonus": 1, "armor_type": "light"}}},
+	"wolf":     {"color": Color(0.55, 0.55, 0.65), "base_hp": 8, "wear": {
+		"weapon": {"hardness": 2, "damage_type": "piercing"},
+		"hide_hardness": 1}},
 }
 
 var current_dungeon: DungeonGenerator
@@ -25,6 +43,7 @@ var turn_ui: TurnUI
 var initiative_tracker: InitiativeTracker
 var bottom_ui: BottomUI
 var attack_preview: Control  # the readout beside an enemy an attack is aimed at
+var gear_warning: Control  # the HUD's lines about gear that is broken or on its last notch
 var grid_overlay: GridOverlay
 var save_load_menu: SaveLoadMenu  # Properly typed now
 var enemies: Array[Enemy] = []
@@ -109,6 +128,7 @@ func _ready():
 	create_initiative_tracker()
 	create_bottom_ui()
 	create_attack_preview()
+	create_gear_warning()
 	create_save_load_menu()  # Create save/load menu
 
 	# Get reference to grid overlay (it's created by dungeon_generator)
@@ -236,6 +256,7 @@ func get_world_state() -> Dictionary:
 			"max_hp": enemy.stats.max_hp,
 			"x": enemy.grid_position.x,
 			"y": enemy.grid_position.y,
+			"gear": enemy.get_gear_state(),
 		})
 
 	var drops: Array = []
@@ -296,7 +317,7 @@ func _restore_from_save(save_data: Dictionary, slot: int):
 		for entry in saved_world.get("enemies", []):
 			_spawn_enemy(str(entry.get("type", "goblin")), int(entry.get("level", 1)),
 				int(entry.get("max_hp", 10)), Vector2i(int(entry.get("x", 0)), int(entry.get("y", 0))),
-				int(entry.get("hp", -1)))
+				int(entry.get("hp", -1)), entry.get("gear", {}) if entry.get("gear") is Dictionary else {})
 		for entry in saved_world.get("ground_items", []):
 			var instances: Array = []
 			for primitive in entry.get("items", []):
@@ -570,9 +591,10 @@ func spawn_enemies(count: int):
 			continue
 		_spawn_enemy(enemy_type, zone_tier, max(1, hp_roll), spawn_pos)
 
-func _spawn_enemy(enemy_type: String, level: int, max_hp: int, grid_pos: Vector2i, current_hp: int = -1) -> Enemy:
+func _spawn_enemy(enemy_type: String, level: int, max_hp: int, grid_pos: Vector2i, current_hp: int = -1, gear_state: Dictionary = {}) -> Enemy:
 	"""Put one enemy into the dungeon. Used for fresh spawns and when a save
-	restores the enemies that were alive. current_hp -1 means full health."""
+	restores the enemies that were alive. current_hp -1 means full health;
+	gear_state is the condition of its shield and armour, whole when left out."""
 	var enemy = EnemyScene.instantiate()
 	enemy.dungeon_generator = current_dungeon
 	enemy.player = player
@@ -585,6 +607,8 @@ func _spawn_enemy(enemy_type: String, level: int, max_hp: int, grid_pos: Vector2
 	enemy.damage_resistances.assign(type_def.get("resistances", []))
 	enemy.damage_vulnerabilities.assign(type_def.get("vulnerabilities", []))
 	enemy.damage_immunities.assign(type_def.get("immunities", []))
+	enemy.wear_data = type_def.get("wear", {})
+	enemy.saved_gear = gear_state
 	enemy.max_hp = max(1, max_hp)
 	enemy.current_hp = enemy.max_hp if current_hp < 0 else clampi(current_hp, 1, enemy.max_hp)
 	_enemy_serial += 1
@@ -667,6 +691,17 @@ func create_attack_preview():
 	attack_preview = AttackPreviewScene.instantiate()
 	canvas_layer.add_child(attack_preview)
 	attack_preview.setup(player, bottom_ui)
+
+func create_gear_warning():
+	"""The HUD's warning about gear in use that is broken or on its last notch,
+	just above the bottom bar"""
+	var canvas_layer = CanvasLayer.new()
+	canvas_layer.name = "GearWarningLayer"
+	add_child(canvas_layer)
+
+	gear_warning = GearWarningScene.instantiate()
+	canvas_layer.add_child(gear_warning)
+	gear_warning.setup(player, bottom_ui)
 
 func create_save_load_menu():
 	"""Create save/load menu"""

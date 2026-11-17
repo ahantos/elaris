@@ -40,10 +40,10 @@ the placeholder, `own art` means the file has been replaced (or never had a plac
 | Player | 4 | 4 | 0 | 0 |
 | Companions | 4 | 4 | 0 | 0 |
 | Loot on the floor | 2 | 2 | 0 | 0 |
-| Item icons | 69 | 69 | 0 | 0 |
-| **Total** | **142** | **142** | **0** | **0** |
+| Item icons | 74 | 74 | 0 | 0 |
+| **Total** | **147** | **147** | **0** | **0** |
 
-Items in the database: 413, of which 413 have an icon.
+Items in the database: 448, of which 448 have an icon.
 
 ## Map tiles
 
@@ -224,6 +224,11 @@ Shown in the character sheet at twice their size. Material variants share the ic
 | `assets/icons/items/material_wood.png` | 32x32 | 9 items: `material_ash`, `material_ebony`, `material_hickory`, `material_ironwood`, `material_maple`, `material_oak`, `material_pine`, `material_starwood`, `material_yew` | `item/weapon/giant_club.png` | stand-in |
 | `assets/icons/items/material_leather.png` | 32x32 | 9 items: `material_bearhide`, `material_boiled_leather`, `material_cowhide`, `material_deerskin`, `material_dragon_leather`, `material_pigskin`, `material_scaled_leather`, `material_wolfhide`, `material_wyvern_leather` | `item/armour/animal_skin1.png` | stand-in |
 | `assets/icons/items/material_cloth.png` | 32x32 | 8 items: `material_burlap`, `material_celestial_cloth`, `material_cotton`, `material_fine_linen`, `material_roughspun_wool`, `material_silk`, `material_spidersilk`, `material_wool` | `item/armour/artefact/urand_starlight.png` | stand-in |
+| `assets/icons/items/repair_kit.png` | 32x32 | `repair_kit` | `item/misc/misc_box.png` | stand-in |
+| `assets/icons/items/scrap_metal.png` | 32x32 | 8 items: `scrap_adamantite`, `scrap_bronze`, `scrap_copper`, `scrap_damascus_steel`, `scrap_mythril`, `scrap_silver`, `scrap_steel`, `scrap_wrought_iron` | `item/misc/misc_stone_inert.png` | stand-in |
+| `assets/icons/items/scrap_wood.png` | 32x32 | 9 items: `scrap_ash`, `scrap_ebony`, `scrap_hickory`, `scrap_ironwood`, `scrap_maple`, `scrap_oak`, `scrap_pine`, `scrap_starwood`, `scrap_yew` | `item/weapon/giant_club2.png` | stand-in |
+| `assets/icons/items/scrap_leather.png` | 32x32 | 9 items: `scrap_bearhide`, `scrap_boiled_leather`, `scrap_cowhide`, `scrap_deerskin`, `scrap_dragon_leather`, `scrap_pigskin`, `scrap_scaled_leather`, `scrap_wolfhide`, `scrap_wyvern_leather` | `item/armour/animal_skin2.png` | stand-in |
+| `assets/icons/items/scrap_cloth.png` | 32x32 | 8 items: `scrap_burlap`, `scrap_celestial_cloth`, `scrap_cotton`, `scrap_fine_linen`, `scrap_roughspun_wool`, `scrap_silk`, `scrap_spidersilk`, `scrap_wool` | `item/armour/robe2.png` | stand-in |
 | `assets/icons/items/scroll.png` | 32x32 | 10 items: `scroll_bless`, `scroll_cure_wounds`, `scroll_fire_bolt`, `scroll_fireball`, `scroll_hold_person`, `scroll_ice_storm`, `scroll_lightning_bolt`, `scroll_magic_missile`, `scroll_misty_step`, `scroll_scorching_ray` | `item/scroll/scroll.png` | stand-in |
 | `assets/icons/items/wand.png` | 32x32 | 10 items: `wand_bless`, `wand_cure_wounds`, `wand_fire_bolt`, `wand_fireball`, `wand_hold_person`, `wand_ice_storm`, `wand_lightning_bolt`, `wand_magic_missile`, `wand_misty_step`, `wand_scorching_ray` | `item/wand/gem_silver.png` | stand-in |
 

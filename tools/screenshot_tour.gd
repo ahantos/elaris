@@ -195,6 +195,83 @@ func _aim_ranged_shot(world, target):
 		player.action_used = false
 	await _wait(0.2)
 
+func _wear_tour(world):
+	"""Worn gear on the character sheet: the segmented bars, the tooltip of a
+	worn weapon and of a broken shield, and the repair bench before and after a
+	repair of everything. The gear is put back whole for the rest of the tour."""
+	var dur = root.get_node("DurabilityManager")
+	var inv = root.get_node("InventoryManager")
+	var items = root.get_node("ItemDatabase")
+	var player = world.player
+	var stats = player.stats
+	var sheet = world.character_screen
+	var sword: Dictionary = inv.get_equipped_item(stats, "main_hand")
+	var shield: Dictionary = inv.get_equipped_item(stats, "off_hand")
+	var mail: Dictionary = inv.get_equipped_item(stats, "chest")
+	if sword.is_empty() or shield.is_empty() or mail.is_empty():
+		return
+	var before: Array = []
+	for piece in [sword, shield, mail]:
+		before.append(piece.duplicate(true))
+	sword.merge({"notches": 1, "marks": 6, "debuffs": ["chipped"], "buffs": ["battle_honed", "blood_forged:goblin"], "wear_names": ["dulled"]}, true)
+	shield.merge({"notches": 0, "ever_broken": true, "debuffs": ["dented"]}, true)
+	mail.merge({"notches": 1, "marks": 4, "debuffs": ["breached"]}, true)
+	inv.recalculate_character_stats(stats)
+	var scrap: Dictionary = items.create_item_instance("scrap_wrought_iron")
+	scrap["stack_count"] = 3
+	inv.add_item(scrap)
+	var spare: Dictionary = items.create_item_instance("bronze_shortsword")
+	spare["notches"] = 2
+	inv.add_item(spare)
+
+	sheet.show_character(stats)
+	await _wait(0.3)
+	await _shot("character_sheet_worn")
+	sheet.show_tooltip_for_slot("main_hand")
+	await _wait(0.3)
+	await _shot("item_tooltip")
+	sheet.show_tooltip_for_slot("off_hand")
+	await _wait(0.3)
+	await _shot("item_tooltip_broken")
+	sheet.hide_tooltip()
+	sheet.repair_bench.get_repair_all_button().pressed.emit()
+	await _wait(0.4)
+	await _shot("repair_all")
+	sheet.hide_screen()
+	paused = false
+
+	# Whole again, with what the repairs used up put back: the rest of the tour is the game as it starts
+	for index in range(3):
+		var piece: Dictionary = [sword, shield, mail][index]
+		for key in ["notches", "notches_max", "marks", "age", "debuffs", "buffs", "wear_names"]:
+			piece[key] = before[index][key]
+		piece.erase("ever_broken")
+	inv.recalculate_character_stats(stats)
+	for carried in inv.items.duplicate():
+		if carried.item_data.item_id in ["scrap_wrought_iron", "bronze_shortsword", "repair_kit"]:
+			inv.items.erase(carried)
+	var kits: Dictionary = items.create_item_instance("repair_kit")
+	kits["stack_count"] = items.STARTING_REPAIR_KITS
+	inv.add_item(kits)
+	await _wait(4.5)  # the repair's toasts have gone
+
+func _notch_lost_shot(world, attacker):
+	"""A critical hit on the player, announced as CombatManager announces one:
+	the shield loses a notch, the log and a toast say so, and with one notch
+	left the HUD warns"""
+	var player = world.player
+	if not is_instance_valid(attacker) or not attacker.is_alive() or not player.is_alive():
+		return
+	var weapon = attacker.get_weapon()
+	root.get_node("EventBus").attack_resolved.emit({
+		"attacker": attacker, "target": player, "kind": "weapon", "roll": 20, "hit": true, "is_crit": true, "is_fumble": false,
+		"outcome": "critical", "weapon": weapon, "weapon_instance": {}, "natural_weapon": true, "weapon_name": weapon.item_name,
+		"damage_type": weapon.damage_type if weapon.damage_type != "" else "physical", "is_ranged": false, "two_handed": false,
+		"two_handed_grip": false, "damage": 0, "damage_response": "", "result": {},
+	})
+	await _wait(0.4)
+	await _shot("combat_notch_lost")
+
 func _remove_tour_saves():
 	"""Delete this run's scratch folder and everything in it"""
 	var dir := DirAccess.open(_save_dir)
@@ -254,6 +331,7 @@ func _run():
 	world.character_screen.hide_screen()
 	paused = false
 	await _wait(0.2)
+	await _wear_tour(world)
 
 	# Panels, with something in them: a companion recruited, debug keys on
 	game.debug_keys = true
@@ -308,6 +386,7 @@ func _run():
 				break
 		await _wait(1.2)
 		await _shot("combat_start")
+		await _notch_lost_shot(world, target)
 		for round_number in range(12):
 			var waited := 0.0
 			while world.in_combat and is_instance_valid(player) and not world.combat.is_turn_of(player) and waited < 12.0:

@@ -2,8 +2,9 @@
 # The readout beside an enemy while an attack is aimed at it
 # (scenes/ui/attack_preview.tscn): the weapon that would be used, the chance to
 # hit, the damage, whether the target resists it, is vulnerable or immune to
-# it, and what gives the roll advantage or disadvantage or the target cover -
-# or, for an enemy that cannot be attacked, the reason.
+# it, what the wear of the weapon and of the target's gear does to the attack,
+# and what gives the roll advantage or disadvantage or the target cover - or,
+# for an enemy that cannot be attacked, the reason.
 # Display only. Everything it shows is the CombatController's answer
 # (preview_attack), which the combatant keeps while the pointer rests on an
 # enemy (Combatant.get_aim_preview).
@@ -27,6 +28,7 @@ var _keep_clear: Control = null
 @onready var _chance: Label = %Chance
 @onready var _damage: Label = %Damage
 @onready var _response: Label = %Response
+@onready var _wear: Label = %Wear
 @onready var _advantage: Label = %Advantage
 @onready var _disadvantage: Label = %Disadvantage
 @onready var _cover: Label = %Cover
@@ -52,7 +54,7 @@ func get_lines() -> Array[String]:
 	"""The text on show, top to bottom: for checks"""
 	var lines: Array[String] = []
 	if _panel.visible:
-		for label in [_target, _weapon, _chance, _damage, _response, _advantage, _disadvantage, _cover, _refusal]:
+		for label in [_target, _weapon, _chance, _damage, _response, _wear, _advantage, _disadvantage, _cover, _refusal]:
 			if label.visible:
 				lines.append(label.text)
 	return lines
@@ -86,6 +88,11 @@ func _fill(preview: Dictionary, target: Combatant):
 	var response_text: String = str(preview.get("damage_response", {}).get("text", ""))
 	_response.text = response_text
 	_response.visible = can_attack and response_text != ""
+	# What wear does to this attack: the weapon's lost notches, its debuffs and
+	# buffs, the target's torn or breached gear
+	var wear_notes: Array = preview.get("wear_notes", [])
+	_wear.text = "\n".join(wear_notes)
+	_wear.visible = can_attack and not wear_notes.is_empty()
 
 	_show_reasons(_advantage, "Advantage", hit.get("advantage_reasons", []), cancelled, can_attack)
 	_show_reasons(_disadvantage, "Disadvantage", hit.get("disadvantage_reasons", []), cancelled, can_attack)

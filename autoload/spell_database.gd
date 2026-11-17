@@ -90,7 +90,7 @@ func _validate_definitions():
 
 func _register_spell_items() -> int:
 	"""Register scroll_<spell_id> (single-use CONSUMABLE) and wand_<spell_id>
-	(7-charge MISC item; current_durability = remaining charges) items with
+	(7-charge MISC item; the instance's charges are what remain) items with
 	ItemDatabase for the iconic spell list. Returns the number of items registered.
 	Runs every boot, so saved instances of these ids always resolve."""
 	if not ItemDatabase.has_method("register_item"):
@@ -128,16 +128,14 @@ func _build_scroll_item(spell: Dictionary) -> ItemData:
 	return item
 
 func _build_wand_item(spell: Dictionary) -> ItemData:
-	"""Spell wand: WAND_CHARGES charges tracked as instance durability
-	(SpellManager.use_wand decrements current_durability; 0 charges = fizzle)."""
+	"""Spell wand: WAND_CHARGES charges, kept on the item instance
+	(SpellManager.use_wand spends one; 0 charges = fizzle)."""
 	var level = int(spell.get("level", 0))
 	var item = ItemData.new()
 	item.item_id = "wand_" + str(spell.get("spell_id", ""))
 	item.item_name = "Wand of " + str(spell.get("display_name", "?"))
 	item.item_type = ItemData.ItemType.MISC
-	item.has_durability = true
-	item.max_durability = WAND_CHARGES
-	item.can_break_permanently = false
+	item.max_charges = WAND_CHARGES
 	item.weight = 1.0
 	item.base_value = 150 + level * 200
 	item.is_magical = true

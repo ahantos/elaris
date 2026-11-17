@@ -10,6 +10,8 @@ extends Node
 #       "weight": float, "count_min": int, "count_max": int }
 #     A category entry rolls one item of that category in a material that can be
 #     obtained (ItemDatabase.get_random_item_by_type); a dearer material is rarer.
+#     A weapon or a piece of armour that drops has seen use: it arrives with
+#     some of its notches gone (DurabilityManager.wear_looted).
 #   gold_min: int
 #   gold_max: int
 #   gold_level_scale: float  (extra gold per enemy level)
@@ -37,6 +39,7 @@ func _build_tables():
 			{"item_id": "material_oak",         "weight": 15, "count_min": 1, "count_max": 2},
 			{"item_id": "potion_healing_minor", "weight": 10, "count_min": 1, "count_max": 1},
 			{"category": "material",            "weight": 20, "count_min": 1, "count_max": 1},
+			{"item_id": "repair_kit",           "weight": 8,  "count_min": 1, "count_max": 1},
 		],
 		"gold_min": 1, "gold_max": 5,
 		"gold_level_scale": 0.5
@@ -53,6 +56,7 @@ func _build_tables():
 			{"item_id": "material_bronze",      "weight": 15, "count_min": 1, "count_max": 3},
 			{"item_id": "antidote",             "weight": 5,  "count_min": 1, "count_max": 1},
 			{"category": "weapon",              "weight": 25, "count_min": 1, "count_max": 1},
+			{"item_id": "repair_kit",           "weight": 8,  "count_min": 1, "count_max": 1},
 		],
 		"gold_min": 2, "gold_max": 8,
 		"gold_level_scale": 0.8
@@ -69,6 +73,7 @@ func _build_tables():
 			{"item_id": "thieves_tools",        "weight": 8,  "count_min": 1, "count_max": 1},
 			{"item_id": "material_cowhide",     "weight": 15, "count_min": 1, "count_max": 2},
 			{"item_id": "material_wrought_iron","weight": 7,  "count_min": 1, "count_max": 2},
+			{"item_id": "repair_kit",           "weight": 12, "count_min": 1, "count_max": 1},
 		],
 		"gold_min": 5, "gold_max": 20,
 		"gold_level_scale": 1.5
@@ -98,6 +103,7 @@ func _build_tables():
 			{"category": "material",            "weight": 20, "count_min": 2, "count_max": 4},
 			{"item_id": "ring_protection",      "weight": 5,  "count_min": 1, "count_max": 1},
 			{"item_id": "amulet_health",        "weight": 5,  "count_min": 1, "count_max": 1},
+			{"item_id": "repair_kit",           "weight": 10, "count_min": 2, "count_max": 3},
 		],
 		"gold_min": 20, "gold_max": 100,
 		"gold_level_scale": 5.0
@@ -111,6 +117,7 @@ func _build_tables():
 			{"category": "material",            "weight": 35, "count_min": 1, "count_max": 2},
 			{"category": "weapon",              "weight": 15, "count_min": 1, "count_max": 1},
 			{"category": "armor",               "weight": 10, "count_min": 1, "count_max": 1},
+			{"item_id": "repair_kit",           "weight": 8,  "count_min": 1, "count_max": 1},
 		],
 		"gold_min": 0, "gold_max": 5,
 		"gold_level_scale": 0.3
@@ -126,7 +133,7 @@ func _get_table(enemy_type: String) -> Dictionary:
 
 
 func _roll_entry(entry: Dictionary, enemy_level: int) -> Array:
-	"""Resolve one loot entry into item instances."""
+	"""Resolve one loot entry into item instances. Gear that wears arrives worn."""
 	var results: Array = []
 	var count: int = randi_range(entry.get("count_min", 1), entry.get("count_max", 1))
 
@@ -142,6 +149,7 @@ func _roll_entry(entry: Dictionary, enemy_level: int) -> Array:
 		var inst := ItemDatabase.create_item_instance(entry["item_id"], quality, magic)
 		if not inst.is_empty():
 			inst["stack_count"] = count
+			DurabilityManager.wear_looted(inst)
 			results.append(inst)
 
 	elif entry.has("category"):
@@ -150,6 +158,7 @@ func _roll_entry(entry: Dictionary, enemy_level: int) -> Array:
 			var inst := ItemDatabase.create_item_instance(item_data.item_id, quality, magic)
 			if not inst.is_empty():
 				inst["stack_count"] = count
+				DurabilityManager.wear_looted(inst)
 				results.append(inst)
 
 	return results

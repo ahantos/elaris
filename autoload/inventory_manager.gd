@@ -497,7 +497,8 @@ func _equipped_items(character: CharacterStats, in_use_only: bool) -> Array:
 	return all_items
 
 func recalculate_character_stats(character: CharacterStats):
-	"""Recalculate character's stats from the gear in use"""
+	"""Recalculate character's stats from the gear in use. Call it whenever a
+	piece in use changes: equipped, taken off, swapped, notched, broken, mended."""
 	character.apply_equipment_bonuses(get_active_equipped_items(character))
 
 func add_item_or_drop(item_instance: Dictionary) -> bool:
@@ -624,18 +625,25 @@ func to_dict() -> Dictionary:
 	}
 
 func _instance_to_primitive(item_instance: Dictionary) -> Dictionary:
-	"""Serialize an item instance to primitives (rebuilt via ItemDatabase on load)"""
+	"""Serialize an item instance to primitives (rebuilt via ItemDatabase on
+	load): its id, its bonuses and its stack count; for a wand its charges; for
+	a weapon, a shield or a piece of armour its condition - notches, marks, age,
+	debuffs, buffs and what its buffs count (DurabilityManager.write_primitive)"""
 	var item_data = item_instance.get("item_data")
-	return {
+	var primitive: Dictionary = {
 		"item_id": item_data.item_id if item_data else "",
 		"quality_modifier": item_instance.get("quality_modifier", 0),
 		"magic_modifier": item_instance.get("magic_modifier", 0),
-		"current_durability": item_instance.get("current_durability", 0),
 		"stack_count": item_instance.get("stack_count", 1)
 	}
+	if item_instance.has("charges"):
+		primitive["charges"] = int(item_instance.charges)
+	DurabilityManager.write_primitive(item_instance, primitive)
+	return primitive
 
 func _instance_from_primitive(data: Dictionary) -> Dictionary:
-	"""Rebuild an item instance from its primitive save form"""
+	"""Rebuild an item instance from its primitive save form. A form without
+	condition or charges gives a whole piece or a full wand."""
 	var instance = ItemDatabase.create_item_instance(
 		data.get("item_id", ""),
 		data.get("quality_modifier", 0),
@@ -643,7 +651,9 @@ func _instance_from_primitive(data: Dictionary) -> Dictionary:
 	)
 	if instance.is_empty():
 		return {}
-	instance.current_durability = data.get("current_durability", instance.get("current_durability", 0))
+	if instance.has("charges"):
+		instance["charges"] = clampi(int(data.get("charges", instance.charges)), 0, int(instance.max_charges))
+	DurabilityManager.read_primitive(instance, data)
 	if data.get("stack_count", 1) > 1:
 		instance.stack_count = data.get("stack_count", 1)
 	return instance

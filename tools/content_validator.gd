@@ -138,6 +138,25 @@ static func find_issues(root: Node) -> Array:
 					continue  # category tokens / prefixes, not single item ids
 				_check_item(issues, "companion %s: %s item" % [companion_id, list_key], items, gift)
 
+	# --- what the durability rules know about each enemy type ---
+	if world != null:
+		var combat = root.get_node("CombatManager")
+		for enemy_type in world.ENEMY_TYPE_DEFS:
+			var wear = world.ENEMY_TYPE_DEFS[enemy_type].get("wear", {})
+			if not (wear is Dictionary):
+				issues.append("enemy %s: wear data is not a dictionary" % enemy_type)
+				continue
+			for slot in ["weapon", "shield", "armor"]:
+				var entry = wear.get(slot)
+				if not (entry is Dictionary):
+					continue
+				if entry.has("material") and items.get_material(str(entry.material)) == null:
+					issues.append("enemy %s: %s material '%s' does not exist" % [enemy_type, slot, str(entry.material)])
+				if slot != "weapon" and not entry.has("material"):
+					issues.append("enemy %s: its %s has no material" % [enemy_type, slot])
+				if entry.has("damage_type") and not combat.is_damage_type(str(entry.damage_type)):
+					issues.append("enemy %s: %s damage type '%s' does not exist" % [enemy_type, slot, str(entry.damage_type)])
+
 	# --- zones ---
 	for zone_id in zones.zones:
 		var biome := str(zones.zones[zone_id].get("biome", ""))

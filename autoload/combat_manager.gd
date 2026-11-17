@@ -33,7 +33,9 @@
 #   is_critical   bool
 #   kind          "weapon" | "spell" | "effect" | "other"
 #   context       what the caller passed: weapon (ItemData), weapon_instance,
-#                 spell_id, effect_id
+#                 spell_id, effect_id; attack_roll (the damage of an attack
+#                 that hit: make_attack and make_spell_attack set it);
+#                 breath_weapon (a breath weapon: nothing sets it yet)
 #   immune, resistant, vulnerable   bool: what the target is to this type
 #   response      "" | "immune" | "resisted" | "vulnerable": what its nature did
 #   prevented, hp_left, prevented_by   see step 3
@@ -60,6 +62,12 @@
 #   damage_response  the response of the damage event ("resisted", ...)
 #   spell_id         for a spell attack
 #   result           the whole attack result
+#
+# WEAR. Gear wears through these hooks (DurabilityManager): a critical hit and
+# a natural 1 take notches when attack_resolved is raised. What wear costs is
+# read here: a weapon's lost notches and its buffs in build_attack_profile, a
+# broken weapon that cannot attack, a creature's damaged armour and a breached
+# target's wider critical range in the attack roll.
 extends Node
 
 # Combat constants
@@ -195,12 +203,18 @@ func build_attack_profile(attacker: Combatant, weapon: ItemData, set_index: int 
 	- The piece in the attacker's hand adds its own bonus, read from the item
 	  instance: the higher of its craftsmanship and magic bonus to the attack
 	  roll, its magic bonus to the damage.
+	- The piece's wear counts (DurabilityManager): every second lost notch
+	  takes 1 from the attack roll, a chipped weapon deals 1 less damage, a
+	  Battle-Honed one adds 1 to the roll - and a broken weapon cannot attack:
+	  usable is false and reason says so.
 	Returns {weapon: ItemData or null, weapon_instance (the instance the
 	attacker holds of it, {} for none), weapon_name, damage_dice ("" when the
 	damage has no dice), flat_damage, damage_bonus (the weapon's magic bonus to
-	damage), damage_type (contract string), ability ("str" | "dex"),
-	ability_modifier, proficient, attack_bonus, two_handed_grip, is_ranged,
-	range_normal, range_max (tiles; 0 for a melee attack), usable, reason}."""
+	damage, less what a chipped edge takes), damage_type (contract string),
+	ability ("str" | "dex"), ability_modifier, proficient, attack_bonus,
+	wear_attack_penalty (what its lost notches took from attack_bonus),
+	two_handed_grip, is_ranged, range_normal, range_max (tiles; 0 for a melee
+	attack), usable, reason}."""
 	var stats: CharacterStats = attacker.stats
 	var strength: int = stats.get_str_modifier()
 	var profile: Dictionary = {
@@ -215,6 +229,7 @@ func build_attack_profile(attacker: Combatant, weapon: ItemData, set_index: int 
 		"ability_modifier": strength,
 		"proficient": true,
 		"attack_bonus": strength + stats.proficiency_bonus,
+		"wear_attack_penalty": 0,
 		"two_handed_grip": false,
 		"is_ranged": false,
 		"range_normal": 0,
@@ -225,7 +240,7 @@ func build_attack_profile(attacker: Combatant, weapon: ItemData, set_index: int 
 	if weapon == null or not weapon.is_weapon:
 		return profile
 
-	var instance: Dictionary = attacker.get_weapon_instance(weapon)
+	var instance: Dictionary = attacker.get_weapon_instance(weapon, set_index)
 	profile["weapon"] = weapon
 	profile["weapon_instance"] = instance
 	profile["weapon_name"] = weapon.item_name if instance.is_empty() else ItemDatabase.get_instance_name(instance)
@@ -253,12 +268,19 @@ func build_attack_profile(attacker: Combatant, weapon: ItemData, set_index: int 
 	if profile["proficient"]:
 		attack_bonus += stats.proficiency_bonus
 	attack_bonus += ItemDatabase.get_instance_bonus(instance)
+	# Wear: every second lost notch costs 1 to hit; a weapon that has earned
+	# its name adds to the roll; a chipped edge deals less
+	profile["wear_attack_penalty"] = DurabilityManager.get_attack_penalty(instance)
+	attack_bonus += DurabilityManager.get_attack_bonus(instance) - int(profile["wear_attack_penalty"])
 	profile["attack_bonus"] = attack_bonus
-	profile["damage_bonus"] = ItemDatabase.get_instance_magic_bonus(instance)
+	profile["damage_bonus"] = ItemDatabase.get_instance_magic_bonus(instance) - DurabilityManager.get_damage_penalty(instance)
 
 	if weapon.is_two_handed and not off_hand_free:
 		profile["usable"] = false
 		profile["reason"] = "%s needs both hands free" % weapon.item_name
+	if DurabilityManager.is_broken(instance):
+		profile["usable"] = false
+		profile["reason"] = "%s is broken" % str(profile["weapon_name"])
 	return profile
 
 # === ATTACK SYSTEM ===
@@ -290,7 +312,7 @@ func make_attack(attacker: Combatant, target: Combatant, profile: Dictionary = {
 	var instance: Dictionary = profile.get("weapon_instance", {})
 	if result.hit:
 		var dealt: Dictionary = deal_damage(attacker, target, result.damage, result.damage_type, {
-			"kind": KIND_WEAPON, "is_critical": result.is_crit, "weapon": weapon, "weapon_instance": instance,
+			"kind": KIND_WEAPON, "is_critical": result.is_crit, "weapon": weapon, "weapon_instance": instance, "attack_roll": true,
 		})
 		result["damage"] = int(dealt.get("amount", 0))
 		result["damage_response"] = str(dealt.get("response", ""))
@@ -322,20 +344,23 @@ func make_spell_attack(caster: Combatant, target: Combatant, spell: Dictionary) 
 	"""One spell attack: a d20 plus the caster's spell attack bonus against the
 	target's armour class (with its status effects), and on a hit the spell's
 	damage dice, rolled twice on a natural 20, put through the pipeline with the
-	spell's damage type. A natural 1 always misses. Announces the attack with
-	EventBus.attack_resolved, hit or miss.
+	spell's damage type. A natural 1 always misses. Against a target in
+	breached armour a hit on a natural 19 is a critical hit too. Announces the
+	attack with EventBus.attack_resolved, hit or miss.
 	Returns {hit, roll, total, attack_bonus, target_ac, is_crit, is_fumble,
 	damage (hit points lost), damage_rolled, damage_type, damage_response,
 	prevented_by}."""
 	var spell_id: String = str(spell.get("spell_id", ""))
 	var damage_type: String = str(spell.get("damage_type", "physical"))
 	var roll: int = randi_range(1, D20_FACES)
-	var is_crit: bool = roll == CRIT_THRESHOLD
 	var is_fumble: bool = roll == FUMBLE_THRESHOLD
 	var attack_bonus: int = int(caster.stats.spell_attack_bonus) if is_instance_valid(caster) and caster.stats != null else 0
-	var target_ac: int = int(target.stats.armor_class) + StatusEffectManager.get_ac_modifier(target)
+	var target_ac: int = int(target.stats.armor_class) + StatusEffectManager.get_ac_modifier(target) \
+		+ DurabilityManager.get_armor_class_modifier(target, damage_type)
+	var lands: bool = roll == CRIT_THRESHOLD or (not is_fumble and roll + attack_bonus >= target_ac)
+	var is_crit: bool = lands and roll >= DurabilityManager.get_critical_threshold(target, CRIT_THRESHOLD)
 	var result: Dictionary = {
-		"hit": is_crit or (not is_fumble and roll + attack_bonus >= target_ac),
+		"hit": lands,
 		"roll": roll, "total": roll + attack_bonus, "attack_bonus": attack_bonus, "target_ac": target_ac,
 		"is_crit": is_crit, "is_fumble": is_fumble,
 		"damage": 0, "damage_rolled": 0, "damage_type": damage_type, "damage_response": "", "prevented_by": "",
@@ -348,7 +373,7 @@ func make_spell_attack(caster: Combatant, target: Combatant, spell: Dictionary) 
 		result["damage_rolled"] = rolled
 		if rolled > 0:
 			var dealt: Dictionary = deal_damage(caster, target, rolled, damage_type, {
-				"kind": KIND_SPELL, "is_critical": is_crit, "spell_id": spell_id,
+				"kind": KIND_SPELL, "is_critical": is_crit, "spell_id": spell_id, "attack_roll": true,
 			})
 			result["damage"] = int(dealt.get("amount", 0))
 			result["damage_response"] = str(dealt.get("response", ""))
@@ -391,7 +416,10 @@ func get_attack_modifiers(attacker: Combatant, target: Combatant, profile: Dicti
 	roll_attack rolls with it and get_hit_chance turns it into a chance, so what
 	the player is shown is what is rolled. No dice.
 	- Status effects on either side give advantage or disadvantage; blessed or
-	  cursed change the attack bonus; the target's AC takes its effects.
+	  cursed change the attack bonus; the target's AC takes its effects, and
+	  what its gear's wear changes at the moment of an attack: a creature's own
+	  damaged armour, Dragon-Hardened armour against fire and cold
+	  (DurabilityManager.get_armor_class_modifier).
 	- A target that is dodging gives disadvantage.
 	- A heavily laden party member attacks at disadvantage.
 	- An attacker in body armour or with a shield its class is not proficient
@@ -470,7 +498,8 @@ func get_attack_modifiers(attacker: Combatant, target: Combatant, profile: Dicti
 		# Ability modifier, proficiency and the weapon's own bonus come from the
 		# profile; blessed and cursed add to the roll
 		"attack_bonus": int(profile.get("attack_bonus", 0)) + StatusEffectManager.get_attack_roll_modifier(attacker),
-		"target_ac": target.stats.armor_class + StatusEffectManager.get_ac_modifier(target) + cover_bonus,
+		"target_ac": target.stats.armor_class + StatusEffectManager.get_ac_modifier(target) + cover_bonus
+			+ DurabilityManager.get_armor_class_modifier(target, str(profile.get("damage_type", ""))),
 		"cover_bonus": cover_bonus,
 		"flanking": flanking,
 		"distance": distance,
@@ -527,7 +556,9 @@ func roll_attack(attacker: Combatant, target: Combatant, profile: Dictionary = {
 	- an incapacitated attacker (stunned, paralyzed, frozen) cannot attack at
 	  all (the result has auto_fail = true),
 	- a melee hit on a paralyzed or frozen target next to the attacker is a
-	  critical hit.
+	  critical hit,
+	- a hit on a natural 19 is a critical hit too against a target in breached
+	  armour (DurabilityManager.get_critical_threshold).
 	Returns {hit, roll, total, target_ac, is_crit, is_fumble, damage,
 	damage_type, damage_dice, weapon_name, is_ranged, attack_bonus, advantage,
 	disadvantage, reasons, cover_bonus, flanking, distance, auto_fail}."""
@@ -577,19 +608,17 @@ func roll_attack(attacker: Combatant, target: Combatant, profile: Dictionary = {
 	elif disadvantage and not advantage:
 		roll = min(roll1, roll2)
 
-	# Check for crit/fumble
-	var is_crit = (roll == CRIT_THRESHOLD)
+	# A natural 20 always hits and a natural 1 always misses
 	var is_fumble = (roll == FUMBLE_THRESHOLD)
 	var total = roll + attack_bonus
-
-	# Check if hit
 	var hit = false
-	if is_crit:
+	if roll == CRIT_THRESHOLD:
 		hit = true
-	elif is_fumble:
-		hit = false
-	else:
+	elif not is_fumble:
 		hit = (total >= target_ac)
+
+	# A hit is critical on a natural 20; a point sooner against breached armour
+	var is_crit = hit and roll >= DurabilityManager.get_critical_threshold(target, CRIT_THRESHOLD)
 
 	# Melee hits on helpless (paralyzed/frozen) targets within 1 tile auto-crit
 	if hit and not is_crit and not result.is_ranged and modifiers.distance <= MELEE_REACH:
