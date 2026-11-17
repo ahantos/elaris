@@ -321,6 +321,30 @@ func _click(screen_pos: Vector2):
 		event.global_position = screen_pos
 		root.push_input(event, true)  # already in the viewport's own coordinates
 
+func _move_pointer(screen_pos: Vector2):
+	"""Move the mouse pointer to a point of the 1920x1080 screen, as the engine
+	sees it. The engine keeps the pointer in the window's own pixels."""
+	var event := InputEventMouseMotion.new()
+	event.position = root.get_screen_transform() * screen_pos
+	event.global_position = event.position
+	Input.parse_input_event(event)
+
+func _on_screen(node) -> Vector2:
+	"""Where a node of the map is on the screen"""
+	return node.get_global_transform_with_canvas().origin
+
+func _camera_at_rest(node) -> bool:
+	"""Wait until the camera has stopped gliding: a node of the map stays where
+	it is on the screen for a tenth of a second. False when it never does."""
+	var last: Vector2 = _on_screen(node)
+	for sample in range(50):
+		await _wait(0.1)
+		var now: Vector2 = _on_screen(node)
+		if now.distance_to(last) < 0.01:
+			return true
+		last = now
+	return false
+
 func _check_debug_keys(world):
 	var game = _mgr("GameManager")
 	var ui = _mgr("UIManager")
@@ -1625,7 +1649,20 @@ func _check_ranged(world):
 	readout.refresh()
 	check(player.get_aim_preview().get("weapon_name", "") == "Iron Longsword" and readout.get_lines().slice(0, 2) == ["Goblin", "Iron Longsword"],
 		"on an enemy in reach the readout names the melee weapon", str(readout.get_lines()))
-	await _frames(2)
+	# The mouse itself: the pointer moved onto the far goblin, and then onto the bottom bar
+	var camera_still: bool = await _camera_at_rest(far)
+	_move_pointer(_on_screen(far))
+	await _frames(3)
+	var pointed_at = player.get_aim_preview().get("target")
+	var pointed_tile: Vector2i = player._pointer_tile()
+	var pointed_lines: Array = readout.get_lines()
+	_move_pointer(world.bottom_ui.get_global_rect().get_center())
+	await _frames(3)
+	check(camera_still and pointed_tile == far.grid_position and pointed_at == far and pointed_lines.slice(0, 2) == ["Goblin", "Oak Light Crossbow"],
+		"with the mouse pointer on an enemy the readout shows that enemy", "%s: %s" % [str(pointed_tile), str(pointed_lines)])
+	check(player.attack_mode and player._pointer_tile() == Vector2i(-1, -1) and player.get_aim_preview().is_empty() and not readout.is_showing(),
+		"with the mouse pointer on the bottom bar no tile of the map is pointed at, and the readout is gone", str(player._pointer_tile()))
+	_move_pointer(Vector2.ZERO)
 	check(attack_button.button_pressed and "click a marked enemy" in bar._hint.text and "Iron Longsword on an adjacent enemy" in bar._hint.text
 		and "Oak Light Crossbow to 16 tiles (to 64 at disadvantage)" in bar._hint.text,
 		"while aiming, the bar says how far each weapon reaches", bar._hint.text)
