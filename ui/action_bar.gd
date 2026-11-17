@@ -172,11 +172,17 @@ func _swap_detail() -> String:
 	var profile: Dictionary = CombatManager.get_set_profile(combatant, other)
 	var off_hand = combatant.get_hand_instance("off_hand", other).get("item_data")
 	if off_hand is ItemData:
-		var held: String = off_hand.weapon_type.capitalize() if off_hand.weapon_type != "" else off_hand.item_name.get_slice(" ", off_hand.item_name.get_slice_count(" ") - 1)
-		return "%s\n+ %s" % [_weapon_kind(profile), held]
+		return "%s\n+ %s" % [_weapon_kind(profile), _item_kind(off_hand)]
 	if profile.weapon == null:
 		return "Empty hands"
 	return "%s\n%s" % [_weapon_kind(profile), CombatManager.get_damage_text(profile)]
+
+func _item_kind(item_data: ItemData) -> String:
+	"""'Shield': the kind of thing an item is, without its material. A weapon's
+	base type; for anything else the last word of its name."""
+	if item_data.weapon_type != "":
+		return item_data.weapon_type.capitalize()
+	return item_data.item_name.get_slice(" ", item_data.item_name.get_slice_count(" ") - 1)
 
 func _weapon_kind(profile: Dictionary) -> String:
 	"""'Light Crossbow': the kind of weapon, short enough for a line of a button"""

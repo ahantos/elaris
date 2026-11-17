@@ -2032,6 +2032,19 @@ func _check_weapon_sets(world):
 	sheet.hide_screen()
 	paused = false
 
+	# --- a character created over leaves nothing behind for a save to pick up ---
+	# Its stats carry the same uid as the character that replaces it
+	var replaced = builder.build("fighter", "human", {"str": 15, "dex": 14, "con": 13, "int": 12, "wis": 10, "cha": 8}, "Replaced")
+	inv.equipped_items[replaced] = {}
+	inv.set_weapon_set(replaced, 2)
+	inv.forget_character(replaced)
+	var forgotten: bool = not inv.equipped_items.has(replaced) and not inv.weapon_sets_in_hand.has(replaced)
+	inv.weapon_sets_in_hand[replaced] = 2
+	var saved_sets: Dictionary = inv.to_dict()["weapon_sets"]
+	inv.weapon_sets_in_hand.erase(replaced)
+	check(forgotten and replaced.character_uid == stats.character_uid and saved_sets.size() == 1 and int(saved_sets.get("player", 0)) == 1,
+		"a save takes the set in hand from the characters whose gear it holds, not from one that was created over", str(saved_sets))
+
 	# --- enemies and companions: set one, a second if they have one ---
 	var enemy = world.enemies[0]
 	var no_second: Dictionary = controller.check_action(enemy, "swap_weapons")
@@ -2512,7 +2525,7 @@ func _check_actions(world):
 	await _frames(2)
 
 # ---------------------------------------------------------------------------
-#  Ranged attacks: the weapon follows the target; range, sight, cover, hands
+#  The set in hand: sword or crossbow, and the swap; range, sight and cover
 # ---------------------------------------------------------------------------
 
 func _find_strip(world, origin: Vector2i, length: int) -> Array:

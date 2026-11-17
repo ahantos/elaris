@@ -341,7 +341,7 @@ func _on_character_created(new_stats):
 	# character's equipment bookkeeping and bag first, so nothing is orphaned
 	# under the old stats object and no second starting kit piles up.
 	if player.stats:
-		InventoryManager.equipped_items.erase(player.stats)
+		InventoryManager.forget_character(player.stats)
 	InventoryManager.items.clear()
 
 	player.stats = new_stats

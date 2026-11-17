@@ -445,6 +445,12 @@ func unequip_item(character: CharacterStats, slot: String, item_instance: Dictio
 	
 	return unequipped
 
+func forget_character(character: CharacterStats):
+	"""Drop everything kept for a character that is no more: what it had
+	equipped and which weapon set it held (the character was created anew)"""
+	equipped_items.erase(character)
+	weapon_sets_in_hand.erase(character)
+
 func get_equipped_item(character: CharacterStats, slot: String) -> Dictionary:
 	"""Get item equipped in a specific slot (returns first item for multi-slots)"""
 	if equipped_items.has(character) and equipped_items[character].has(slot):
@@ -604,8 +610,9 @@ func to_dict() -> Dictionary:
 				slots[slot] = _instance_to_primitive(entry)
 		equipped[uid] = slots
 
+	# The set in hand, for the characters whose equipment is saved above
 	var in_hand: Dictionary = {}
-	for character in weapon_sets_in_hand:
+	for character in equipped_items:
 		if "character_uid" in character and character.character_uid != "":
 			in_hand[character.character_uid] = get_weapon_set(character)
 

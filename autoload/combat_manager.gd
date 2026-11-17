@@ -1,10 +1,11 @@
 # combat_manager.gd
 # AutoLoad singleton - every die rolled in a fight: attack rolls, damage, saving
 # throws, initiative, opportunity attacks. It works out what a combatant attacks
-# with (the weapon set it has in hand, by 5e rules), reads status effects and position (range, cover and flanking via CombatGrid),
-# says what the chance to hit is before anything is rolled, and applies the
-# damage. It does not know whose turn it is: the CombatController decides what
-# may be done and asks here for the outcome.
+# with (the weapon set it has in hand, by 5e rules), reads status effects and
+# position (range, cover and flanking via CombatGrid), says what the chance to
+# hit is before anything is rolled, and applies the damage. It does not know
+# whose turn it is: the CombatController decides what may be done and asks here
+# for the outcome.
 #
 # THE DAMAGE PIPELINE
 # All damage - a weapon hit, a spell, a status effect's tick, anything else -
