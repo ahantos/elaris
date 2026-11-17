@@ -463,7 +463,7 @@ Made by Ákos on 2026-11-16.
 | 1 | Combat input | Weapon-based action bar. The light / medium / heavy buttons go |
 | 2 | Party in combat | The player controls each member on their turn, with an option to hand companions to AI |
 | 3 | Towns | Town screen plus a world map of locations |
-| 4 | Durability and repair | Keep. It is a core mechanic. Decided 2026-11-17: shape B (erosion), with critical hits as the main event, scaled by material, quality and magic. Start from the rules below and tune by play |
+| 4 | Durability and repair | Keep. It is a core mechanic. Direction set 2026-11-17: shape B (erosion), with special attention to critical hits, scaled by material rarity and magic level. The actual rules will be based on the system Ákos designed for his homebrew D&D campaign, which he will bring. The sketch below is provisional |
 | 5 | Level range | 1–5 for now, with expansion planned (below). Nothing may hard-code 5 |
 | 6 | Art | Own art eventually, drawn at 32×32. Until then the Dungeon Crawl Stone Soup CC0 tiles as placeholders, wired so own art drops in by replacing files (below) |
 | 7 | Names and lore | Deferred. The code's names stay until decided: Brackenford / Dawnwatch / Mournstead and Merchants' Guild / Order of the Dawn / Gravewardens. The design doc says Ironhold / Silverwood / Blackstone Keep and Royal Guard / Thieves Guild / Order of Light, and refers to a campaign setting that is not written down in the repo |
@@ -471,11 +471,19 @@ Made by Ákos on 2026-11-16.
 
 ### Durability
 
-Status: decided 2026-11-17. Shape B below, built around critical hits, as a starting
-point to tune by play. The starting rules follow; the options that were considered are
-kept after them for reference.
+Status: direction set 2026-11-17, rules not final. Ákos chose shape B with special
+attention to critical hits, depending on material rarity and magic level. He has a
+durability system he designed for his homebrew D&D campaign and the game's rules will
+be based on that; he will supply it. It includes **passive degradation based on combat
+length**, which the sketch below does not have.
 
-#### Starting rules (version 1)
+Until his system is in this document, nothing below is settled. Phase 2 builds the
+damage pipeline with the hooks durability needs and leaves the rules themselves for
+his input.
+
+#### Provisional sketch (to be replaced by the homebrew system)
+
+Written before Ákos mentioned his own system. Keep what fits it; drop the rest.
 
 **Notches.** Weapons, shields, body armour and helmets have a small number of
 condition notches. Nothing else wears. Notches replace the unused 20-to-150 point
@@ -493,6 +501,7 @@ Each level of craftsmanship quality adds one notch.
 
 **What wears gear: the extremes of the die.** Ordinary hits and misses never wear
 anything. Wear comes from natural 20s, natural 1s, and attacks aimed at gear.
+(Superseded: the homebrew system also wears gear passively, by how long a fight lasts.)
 
 - **You are critically hit:** your shield loses a notch if you carry one, otherwise
   your body armour does. Shields exist to take that blow.
@@ -583,8 +592,8 @@ ordinary combat.
 7. **Field repair.** Kits and camp, or town only? Does a tool proficiency matter?
 8. **Which slots.** Weapon, shield and body armour only, or all thirteen?
 
-**Outcome:** shape B, as set out in the starting rules above. The sub-questions were
-answered as: wear inside a fight (1); armour makes you harder to hit (2); dice-driven
+**Outcome:** shape B. Pending the homebrew system, the sketch above answers the
+sub-questions as: wear inside a fight (1); armour makes you harder to hit (2); dice-driven
 triggers, critical hits above all (3); nothing destroyed, scars held back as a later
 option (4); sundering and corroding enemies are in (5); magic gear wears more slowly
 (6); kits in the field, the smith in town (7); weapon, shield, body armour and

@@ -12,7 +12,7 @@ called `CURRENT_WORK.md` until Phase 1. The plan it tracks is in section 7 of
 |---|---|
 | 0. Truthful baseline | Done. Committed on `phase-0-truthful-baseline` |
 | 1. Game shell and state | Done. Committed on `phase-1-game-shell`, which builds on Phase 0. Not yet played by Ákos |
-| 2. Combat core | Next. Durability is decided (2026-11-17); waiting for Ákos's go |
+| 2. Combat core | Next. Waiting for Ákos's go, and for his durability system (below) |
 
 - Nothing is pushed and nothing is merged into `main`. `main` is still the June commit.
 - `tools\run_checks.bat` passes at the Phase 1 commit: 154 smoke checks, no engine
@@ -24,10 +24,15 @@ called `CURRENT_WORK.md` until Phase 1. The plan it tracks is in section 7 of
 
 1. **Play the Phase 1 build:** menu, new game, save, load, die, load again. Say what
    feels wrong.
-2. **Go for Phase 2.** Durability is settled: erosion built around critical hits,
-   starting rules in section 8 of the plan, to be tuned by play.
-3. **Merge and push:** whether Phases 0 and 1 go into `main`, and whether to push.
-4. `tilesets/TX Tileset Stone Ground.png` is unused and its licence is not recorded.
+2. **His durability system.** Direction is set (erosion, special attention to crits,
+   scaled by material rarity and magic level), but the rules will be based on the
+   system he designed for his homebrew D&D campaign, which also has passive
+   degradation by combat length. He will bring it and has a lot of input to add. The
+   rules in section 8 of the plan are a provisional sketch, not the design.
+3. **Go for Phase 2.** Everything in it except the durability rules can be built
+   without that input; the damage pipeline gets the hooks durability needs.
+4. **Merge and push:** whether Phases 0 and 1 go into `main`, and whether to push.
+5. `tilesets/TX Tileset Stone Ground.png` is unused and its licence is not recorded.
    Delete it?
 
 ## What exists now
