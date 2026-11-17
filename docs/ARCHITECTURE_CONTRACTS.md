@@ -137,6 +137,8 @@ and "the boot has no script errors" is no longer what done means.
 `head, neck, shoulder, back, chest, wrist, hands, waist, legs, feet, main_hand, off_hand, ranged`
 plus multi-slots `rings`, `trinkets` (InventoryManager stores Arrays for those two).
 `ItemData.equip_slot` uses exactly these strings (`rings` and `trinkets` are plural).
+`InventoryManager.equip_item()` refuses a two-handed weapon in the main hand while the
+off hand holds something, and anything in the off hand beside a two-handed weapon.
 
 ### 2.3 Item id scheme
 - Material variants: `"{material_id}_{base_id}"`, for example `iron_longsword`,
