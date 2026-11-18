@@ -810,7 +810,7 @@ Full Release (9 zones): $35-40 (complete edition)
 ## 🔗 Additional Resources
 
 - **Full Design Document:** [DESIGN_FULL.md](DESIGN_FULL.md) (80 pages)
-- **Current Work:** [CURRENT_WORK.md](CURRENT_WORK.md)
+- **Current Work:** [PROGRESS.md](PROGRESS.md)
 - **Roadmap:** [ROADMAP.md](ROADMAP.md)
 - **Changelog:** [CHANGELOG.md](CHANGELOG.md)
 - **Zone Designs:** [ZONES.md](ZONES.md)

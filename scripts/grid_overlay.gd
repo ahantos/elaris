@@ -3,12 +3,12 @@ extends Node2D
 
 # Grid rendering for tile-based movement visualization
 
-@export var grid_color: Color = Color(0, 0, 0, 0.5)
+@export var grid_color: Color = Color(1, 1, 1, 0.14)
 @export var grid_thickness: float = 1.0
 @export var enabled: bool = true
 
 var dungeon_grid: Array[Array] = []
-var tile_size: Vector2 = Vector2(16, 16)
+var tile_size: Vector2 = Vector2(32, 32)
 var dungeon_width: int = 0
 var dungeon_height: int = 0
 

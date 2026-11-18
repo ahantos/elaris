@@ -16,6 +16,12 @@ func _ready():
 	_register_default_factions()
 	print("Factions: FactionManager initialized — ", factions.size(), " factions registered")
 
+func reset():
+	"""Back to a fresh game: every reputation neutral.
+	Called by GameManager.reset_game_state()."""
+	for faction_id in reputations:
+		reputations[faction_id] = 0
+
 func _register_default_factions():
 	"""Register the three Zone 1 factions, all starting at neutral (0)."""
 	register_faction("merchants_guild", "The Merchants' Guild",

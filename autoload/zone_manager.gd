@@ -15,6 +15,12 @@ func _ready():
 	zones = ZoneLibrary.get_definitions()
 	print("Zones: ZoneManager initialized — ", zones.size(), " zones registered (current: ", current_zone_id, ")")
 
+func reset():
+	"""Back to a fresh game: starting zone, default unlock flags.
+	Called by GameManager.reset_game_state()."""
+	zones = ZoneLibrary.get_definitions()
+	current_zone_id = "zone_1"
+
 # === QUERIES ===
 
 func get_zone(zone_id: String) -> Dictionary:

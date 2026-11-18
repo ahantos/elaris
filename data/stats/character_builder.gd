@@ -4,19 +4,22 @@
 extends RefCounted
 class_name CharacterBuilder
 
-static func build(class_id: String, race_id: String, base_stats: Dictionary, character_name: String = "Hero") -> CharacterStats:
+static func build(class_id: String, race_id: String, base_stats: Dictionary, character_name: String = "Hero", chosen_skills: Array = []) -> CharacterStats:
 	"""Build a CharacterStats from a class id, race id and base ability scores
 	({"str": 15, "dex": 14, ...}). Applies class saving throws / skill picks /
 	proficiencies and racial bonuses / speed / traits, then emits
 	EventBus.character_created. character_uid defaults to "player" - callers
-	building companions must override it afterwards ("companion_<id>")."""
+	building companions must override it afterwards ("companion_<id>").
+	chosen_skills: the class skills the player picked. Entries the class does
+	not offer are ignored, and any picks still owed are filled from the front of
+	the class list (which is what companions and tools get by passing none)."""
 	var stats = CharacterStats.new(base_stats)
 	stats.character_uid = "player"
 	stats.character_name = character_name
 	stats.class_id = class_id
 	stats.race_id = race_id
 
-	_apply_class(stats, class_id)
+	_apply_class(stats, class_id, chosen_skills)
 	_apply_race(stats, race_id)
 
 	# Final pass: class hit die + racial CON bonus are both in by now
@@ -47,9 +50,9 @@ static func build_monster(monster_name: String, level: int, base_stats: Dictiona
 		") - HP ", stats.max_hp, ", AC ", stats.armor_class)
 	return stats
 
-static func _apply_class(stats: CharacterStats, class_id: String):
-	"""Apply class data: saving throw proficiencies, placeholder skill picks
-	(first N of the class's choices), weapon/armor/tool proficiencies."""
+static func _apply_class(stats: CharacterStats, class_id: String, chosen_skills: Array = []):
+	"""Apply class data: saving throw proficiencies, skill picks (the chosen
+	ones, topped up from the class list), weapon/armor/tool proficiencies."""
 	if class_id == "":
 		return
 	var class_data = ClassDatabase.get_class_data(class_id)
@@ -61,10 +64,20 @@ static func _apply_class(stats: CharacterStats, class_id: String):
 	for save_stat in class_data.saving_throw_proficiencies:
 		stats.set_save_proficiency(save_stat, true)
 
-	# Skill proficiencies: placeholder picks = first N choices (UI choice comes later)
+	# Skill proficiencies: the player's picks first, then the front of the
+	# class list for anything still owed
 	var pick_count = mini(class_data.skill_proficiency_count, class_data.skill_proficiency_choices.size())
-	for i in range(pick_count):
-		stats.add_skill_proficiency(class_data.skill_proficiency_choices[i])
+	var picks: Array = []
+	for skill_id in chosen_skills:
+		if picks.size() < pick_count and skill_id in class_data.skill_proficiency_choices and not skill_id in picks:
+			picks.append(skill_id)
+	for skill_id in class_data.skill_proficiency_choices:
+		if picks.size() >= pick_count:
+			break
+		if not skill_id in picks:
+			picks.append(skill_id)
+	for skill_id in picks:
+		stats.add_skill_proficiency(skill_id)
 
 	# Weapon / armor / tool proficiencies
 	for weapon_type in class_data.weapon_proficiencies:

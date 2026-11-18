@@ -41,6 +41,15 @@ func _ready():
 	print("SpellManager: initialized (slots, casting, concentration online)")
 
 
+func reset():
+	"""Back to a fresh game: nobody knows spells, no slots spent, no
+	concentration, nothing readied. Called by GameManager.reset_game_state()."""
+	known_spells.clear()
+	current_slots.clear()
+	concentration_state.clear()
+	pending_casts.clear()
+
+
 func _on_player_leveled_up(_new_level: int):
 	"""A level-up can open a new spell level or a bigger cantrip budget: grant
 	the class spells for it. (Spells were only ever granted once, to an empty

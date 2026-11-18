@@ -14,9 +14,21 @@ var party_members: Array[CharacterStats] = []
 # NOTE: "rings" and "trinkets" slots store Arrays instead of single items
 var equipped_items: Dictionary = {}
 
+const STARTING_GOLD: int = 50
+
 func _ready():
 	print("InventoryManager initialized")
 	print("Starting gold: ", gold)
+
+func reset():
+	"""Back to a fresh game: empty bag, starting gold, nothing equipped, no party.
+	Called by GameManager.reset_game_state() before a new game or a load."""
+	items.clear()
+	equipped_items.clear()
+	party_members.clear()
+	gold = STARTING_GOLD
+	EventBus.inventory_changed.emit()
+	EventBus.gold_changed.emit(gold)
 
 # === INVENTORY MANAGEMENT ===
 

@@ -39,6 +39,15 @@ func _ready():
 func register_dialogue(dialogue_id: String, dialogue: Dictionary):
 	dialogues[dialogue_id] = dialogue
 
+func reset():
+	"""Back to a fresh game: no conversation in progress. Silent on purpose -
+	ending a session normally fires dialogue_ended, which advances quests.
+	Called by GameManager.reset_game_state()."""
+	_active = false
+	_current_dialogue_id = ""
+	_current_npc_id = ""
+	_current_node_id = ""
+
 # === SESSION ===
 
 func start_dialogue(dialogue_id: String, npc_id: String = "") -> bool:

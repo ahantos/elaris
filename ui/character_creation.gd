@@ -8,7 +8,19 @@
 # EventBus.character_created - integration listens for that signal and applies
 # the new stats to the player there. This panel NEVER mutates the player
 # directly and NEVER touches get_tree().paused (UIManager owns pausing).
+#
+# It is used in two places:
+#   - as the new-game screen (scenes/character_creation_screen.tscn), with
+#     standalone = true: it reports through the confirmed / cancelled signals
+#     and the screen decides what happens next;
+#   - as a UIManager panel inside the world (debug key N), where it closes itself.
 extends Control
+
+signal confirmed(stats)   # the built CharacterStats
+signal cancelled()
+
+# True when the panel is not registered with UIManager and must not close through it
+var standalone: bool = false
 
 # Standard ability array: each value is assigned to exactly one ability score.
 const STANDARD_ARRAY := [15, 14, 13, 12, 10, 8]
@@ -40,6 +52,10 @@ var _class_list: ItemList
 var _race_list: ItemList
 var _tooltip_label: RichTextLabel
 var _stat_buttons: Dictionary = {}  # stat key -> OptionButton
+var _skill_label: Label
+var _skill_list: ItemList
+var _skill_ids: Array = []          # parallel to _skill_list indices
+var _skill_class_id: String = ""    # class the skill list was last built for
 
 func _ready():
 	"""Build the entire panel in code and populate it from the databases."""
@@ -177,6 +193,21 @@ func _build_ui():
 	reset_btn.pressed.connect(_on_reset_stats_pressed)
 	panel_rect.add_child(reset_btn)
 
+	# --- class skill choice (under the ability scores) ---
+	_skill_label = Label.new()
+	_skill_label.text = "Skills"
+	_skill_label.position = Vector2(384, row_y + 56)
+	_skill_label.size = Vector2(310, 22)
+	_style_label(_skill_label, 14, Color.WHITE)
+	panel_rect.add_child(_skill_label)
+
+	_skill_list = ItemList.new()
+	_skill_list.position = Vector2(384, row_y + 82)
+	_skill_list.size = Vector2(300, 196)
+	_skill_list.select_mode = ItemList.SELECT_TOGGLE
+	_skill_list.multi_selected.connect(_on_skill_toggled)
+	panel_rect.add_child(_skill_list)
+
 	# === RIGHT COLUMN: class/race details tooltip ===
 	var details_label := Label.new()
 	details_label.text = "Details"
@@ -243,7 +274,55 @@ func _refresh_lists():
 
 	_select_id_or_first(_class_list, _class_ids, previous_class)
 	_select_id_or_first(_race_list, _race_ids, previous_race)
+	_refresh_skill_list()
 	_update_tooltip()
+
+func _skill_pick_count() -> int:
+	"""How many class skills the selected class may choose"""
+	var class_data = ClassDatabase.get_class_data(_get_selected_id(_class_list, _class_ids))
+	if class_data == null:
+		return 0
+	return mini(class_data.skill_proficiency_count, class_data.skill_proficiency_choices.size())
+
+func _refresh_skill_list():
+	"""Rebuild the skill choices when the class changes; the first picks are
+	pre-selected so a valid choice always exists."""
+	if _skill_list == null:
+		return
+	var class_id := _get_selected_id(_class_list, _class_ids)
+	if class_id == _skill_class_id and _skill_list.item_count > 0:
+		return
+	_skill_class_id = class_id
+	_skill_list.clear()
+	_skill_ids.clear()
+	var class_data = ClassDatabase.get_class_data(class_id)
+	if class_data == null:
+		return
+	for skill_id in class_data.skill_proficiency_choices:
+		_skill_ids.append(skill_id)
+		_skill_list.add_item(str(skill_id).capitalize())
+	for i in range(_skill_pick_count()):
+		_skill_list.select(i, false)
+	_update_skill_label()
+
+func _get_chosen_skills() -> Array:
+	"""Skill ids currently ticked in the list"""
+	var chosen: Array = []
+	if _skill_list == null:
+		return chosen
+	for index in _skill_list.get_selected_items():
+		if index < _skill_ids.size():
+			chosen.append(_skill_ids[index])
+	return chosen
+
+func _update_skill_label():
+	var needed := _skill_pick_count()
+	var chosen := _get_chosen_skills().size()
+	_skill_label.text = "Skills - choose %d (%d chosen)" % [needed, chosen]
+	_skill_label.add_theme_color_override("font_color", Color.WHITE if chosen == needed else Color(1.0, 0.8, 0.3))
+
+func _on_skill_toggled(_index: int, _selected: bool):
+	_update_skill_label()
 
 func _select_id_or_first(list: ItemList, ids: Array, wanted_id: String):
 	"""Select wanted_id in the list if present, otherwise the first entry."""
@@ -297,7 +376,8 @@ func _sync_stat_buttons():
 # ---------------------------------------------------------------------------
 
 func _on_class_selected(_index: int):
-	"""Class list selection changed - refresh the details tooltip."""
+	"""Class list selection changed - refresh the skill choices and the details."""
+	_refresh_skill_list()
 	_update_tooltip()
 
 func _on_race_selected(_index: int):
@@ -325,7 +405,9 @@ func _on_reset_stats_pressed():
 
 func _on_cancel_pressed():
 	"""Cancel / close - dismiss the panel without creating a character."""
-	UIManager.close_panel()
+	cancelled.emit()
+	if not standalone:
+		UIManager.close_panel()
 
 func _on_confirm_pressed():
 	"""Confirm - build the character (emits EventBus.character_created) and close."""
@@ -343,6 +425,13 @@ func _on_confirm_pressed():
 	for stat in STATS:
 		base_stats[stat] = _stat_values[stat]
 
-	print("CharacterCreation: confirmed '", character_name, "' (", class_id, " / ", race_id, ") ", base_stats)
-	CharacterBuilder.build(class_id, race_id, base_stats, character_name)
-	UIManager.close_panel()
+	var chosen_skills := _get_chosen_skills()
+	if chosen_skills.size() != _skill_pick_count():
+		EventBus.notify_warning("Choose exactly %d skills" % _skill_pick_count())
+		return
+
+	print("CharacterCreation: confirmed '", character_name, "' (", class_id, " / ", race_id, ") ", base_stats, " skills ", chosen_skills)
+	var stats = CharacterBuilder.build(class_id, race_id, base_stats, character_name, chosen_skills)
+	confirmed.emit(stats)
+	if not standalone:
+		UIManager.close_panel()

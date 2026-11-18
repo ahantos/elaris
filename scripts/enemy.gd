@@ -3,11 +3,11 @@ class_name Enemy
 
 # Basic grid-based enemy with AI and combat effects
 
-@export var tile_size: int = 16
-@export var move_speed: float = 200.0
+@export var tile_size: int = 32
+@export var move_speed: float = 400.0  # Pixels per second (12.5 tiles on the 32px grid, as before)
 @export var dungeon_generator: DungeonGenerator
 @export var moves_per_turn: int = 6
-@export var enemy_color: Color = Color(1, 0, 0, 1)
+@export var enemy_color: Color = Color(1, 0, 0, 1)  # Unused: each enemy type has its own sprite now
 
 # Identity (assigned by world on spawn; drives loot tables, quest kill credit and XP)
 @export var enemy_type: String = "goblin"
@@ -52,14 +52,8 @@ func _ready():
 	if dungeon_generator and dungeon_generator.tilemap and dungeon_generator.tilemap.tile_set:
 		tile_size = int(dungeon_generator.tilemap.tile_set.tile_size.x)
 
-	# Auto-scale sprite
-	var sprite = get_node_or_null("Sprite2D")
-	if sprite and sprite.texture:
-		var texture_size = sprite.texture.get_size()
-		var target_size = tile_size * 0.8
-		var scale_factor = target_size / max(texture_size.x, texture_size.y)
-		sprite.scale = Vector2(scale_factor, scale_factor)
-		sprite.modulate = enemy_color
+	# Sprite for this enemy type, drawn at one tile. No tint: types differ by art.
+	ArtLibrary.fit_sprite(get_node_or_null("Sprite2D"), ArtLibrary.enemy_sprite(enemy_type), tile_size)
 
 	# Initialize enemy stats (NEW)
 	initialize_stats()
@@ -455,9 +449,11 @@ func _draw():
 
 func draw_hp_bar():
 	"""Draw HP bar above the enemy"""
-	var bar_width = tile_size * 1.2
-	var bar_height = 6.0
-	var bar_offset = Vector2(-bar_width / 2, -tile_size * 0.8)
+	# Narrower than a tile so neighbours' bars do not run together, and on whole
+	# pixels so the edges stay sharp at 2x
+	var bar_width = round(tile_size * 0.8)
+	var bar_height = 4.0
+	var bar_offset = Vector2(-bar_width / 2, -tile_size / 2.0 - bar_height - 3.0)
 	
 	# Background (black)
 	draw_rect(Rect2(bar_offset, Vector2(bar_width, bar_height)), Color.BLACK)
@@ -548,7 +544,7 @@ func flash_damage():
 	if sprite:
 		var tween = create_tween()
 		tween.tween_property(sprite, "modulate", Color(2.0, 0.5, 0.5), 0.1)
-		tween.tween_property(sprite, "modulate", enemy_color, 0.2)
+		tween.tween_property(sprite, "modulate", Color.WHITE, 0.2)
 
 func die():
 	"""Handle death with effects"""

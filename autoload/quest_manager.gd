@@ -50,6 +50,15 @@ func _ready():
 func register_quest(quest_id: String, quest: Dictionary):
 	quest_definitions[quest_id] = quest
 
+func reset():
+	"""Back to a fresh game: no quest started, generated quests forgotten.
+	Called by GameManager.reset_game_state()."""
+	quest_states.clear()
+	procedural_counter = 0
+	for quest_id in quest_definitions.keys():
+		if str(quest_definitions[quest_id].get("quest_type", "")) == "procedural":
+			quest_definitions.erase(quest_id)
+
 # === LIFECYCLE ===
 
 func start_quest(quest_id: String) -> bool:

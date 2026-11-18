@@ -118,6 +118,46 @@ func _draw():
 	# Draw border
 	draw_rect(Rect2(Vector2.ZERO, minimap_size), border_color, false, 2.0)
 
+func get_explored_state() -> Array:
+	"""The explored map as run lengths over the grid read row by row: the first
+	number counts unexplored tiles, the next explored ones, and so on. A list of
+	ints stays small and save-safe where 40,000 coordinates would not."""
+	var runs: Array = []
+	if not dungeon_generator:
+		return runs
+	var explored_run := false
+	var count := 0
+	for y in range(dungeon_generator.dungeon_height):
+		for x in range(dungeon_generator.dungeon_width):
+			var explored: bool = explored_tiles.has(Vector2i(x, y))
+			if explored == explored_run:
+				count += 1
+			else:
+				runs.append(count)
+				explored_run = explored
+				count = 1
+	runs.append(count)
+	return runs
+
+func set_explored_state(runs: Array):
+	"""Restore an explored map written by get_explored_state()"""
+	explored_tiles.clear()
+	if not dungeon_generator:
+		return
+	var width: int = dungeon_generator.dungeon_width
+	var total: int = width * dungeon_generator.dungeon_height
+	var index := 0
+	var explored_run := false
+	for run in runs:
+		var length: int = int(run)
+		if explored_run:
+			for i in range(index, mini(index + length, total)):
+				explored_tiles[Vector2i(i % width, i / width)] = true
+		index += length
+		explored_run = not explored_run
+	last_player_pos = Vector2i(-999, -999)  # forces the next _process to redraw
+	queue_redraw()
+
 func toggle_fog_of_war():
 	"""Toggle fog of war on/off"""
 	fog_of_war_enabled = !fog_of_war_enabled

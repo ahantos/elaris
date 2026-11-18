@@ -430,9 +430,52 @@ func create_inventory_slot(index: int) -> Button:
 	return button
 
 func _style_slot_button(button: Button):
-	"""Small wrapped text so a slot can show an item's name until icons exist"""
+	"""Give a slot the two children that show an item - its icon, drawn at twice
+	its 32 pixels and unfiltered, and the stack count in the corner - and small
+	wrapped text for an item that has no icon."""
 	button.add_theme_font_size_override("font_size", 10)
 	button.clip_text = true
+
+	var icon_rect = TextureRect.new()
+	icon_rect.name = "ItemIcon"
+	icon_rect.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
+	icon_rect.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
+	icon_rect.texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
+	icon_rect.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	button.add_child(icon_rect)
+	icon_rect.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+
+	var count_label = Label.new()
+	count_label.name = "StackCount"
+	count_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
+	count_label.vertical_alignment = VERTICAL_ALIGNMENT_BOTTOM
+	count_label.add_theme_font_size_override("font_size", 14)
+	count_label.add_theme_color_override("font_outline_color", Color.BLACK)
+	count_label.add_theme_constant_override("outline_size", 5)
+	count_label.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	button.add_child(count_label)
+	count_label.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	count_label.offset_right = -4
+	count_label.offset_bottom = -1
+
+func _show_slot_item(button: Button, item_instance: Dictionary):
+	"""Fill a slot from an item instance: the icon with the stack count over it,
+	or the short name as text when the item has no icon. The tooltip is set either
+	way. An empty instance clears the slot."""
+	var item_data: ItemData = item_instance.get("item_data")
+	var icon: Texture2D = item_data.icon if item_data != null else null
+	var stack: int = int(item_instance.get("stack_count", 1))
+
+	var icon_rect: TextureRect = button.get_node_or_null("ItemIcon")
+	if icon_rect:
+		icon_rect.texture = icon
+	var count_label: Label = button.get_node_or_null("StackCount")
+	if count_label:
+		count_label.text = "x%d" % stack if (icon != null and stack > 1) else ""
+
+	button.icon = null
+	button.text = "" if (item_data == null or icon != null) else _slot_label(item_instance)
+	button.tooltip_text = "" if item_data == null else _item_tooltip(item_instance)
 
 func _slot_label(item_instance: Dictionary) -> String:
 	"""Short two-line name for a slot: the last two words of the item name
@@ -621,37 +664,19 @@ func refresh_equipment():
 			else:
 				equipped_trinkets = accessories
 		else:
-			# Normal single-item slots
-			var equipped = InventoryManager.get_equipped_item(current_character, slot_id)
-			
-			if equipped.is_empty():
-				button.text = ""
-				button.icon = null
-				button.tooltip_text = ""
-			else:
-				var item_data: ItemData = equipped.item_data
-				button.text = _slot_label(equipped)
-				button.icon = item_data.icon  # Set item icon (will be null until you add icons)
-				button.tooltip_text = _item_tooltip(equipped)
+			# Normal single-item slots: icon, or the name when there is none
+			_show_slot_item(button, InventoryManager.get_equipped_item(current_character, slot_id))
 
 func refresh_inventory():
 	"""Update inventory grid"""
 	# Clear all slots
 	for slot in inventory_slots:
-		slot.text = ""
-		slot.icon = null
-		slot.tooltip_text = ""
+		_show_slot_item(slot, {})
 
-	# Fill with items
+	# Fill with items: icon + stack count, or the short name when there is no icon
 	var items = InventoryManager.items
 	for i in range(min(items.size(), inventory_slots.size())):
-		var item = items[i]
-		var item_data: ItemData = item.item_data
-		var button = inventory_slots[i]
-
-		button.text = _slot_label(item)  # short name + stack count
-		button.icon = item_data.icon  # Set item icon (will be null until you add icons)
-		button.tooltip_text = _item_tooltip(item)
+		_show_slot_item(inventory_slots[i], items[i])
 	
 	# Update slot counter
 	var slot_label = inventory_panel.find_child("SlotLabel", true, false)
@@ -794,8 +819,9 @@ func create_drag_preview(item: Dictionary):
 	
 	var preview_button = Button.new()
 	preview_button.custom_minimum_size = Vector2(SLOT_SIZE, SLOT_SIZE)
-	preview_button.text = item.item_data.item_name.substr(0, 1)
-	preview_button.icon = item.item_data.icon  # Show icon in drag preview
+	_style_slot_button(preview_button)
+	_show_slot_item(preview_button, item)  # same look as the slot it came from
+	preview_button.tooltip_text = ""
 	preview_button.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	preview_button.modulate = Color(1, 1, 1, 0.7)  # Semi-transparent
 	

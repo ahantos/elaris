@@ -66,6 +66,41 @@ and "the boot has no script errors" is no longer what done means.
 - **Pause-bound timers** in the combat path: `create_timer(t, false)`. After every
   await, check `is_instance_valid` and that combat is still running.
 
+## 1a. Game flow and saves
+
+- **Three scenes.** `scenes/main_menu.tscn` (the main scene),
+  `scenes/character_creation_screen.tscn`, `scenes/world.tscn`. `GameManager` owns
+  every transition: `begin_character_creation()`, `start_new_game(stats)`,
+  `load_game(slot)`, `continue_game()`, `go_to_main_menu()`.
+- **Starting the world.** Before changing to the World scene, GameManager fills
+  `pending_start` (`{"mode": "new", "stats": ...}` or `{"mode": "load", "slot", "data"}`).
+  `World._ready()` consumes it. With nothing pending (the scene run on its own from
+  the editor or a tool) the world starts a default fighter and does not autosave.
+- **Every stateful manager has `reset()`** and is listed in
+  `GameManager.STATEFUL_MANAGERS`. `reset_game_state()` runs before a new game, before
+  a load and on the way to the menu. A new manager that keeps per-game state must add
+  both, or its state will leak into the next game.
+- **Loading never patches a running game.** It resets everything and starts a fresh
+  World scene that rebuilds itself from the save data.
+- **Who owns what in a save.** SaveManager owns the file, the format version and the
+  managers' `to_dict` / `from_dict`. The World scene owns its own part:
+  `World.get_world_state()` on save and `World._restore_from_save()` on load.
+  SaveManager never touches scene nodes.
+- **Seeds.** `DungeonGenerator.generate_dungeon(seed)` must depend only on the seed and
+  the biome. Layout code draws from the generator's own `_rng`; rendering must not use
+  random state at all. Starting enemies are rolled from a generator seeded by the
+  dungeon seed.
+- **Format changes.** Bump `SaveManager.SAVE_FORMAT_VERSION` and add a `_migrate_vN_to_vM`
+  step that only adds what the new version introduced. Never change the meaning of an
+  existing key.
+- **When saving is allowed** is decided in one place, `SaveManager.can_save()`: not in
+  combat, not after death.
+- **Death.** `GridCharacter.die()` leaves the node in the scene and calls
+  `GameManager.game_over()`. Code that used `is_instance_valid(player)` to mean "the
+  player is alive" must use `World._player_alive()` or check `stats.is_alive()`.
+- **Checks and saves.** Tool scripts call `SaveManager.use_save_directory()` with a
+  scratch folder before anything else, so they can never touch real saves.
+
 ## 2. Shared identifiers and conventions
 
 ### 2.1 Character identity
@@ -173,10 +208,10 @@ crisis `{crisis_id, display_name, phases: [{phase: int, name, description}]}`.
   base_stats, name)` and creates nodes with `create_companion_node(companion_id)`; the
   world spawns them on `companion_recruited`. `rejoin_party()` returns a dismissed
   companion to the party.
-- **SaveManager** aggregates `to_dict()` from the player's CharacterStats and every
-  stateful manager into `{version: 2, systems: {...}}`, with a tolerant loader.
-  Equipment serializes as `{character_uid: {slot: instance-dict, or Array for rings and
-  trinkets}}`. The dungeon is not saved yet (Phase 1).
+- **SaveManager** writes `{version: 3, game_version, timestamp, player: {stats,
+  position_x, position_y}, systems: {...}, world: {seed, biome, enemies, ground_items,
+  explored, companions}}`. Equipment serializes as `{character_uid: {slot:
+  instance-dict, or Array for rings and trinkets}}`. See section 1a.
 
 ## 5. UI
 
@@ -185,9 +220,47 @@ crisis `{crisis_id, display_name, phases: [{phase: int, name, description}]}`.
   themselves with `UIManager.close_panel(panel_id)`, never with `hide()`.
 - Optional hooks UIManager calls: `on_panel_opened()` (refresh here), `on_panel_closed()`.
 - Panel ids: `spellbook`, `crafting`, `quest_log`, `world_map`, `companions`,
-  `character_creation`, `dialogue`.
+  `character_creation`, `dialogue`, `pause_menu`. Panels live under the UIManager
+  autoload and outlive the World scene; the next World reuses them.
+- ESC: anything that uses the key for itself (cancel an attack, close the character
+  sheet, the save menu or the settings overlay) marks the event handled in `_input`.
+  What reaches `UIManager._unhandled_input` closes the open panel, or opens the pause
+  menu when nothing is open.
 - Design size is 1920x1080; the window scales it (`canvas_items`, aspect `keep`). Read
   sizes from `get_viewport_rect()`, not from the window.
 - New UI should be built as scenes with a shared Theme. The existing panels are built
   in code and will be rebuilt as scenes (Phase 6); do not extend that pattern.
 - After any UI change, run the screenshot tour and look at the pictures.
+
+## 6. Art
+
+- **Grid.** A map tile is 32x32 pixels (`ArtLibrary.TILE_SIZE`). The camera starts at
+  zoom 2 and changes in whole steps; textures are drawn unfiltered
+  (`default_texture_filter=0`). Scripts read the tile size from
+  `dungeon_generator.tilemap.tile_set.tile_size`. Speeds and sizes written in pixels
+  are for that grid.
+- **One lookup.** Nothing loads art by path. `ArtLibrary` (`scripts/art_library.gd`,
+  static functions) maps game ids to textures: `tile_source_id` and
+  `tile_texture(biome, role, cell)`, `enemy_sprite(enemy_type)`,
+  `player_sprite(class_id)`, `companion_sprite(companion_id, class_id)`,
+  `item_icon(item_id)`, `loot_marker(has_items)`.
+- **One manifest.** `data/art/art_manifest.gd` lists every file under `assets/` and the
+  stand-in it was copied from. Files are named by role
+  (`assets/tiles/crypt/floor_1.png`, `assets/sprites/enemies/goblin.png`,
+  `assets/icons/items/longsword.png`); replacing the file replaces the art, with no
+  code change and no build step.
+- **Item icons** resolve by alias, then exact id, then base type (`steel_longsword`
+  uses `longsword`), then id prefix (`scroll_`). `ItemDatabase.register_item()` fills
+  `ItemData.icon` for any item that has none.
+- **Missing art never crashes.** A lookup that finds nothing returns
+  `ArtLibrary.fallback_texture()`, a magenta checker, and records the miss in
+  `ArtLibrary.get_missing()`. The smoke test fails when a spawnable enemy type, a
+  class, a companion, an item or a biome tile role has no art, so a new content id
+  needs a row in the manifest.
+- **Drawing never uses the random number generator.** Which tile variant a cell shows
+  comes from `ArtLibrary.cell_hash(cell)`, so rendering cannot disturb a seeded
+  dungeon.
+- **Checklist.** `docs/ART_CHECKLIST.md` is generated by `tools/art_checklist.gd`.
+  Regenerate it after changing the manifest or the item list.
+- `art_source/` is source material, hidden from the engine by `.gdignore`. The game
+  loads nothing from it.

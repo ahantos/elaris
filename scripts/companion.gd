@@ -8,8 +8,8 @@ extends CharacterBody2D
 class_name Companion
 
 # ── Exports (integration sets these after spawning) ────────────────────────────
-@export var tile_size: int = 16
-@export var move_speed: float = 180.0
+@export var tile_size: int = 32
+@export var move_speed: float = 360.0  # Pixels per second (about 11 tiles on the 32px grid, as before)
 
 # ── Identity ───────────────────────────────────────────────────────────────────
 var companion_id: String = ""   # Set by create_companion_node() before _ready()
@@ -34,8 +34,6 @@ var stats: CharacterStats = null
 # ── Sprite reference ──────────────────────────────────────────────────────────
 var _sprite: Sprite2D = null
 
-const _COMPANION_COLOR = Color(0.3, 0.9, 0.4, 1.0)   # green tint placeholder
-
 
 # ── Lifecycle ─────────────────────────────────────────────────────────────────
 
@@ -43,16 +41,12 @@ func _ready():
 	"""Build sprite, load stats, cache world reference."""
 	z_index = 190  # Just below enemies (200)
 
-	# Build Sprite2D placeholder (green-tinted icon.svg like enemy.tscn)
+	# Sprite from ArtLibrary: the companion's own, else the one for its class.
+	# Named like the player's and the enemies' so the same lookups find it.
 	_sprite = Sprite2D.new()
-	var icon_tex = load("res://icon.svg") if ResourceLoader.exists("res://icon.svg") else null
-	if icon_tex:
-		_sprite.texture = icon_tex
-		var tex_size = icon_tex.get_size()
-		var target_sz = tile_size * 0.8
-		var sf = target_sz / max(tex_size.x, tex_size.y)
-		_sprite.scale = Vector2(sf, sf)
-	_sprite.modulate = _COMPANION_COLOR
+	_sprite.name = "Sprite2D"
+	var sprite_defn: Dictionary = CompanionManager.companion_definitions.get(companion_id, {})
+	ArtLibrary.fit_sprite(_sprite, ArtLibrary.companion_sprite(companion_id, str(sprite_defn.get("class_id", ""))), tile_size)
 	add_child(_sprite)
 
 	# Cache world reference
@@ -452,9 +446,11 @@ func _draw():
 func _draw_hp_bar():
 	if not stats:
 		return
-	var bar_w   = tile_size * 1.2
-	var bar_h   = 6.0
-	var bar_off = Vector2(-bar_w / 2.0, -tile_size * 0.8)
+	# Narrower than a tile so neighbours' bars do not run together, and on whole
+	# pixels so the edges stay sharp at 2x
+	var bar_w   = round(tile_size * 0.8)
+	var bar_h   = 4.0
+	var bar_off = Vector2(-bar_w / 2.0, -tile_size / 2.0 - bar_h - 3.0)
 	draw_rect(Rect2(bar_off, Vector2(bar_w, bar_h)), Color.BLACK)
 	var pct = stats.get_hp_percent()
 	var col = Color.GREEN.lerp(Color.RED, 1.0 - pct)
@@ -468,7 +464,7 @@ func _flash_damage():
 		return
 	var tween = create_tween()
 	tween.tween_property(_sprite, "modulate", Color(2.0, 2.0, 0.5), 0.1)
-	tween.tween_property(_sprite, "modulate", _COMPANION_COLOR, 0.2)
+	tween.tween_property(_sprite, "modulate", Color.WHITE, 0.2)
 
 
 # ── Combat damage entry point ─────────────────────────────────────────────────

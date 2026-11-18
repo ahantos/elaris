@@ -20,6 +20,12 @@ func _ready():
 	# but we use call_deferred for safety.
 	call_deferred("_seed_auto_known")
 
+func reset():
+	"""Back to a fresh game: only the auto-known recipes.
+	Called by GameManager.reset_game_state()."""
+	known_recipes.clear()
+	_seed_auto_known()
+
 func _seed_auto_known():
 	"""Learn all auto_known recipes at game start."""
 	var seeded: int = 0

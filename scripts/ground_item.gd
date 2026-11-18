@@ -30,6 +30,8 @@ var _bob_time: float = 0.0
 const BOB_SPEED := 2.5
 const BOB_AMPLITUDE := 3.0
 var _base_y: float = 0.0
+var _sprite: Sprite2D = null
+var _tile_size: int = ArtLibrary.TILE_SIZE
 
 
 # =====================================================================
@@ -57,6 +59,8 @@ static func spawn(parent: Node, grid_position: Vector2i, tile_size: int,
 	)
 	node.position = world_pos
 	node._base_y = world_pos.y
+	node._tile_size = tile_size
+	node._refresh_sprite()
 
 	print("GroundItem: Spawned at ", grid_position, " with ", instances.size(),
 		" items and ", gold_amount, " gold")
@@ -68,34 +72,23 @@ static func spawn(parent: Node, grid_position: Vector2i, tile_size: int,
 # =====================================================================
 
 func _ready():
-	"""Build the visual: a gold/brown diamond drawn by draw calls."""
-	# Visual is rendered by _draw(); nothing to add to scene tree here.
-	pass
+	"""Build the visual: the loot sprite from ArtLibrary."""
+	_sprite = Sprite2D.new()
+	_sprite.name = "Sprite2D"
+	add_child(_sprite)
+	_refresh_sprite()
 
 
-func _draw():
-	"""Draw a simple diamond shape as the loot marker."""
-	var color := Color(0.90, 0.70, 0.10) if gold > 0 else Color(0.75, 0.50, 0.25)
-	var size := 6.0
-	var points := PackedVector2Array([
-		Vector2(0, -size),
-		Vector2(size, 0),
-		Vector2(0, size),
-		Vector2(-size, 0),
-	])
-	draw_colored_polygon(points, color)
-	draw_polyline(points + PackedVector2Array([points[0]]), Color.BLACK, 1.0)
-
-	# Small "?" if there are items
-	if not item_instances.is_empty():
-		draw_string(ThemeDB.fallback_font, Vector2(-3, 4), "!", HORIZONTAL_ALIGNMENT_CENTER, -1, 8, Color.WHITE)
+func _refresh_sprite():
+	"""A bag while the drop holds items, a pile of coins when it is gold only."""
+	if _sprite:
+		ArtLibrary.fit_sprite(_sprite, ArtLibrary.loot_marker(not item_instances.is_empty()), _tile_size)
 
 
 func _process(delta: float):
 	"""Bob the sprite up and down."""
 	_bob_time += delta * BOB_SPEED
 	position.y = _base_y + sin(_bob_time) * BOB_AMPLITUDE
-	queue_redraw()
 
 
 # =====================================================================
@@ -155,4 +148,4 @@ func pickup():
 	else:
 		EventBus.ui_notification.emit(
 			"Too heavy to carry: %d item(s) left on the ground." % left_behind.size(), "warning")
-		queue_redraw()
+		_refresh_sprite()
