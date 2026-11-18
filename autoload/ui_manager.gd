@@ -10,12 +10,24 @@ var panels: Dictionary = {}
 var open_panel_id: String = ""
 var ui_layer: CanvasLayer = null
 
+# On-screen renderer for EventBus.ui_notification (sits above every panel)
+var toasts: Control = null
+
 func _ready():
 	process_mode = Node.PROCESS_MODE_ALWAYS
 	ui_layer = CanvasLayer.new()
 	ui_layer.layer = 50
 	ui_layer.name = "UIManagerLayer"
 	add_child(ui_layer)
+
+	var toast_layer := CanvasLayer.new()
+	toast_layer.layer = 60
+	toast_layer.name = "ToastLayer"
+	add_child(toast_layer)
+	toasts = preload("res://ui/notification_toasts.gd").new()
+	toasts.name = "NotificationToasts"
+	toast_layer.add_child(toasts)
+
 	print("UIManager initialized")
 
 func register_panel(panel_id: String, panel: Control, pauses_game: bool = true):

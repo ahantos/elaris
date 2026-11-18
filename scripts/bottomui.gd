@@ -22,12 +22,13 @@ var end_turn_btn: Button
 var attack_info_label: Label
 
 func _ready():
-	# Anchor to bottom of screen
-	set_anchors_preset(Control.PRESET_BOTTOM_WIDE)
-	
-	# Take up bottom 1/4 of screen (width comes from the BOTTOM_WIDE anchors;
-	# setting size directly here triggered the non-equal-anchors warning)
-	var screen_height = get_viewport().size.y
+	# Anchor to bottom of screen (anchors AND offsets: set_anchors_preset alone
+	# keeps the current 0x0 rect, which left the bar with no width or background)
+	set_anchors_and_offsets_preset(Control.PRESET_BOTTOM_WIDE)
+
+	# Take up the bottom 1/4 of the screen. Sizes come from the viewport RECT
+	# (the 1920x1080 design size), not the window's pixel size.
+	var screen_height = get_viewport_rect().size.y
 	var ui_height = screen_height / 4.0
 
 	custom_minimum_size = Vector2(0, ui_height)
@@ -114,7 +115,7 @@ func create_player_info():
 func create_action_buttons():
 	"""Create attack and action buttons"""
 	var container = VBoxContainer.new()
-	var screen_width = get_viewport().size.x
+	var screen_width = get_viewport_rect().size.x
 	container.position = Vector2(screen_width / 2 - 250, 10)
 	container.add_theme_constant_override("separation", 10)
 	add_child(container)
@@ -288,7 +289,7 @@ func create_end_turn_button() -> Button:
 func create_status_info():
 	"""Create status and info display"""
 	var status_section = VBoxContainer.new()
-	var screen_width = get_viewport().size.x
+	var screen_width = get_viewport_rect().size.x
 	status_section.position = Vector2(screen_width - 230, 15)
 	status_section.add_theme_constant_override("separation", 8)
 	add_child(status_section)
@@ -320,7 +321,7 @@ func create_status_info():
 	
 	# Additional info
 	var info_label = Label.new()
-	info_label.text = "📍 T - Toggle turn mode\n🗺️ M - Toggle fog of war\n🔄 R - Regenerate dungeon"
+	info_label.text = "I sheet · B spells · C craft · J quests\nO map · P party · F5/F6 save/load\nF7/F8 rest · T turn mode · F3 debug keys"
 	info_label.add_theme_font_size_override("font_size", 11)
 	info_label.add_theme_color_override("font_color", Color(0.6, 0.6, 0.7))
 	info_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT

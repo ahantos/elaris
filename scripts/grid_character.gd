@@ -127,8 +127,10 @@ func initialize_stats():
 		"cha": 10
 	})
 	
-	# Set movement per turn from stats (could be affected by race/class later)
-	stats.movement_speed = 6
+	# Speed is stored in FEET everywhere (30 ft = 6 tiles per turn);
+	# get_modified_movement_speed() converts to tiles
+	stats.movement_speed = 30
+	stats.character_name = "Adventurer"
 	
 	print("Player stats initialized: HP ", stats.current_hp, "/", stats.max_hp)
 

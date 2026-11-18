@@ -231,7 +231,7 @@ func _give_items(item_id: String, count: int, quality: int = 0, magic: int = 0):
 		if instance.is_empty():
 			push_error("Dialogue: give_item failed — unknown item: " + item_id)
 			return
-		InventoryManager.add_item(instance)
+		InventoryManager.add_item_or_drop(instance)
 
 func _take_items(item_id: String, count: int):
 	"""Remove up to `count` of item_id from the inventory (stack-aware)."""

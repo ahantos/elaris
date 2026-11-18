@@ -154,6 +154,33 @@ func dismiss(companion_id: String):
 	EventBus.ui_notification.emit("%s has left the active party." % display, "info")
 
 
+func rejoin_party(companion_id: String) -> bool:
+	"""Put an already-recruited companion back into the active party.
+	Returns false if they are unknown, not recruited, already in the party,
+	or the party is full."""
+	if not companion_states.has(companion_id):
+		push_error("Companions: rejoin_party() — unknown companion '%s'" % companion_id)
+		return false
+
+	var state: Dictionary = companion_states[companion_id]
+	if not state.recruited or state.in_party:
+		return false
+
+	if get_party().size() >= PARTY_CAP:
+		EventBus.ui_notification.emit(
+			"Party is full! Dismiss a companion first (max %d)." % PARTY_CAP,
+			"warning")
+		return false
+
+	state.in_party = true
+	var display = companion_definitions[companion_id].display_name
+	print("Companions: %s rejoined the party" % display)
+	# Same signal as a first recruit: the world spawns the node on it
+	EventBus.companion_recruited.emit(companion_id)
+	EventBus.ui_notification.emit("%s has rejoined your party." % display, "success")
+	return true
+
+
 func get_party() -> Array:
 	"""Return the ids of companions currently in the active party."""
 	var result: Array = []
@@ -250,11 +277,11 @@ func give_gift(companion_id: String, item_instance: Dictionary) -> bool:
 	var item_type_int: int = -1
 
 	if item_instance.has("item_data") and item_instance.item_data != null:
+		# item_data is an ItemData Resource: read its fields directly
+		# (Object.get() takes one argument - a default value is a script error)
 		var idata = item_instance.item_data
-		if idata.has_method("get") or idata.get("item_id", "") != "":
-			item_id = idata.get("item_id", "")
-		elif "item_id" in idata:
-			item_id = idata.item_id
+		if "item_id" in idata:
+			item_id = str(idata.item_id)
 		# item_type as int (ItemData.ItemType enum)
 		if "item_type" in idata:
 			item_type_int = int(idata.item_type)
@@ -301,13 +328,18 @@ func _match_gift_list(item_id: String, item_type_int: int, list: Array) -> bool:
 	  Exact item_id match
 	  "material_*" prefix  → item_id starts with token
 	  "type:scroll"        → item_id starts with "scroll_"
-	  "type:weapon"        → item_type_int == 0 (WEAPON)
-	  "type:armor"         → item_type_int == 1 (ARMOR)
-	  "type:consumable"    → item_type_int == 2 (CONSUMABLE)
-	  "type:misc"          → item_type_int == 4 (MISC) or 3 (QUEST)
+	  "type:weapon"        → ItemData.ItemType.WEAPON
+	  "type:armor"         → any ARMOR_* type or SHIELD
+	  "type:consumable"    → ItemData.ItemType.CONSUMABLE
+	  "type:misc"          → MISC or QUEST_ITEM
 	  "type:cloth"         → item_id contains cloth-armour keyword
 	"""
 	var cloth_keywords: Array = ["hood", "robe", "wraps", "pants", "slippers"]
+	var armor_types: Array = [
+		ItemData.ItemType.ARMOR_HEAD, ItemData.ItemType.ARMOR_CHEST,
+		ItemData.ItemType.ARMOR_LEGS, ItemData.ItemType.ARMOR_HANDS,
+		ItemData.ItemType.ARMOR_FEET, ItemData.ItemType.SHIELD,
+	]
 
 	for token in list:
 		var t: String = str(token)
@@ -325,16 +357,16 @@ func _match_gift_list(item_id: String, item_type_int: int, list: Array) -> bool:
 					if item_id.begins_with("scroll_"):
 						return true
 				"weapon":
-					if item_type_int == 0:
+					if item_type_int == ItemData.ItemType.WEAPON:
 						return true
 				"armor":
-					if item_type_int == 1:
+					if item_type_int in armor_types:
 						return true
 				"consumable":
-					if item_type_int == 2:
+					if item_type_int == ItemData.ItemType.CONSUMABLE:
 						return true
 				"misc":
-					if item_type_int == 4 or item_type_int == 3:
+					if item_type_int == ItemData.ItemType.MISC or item_type_int == ItemData.ItemType.QUEST_ITEM:
 						return true
 				"cloth":
 					for kw in cloth_keywords:

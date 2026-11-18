@@ -4,6 +4,61 @@ All notable changes and session notes documented here.
 
 ---
 
+## [Session - November 16, 2026] - Assessment and Phase 0: Truthful Baseline
+
+Full assessment and the plan it produced: `docs/ASSESSMENT_AND_PLAN_2026-11.md`.
+The June entry below overstates the state of the game: its systems were built, but
+most were not reachable in play, and every panel it added rendered off-screen. The
+"zero script errors / 19 of 19" validation was headless and could not see that.
+
+### Interface
+- Every June panel (spellbook, crafting, quest log, world map, companions, character
+  creation, dialogue) and the top and bottom HUD now lay out on screen. They called
+  `set_anchors_preset()` in `_ready()`, which keeps the current 0x0 rectangle; they now
+  call `set_anchors_and_offsets_preset()`.
+- `EventBus.ui_notification` is drawn on screen (`ui/notification_toasts.gd`, owned by
+  UIManager). 33 call sites had no renderer.
+- Window scales: stretch mode `canvas_items`, aspect `keep`, design size 1920x1080.
+- Character sheet shows item names and hover details instead of a single letter, the
+  character's name and class, and speed in feet and tiles.
+- Initiative bar sits below the turn banner and tints enemy icons.
+
+### Fixed
+- Gifting a companion threw a script error on every call; gift preferences compared
+  against the wrong item-type numbers.
+- Crafting never saw the player (`Engine.has_singleton` on an autoload), so every recipe
+  above level 1 was uncraftable.
+- Loot the bag refused was destroyed on pickup; crafted items and quest, dialogue and
+  event rewards were lost the same way. Refused loot now stays on the ground, and
+  anything the game hands over drops at the player's feet
+  (`InventoryManager.add_item_or_drop`).
+- Right-clicking a scroll deleted it without casting.
+- A dismissed companion could never rejoin (`CompanionManager.rejoin_party`).
+- Crafting panel's X button left the game paused.
+- Speed is stored in feet everywhere (30 ft = 6 tiles). Encumbrance used to subtract
+  feet from a tile count, leaving zero movement.
+- Encumbrance disadvantage applied to every roller, enemies included; it now applies
+  only to party members.
+- Starting kit is equipped (AC 17 instead of 11 for the fighter).
+- Re-creating a character no longer orphans equipment or stacks a second kit.
+- Wizard: INT and WIS saves, corrected slot table from level 11, no Eldritch Blast.
+- Starting cantrips follow a priority list instead of alphabetical order.
+- Casters are granted spells when a level-up opens a new spell level.
+
+### Changed
+- R (new dungeon), N (new character), Y (talk to the Reeve), M (reveal map) and the
+  companion debug-recruit button only work while debug keys are on. F3 toggles them.
+- Removed dead scripts: `test_inventory_setup.gd`, `cameracontroller.gd`,
+  `dungeon_test_controller.gd`.
+
+### Added
+- `tools/run_checks.bat`: headless smoke test (75 checks, content-reference validation,
+  a scripted fight) and a windowed screenshot tour. Run against the June commit, the
+  smoke test fails 40 checks.
+- `art_source/dcss-tiles/`: CC0 placeholder tiles, not yet used by the game.
+
+---
+
 ## [Session - June 11-12, 2026] - Full-Systems Build-Out (Phases 2-8)
 
 ### 🔧 Review & Fixes

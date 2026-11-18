@@ -35,7 +35,8 @@ const SCHOOL_COLORS := {
 
 func _ready():
 	"""Build the entire panel in code."""
-	set_anchors_preset(Control.PRESET_FULL_RECT)
+	# anchors AND offsets: set_anchors_preset alone keeps the current 0x0 rect
+	set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 	_build_ui()
 
 
@@ -62,8 +63,8 @@ func _build_ui():
 	title.text = "Spellbook"
 	title.set_anchors_preset(Control.PRESET_TOP_WIDE)
 	title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	title.position = Vector2(0, 8)
-	title.size = Vector2(900, 32)
+	title.offset_top = 8
+	title.offset_bottom = 40
 	_style_label(title, 20, COLOR_HEADER)
 	panel_rect.add_child(title)
 

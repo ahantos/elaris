@@ -9,11 +9,13 @@ var icon_size: Vector2 = Vector2(48, 48)
 var icon_spacing: float = 60.0
 
 func _ready():
-	set_anchors_preset(Control.PRESET_TOP_WIDE)
-	# Vertical placement via offsets - width comes from the TOP_WIDE anchors
-	# (setting size directly here triggered the non-equal-anchors warning)
-	offset_top = 50
-	offset_bottom = 120
+	# anchors AND offsets: set_anchors_preset alone keeps the current 0x0 rect,
+	# which gave this bar zero width and drew the icons off the left edge
+	set_anchors_and_offsets_preset(Control.PRESET_TOP_WIDE)
+	# Below the turn banner (which ends near y=55); the current combatant's icon
+	# is drawn 1.5x and would otherwise overlap the banner text
+	offset_top = 66
+	offset_bottom = 136
 	custom_minimum_size = Vector2(0, 70)
 	visible = false
 
@@ -175,7 +177,11 @@ func _draw():
 		if combatant.sprite:
 			var sprite_pos = Vector2(x_pos - scaled_icon_size.x / 2, y_pos + (icon_size.y - scaled_icon_size.y) / 2)
 			var sprite_rect = Rect2(sprite_pos, scaled_icon_size)
+			# Enemies share one placeholder sprite and differ only by tint -
+			# carry that tint into the bar so they can be told from the player
 			var sprite_color = Color.WHITE
+			if not combatant.is_player and is_instance_valid(combatant.entity) and "enemy_color" in combatant.entity:
+				sprite_color = combatant.entity.enemy_color
 			draw_texture_rect(combatant.sprite, sprite_rect, false, sprite_color)
 		
 		# Draw initiative number below

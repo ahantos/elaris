@@ -15,6 +15,11 @@ var game_paused: bool = false
 var in_combat: bool = false
 var current_save_slot: int = -1
 
+# Development shortcuts (regenerate dungeon, re-create character, talk to the
+# Reeve from anywhere, reveal the map, debug-recruit companions). Off by default;
+# F3 toggles it in game. Not saved.
+var debug_keys: bool = false
+
 # Settings
 var settings: Dictionary = {
 	"master_volume": 1.0,

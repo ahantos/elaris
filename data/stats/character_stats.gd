@@ -148,11 +148,20 @@ func get_modifier_for_stat(stat: String) -> int:
 
 # === MOVEMENT SPEED ===
 
+const FEET_PER_TILE: int = 5
+
+func get_modified_speed_feet() -> int:
+	"""Speed in FEET with the encumbrance penalty applied. movement_speed is always
+	stored in feet (30 = 6 tiles); the penalty is in feet too (-10 / -20) and only
+	applies to characters who carry the party inventory."""
+	var feet = movement_speed
+	if InventoryManager.is_party_member(self):
+		feet += InventoryManager.get_encumbrance_speed_penalty()
+	return max(0, feet)
+
 func get_modified_movement_speed() -> int:
-	"""Get movement speed with encumbrance penalties applied"""
-	var base_speed = movement_speed
-	var encumbrance_penalty = InventoryManager.get_encumbrance_speed_penalty()
-	return max(0, base_speed + encumbrance_penalty)
+	"""Movement per turn in TILES (5 ft per tile), encumbrance included"""
+	return int(get_modified_speed_feet() / float(FEET_PER_TILE))
 
 # === DERIVED STATS ===
 
@@ -544,6 +553,9 @@ func from_dict(data: Dictionary):
 	unspent_ability_points = data.get("unspent_ability_points", 0)
 	default_hit_die_sides = data.get("default_hit_die_sides", 10)
 	movement_speed = data.get("movement_speed", movement_speed)
+	# Saves made before the unit cleanup stored speed in TILES (6); it is feet now
+	if movement_speed > 0 and movement_speed < 10:
+		movement_speed *= FEET_PER_TILE
 
 	# Saving throw proficiencies
 	str_save_proficient = false

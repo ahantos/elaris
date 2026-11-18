@@ -366,6 +366,41 @@ func recalculate_character_stats(character: CharacterStats):
 	var equipped = get_all_equipped_items(character)
 	character.apply_equipment_bonuses(equipped)
 
+func add_item_or_drop(item_instance: Dictionary) -> bool:
+	"""Add an item to the bag; if it does not fit, put it on the ground at the
+	player's feet instead of losing it. Use this for anything the game GIVES the
+	player (crafted items, quest/dialogue/event rewards).
+	Returns true only if the item went into the bag."""
+	if add_item(item_instance):
+		return true
+	var world = GameManager.world
+	if world != null and is_instance_valid(world) and world.has_method("drop_items_at_player"):
+		world.drop_items_at_player([item_instance])
+		return false
+	push_warning("InventoryManager.add_item_or_drop: bag full and no world to drop into - item lost")
+	return false
+
+func auto_equip_from_inventory(character: CharacterStats) -> int:
+	"""Equip every equippable bag item whose slot is still empty on the character
+	(used for starting kits). Returns how many items were equipped."""
+	var equipped_count := 0
+	for item_instance in items.duplicate():
+		var item_data: ItemData = item_instance.get("item_data")
+		if item_data == null or item_data.equip_slot == "":
+			continue
+		var slot: String = item_data.equip_slot
+		if slot == "rings" or slot == "trinkets":
+			continue
+		if not get_equipped_item(character, slot).is_empty():
+			continue
+		if equip_item(item_instance, character, slot):
+			equipped_count += 1
+	return equipped_count
+
+func is_party_member(character: CharacterStats) -> bool:
+	"""True if these stats belong to someone who carries the party inventory"""
+	return character != null and party_members.has(character)
+
 # === GOLD MANAGEMENT ===
 
 func add_gold(amount: int):

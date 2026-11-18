@@ -137,7 +137,7 @@ func _grant_rewards(rewards: Dictionary):
 			if instance.is_empty():
 				push_error("Quests: reward item not found: " + item_id)
 				break
-			InventoryManager.add_item(instance)
+			InventoryManager.add_item_or_drop(instance)
 
 	# Reputation
 	var reputation: Dictionary = rewards.get("reputation", {})

@@ -101,8 +101,10 @@ static func _cantrips() -> Array:
 			"save": {"stat": "dex", "half_on_save": false},
 			"damage_dice": "1d8", "damage_type": "radiant",
 			"description": "Flame-like radiance descends on a creature; DEX save or take radiant damage."}),
+		# Warlock cantrip in 5e - not a wizard spell. No warlock class exists yet,
+		# so nobody is granted it; it stays defined for scrolls/wands and for later.
 		_spell({"spell_id": "eldritch_blast", "display_name": "Eldritch Blast", "level": 0,
-			"school": "evocation", "classes": ["wizard"], "range_tiles": 24,
+			"school": "evocation", "classes": ["warlock"], "range_tiles": 24,
 			"attack_roll": true, "damage_dice": "1d10", "damage_type": "force",
 			"description": "A beam of crackling otherworldly energy streaks toward the target."}),
 		_spell({"spell_id": "mage_hand", "display_name": "Mage Hand", "level": 0,

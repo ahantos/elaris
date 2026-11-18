@@ -28,7 +28,8 @@ var _quest_ids_in_list: Array = []  # parallel to _quest_list indices
 
 func _ready():
 	"""Build the panel in code and hook quest signals for live refresh."""
-	set_anchors_preset(Control.PRESET_FULL_RECT)
+	# anchors AND offsets: set_anchors_preset alone keeps the current 0x0 rect
+	set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 	_build_ui()
 	EventBus.quest_advanced.connect(_on_quest_event.unbind(4))
 	EventBus.quest_completed.connect(_on_quest_event.unbind(1))

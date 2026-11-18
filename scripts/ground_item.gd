@@ -104,12 +104,15 @@ func _process(delta: float):
 
 func pickup():
 	"""
-	Transfer all items and gold to InventoryManager.
+	Transfer items and gold to InventoryManager.
 	Emits EventBus.item_picked_up per item and a ui_notification summary.
-	Then frees this node.
+	Items the bag refuses (too heavy) STAY on the ground; the node is only
+	freed once nothing is left in it.
 	"""
 	var picked_count := 0
 	var picked_names: Array = []
+	var left_behind: Array = []
+	var picked_gold := gold
 
 	for inst in item_instances:
 		if inst.is_empty():
@@ -121,9 +124,13 @@ func pickup():
 			if item_data:
 				picked_names.append(item_data.item_name)
 			EventBus.item_picked_up.emit(inst)
+		else:
+			left_behind.append(inst)
 
 	if gold > 0:
 		InventoryManager.add_gold(gold)
+	item_instances = left_behind
+	gold = 0
 
 	# Summary notification
 	var summary := ""
@@ -132,14 +139,20 @@ func pickup():
 			summary = "Picked up: " + ", ".join(picked_names)
 		else:
 			summary = "Picked up %d items" % picked_count
-	if gold > 0:
+	if picked_gold > 0:
 		if summary != "":
-			summary += " and %d gold" % gold
+			summary += " and %d gold" % picked_gold
 		else:
-			summary = "Picked up %d gold" % gold
+			summary = "Picked up %d gold" % picked_gold
 
 	if summary != "":
 		EventBus.ui_notification.emit(summary, "success")
 
 	print("GroundItem: Picked up at ", grid_pos, " — ", summary)
-	queue_free()
+
+	if left_behind.is_empty():
+		queue_free()
+	else:
+		EventBus.ui_notification.emit(
+			"Too heavy to carry: %d item(s) left on the ground." % left_behind.size(), "warning")
+		queue_redraw()
